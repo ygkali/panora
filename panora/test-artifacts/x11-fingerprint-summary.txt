@@ -1,0 +1,3 @@
+check_status=0
+test_status=0
+clippy_status=0

@@ -1,0 +1,34 @@
+[package]
+name = "panod"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Panora clipboard daemon"
+
+[lib]
+name = "panod"
+path = "src/lib.rs"
+
+[[bin]]
+name = "panod"
+path = "src/main.rs"
+
+[dependencies]
+panora-core = { path = "../panora-core" }
+tokio = { workspace = true }
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+x11rb.workspace = true
+zbus.workspace = true
+blake3.workspace = true
+
+
+[dev-dependencies]
+tempfile = "3"

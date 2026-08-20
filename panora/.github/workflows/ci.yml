@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '17 3 * * 1'
+
+permissions:
+  contents: read
+  security-events: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  fmt-clippy:
+    name: Format & Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev libsqlite3-dev \
+            libdbus-1-dev libxcb1-dev libxcb-xfixes0-dev
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  test:
+    name: Unit & Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev libsqlite3-dev \
+            libdbus-1-dev libxcb1-dev libxcb-xfixes0-dev xvfb dbus-x11 xclip gnome-keyring
+      - name: Workspace tests
+        run: cargo test --workspace
+      - name: X11 integration tests under Xvfb
+        run: |
+          Xvfb :99 -screen 0 1280x800x24 -ac &
+          sleep 1
+          DISPLAY=:99 dbus-run-session -- cargo test -p panod --test x11_integration -- --test-threads=1
+        env:
+          DISPLAY: :99
+
+  extension-security:
+    name: GNOME Extension Security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/extension-security-check.mjs
+      - run: node --check gnome-extension/extension.js
+      - name: Verify no extension network primitives
+        run: |
+          ! grep -REn 'https?://|\b(fetch|XMLHttpRequest|WebSocket|eval)\s*\(' gnome-extension
+
+  audit:
+    name: RustSec Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  deny:
+    name: cargo-deny (licenses, bans & advisories)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
+  build-release:
+    name: Release Build (x86_64)
+    runs-on: ubuntu-latest
+    needs: [fmt-clippy, test, extension-security, audit, deny]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev libsqlite3-dev \
+            libdbus-1-dev libxcb1-dev libxcb-xfixes0-dev
+      - run: cargo build --release --workspace
+      - name: Verify lockfile and dependency tree
+        run: cargo metadata --locked --no-deps --format-version 1 >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: panora-release-binaries
+          path: |
+            target/release/panod
+            target/release/panora-gui
+            target/release/panora-cli

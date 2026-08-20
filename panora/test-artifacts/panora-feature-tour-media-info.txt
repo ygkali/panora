@@ -1,0 +1,7 @@
+codec_name=h264
+width=1280
+height=800
+pix_fmt=yuv420p
+r_frame_rate=12/1
+duration=126.583333
+size=707576

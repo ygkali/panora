@@ -1,0 +1,21 @@
+[package]
+name = "panora-gui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Panora GTK4/libadwaita clipboard popup"
+
+[[bin]]
+name = "panora-gui"
+path = "src/main.rs"
+
+[dependencies]
+panora-core = { path = "../panora-core" }
+gtk4 = { version = "0.9", features = ["v4_12"] }
+libadwaita = { version = "0.7", features = ["v1_5"] }
+gdk-pixbuf = "0.20"
+glib = "0.20"
+serde.workspace = true
+serde_json.workspace = true

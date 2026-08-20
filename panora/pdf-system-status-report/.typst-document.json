@@ -1,0 +1,9 @@
+{
+  "entry": "main.typ",
+  "mode": "markdown",
+  "source": {
+    "original_path": "/home/ubuntu/panora/docs/system-status-test-report.md",
+    "prepared_path": "source.md"
+  },
+  "theme": "report-theme.typ"
+}

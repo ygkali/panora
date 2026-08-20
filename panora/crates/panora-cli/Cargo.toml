@@ -1,0 +1,17 @@
+[package]
+name = "panora-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Panora command-line client"
+
+[[bin]]
+name = "panora-cli"
+path = "src/main.rs"
+
+[dependencies]
+panora-core = { path = "../panora-core" }
+serde.workspace = true
+serde_json.workspace = true
