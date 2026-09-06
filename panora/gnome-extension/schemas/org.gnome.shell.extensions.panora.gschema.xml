@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.panora"
+          path="/org/gnome/shell/extensions/panora/">
+    <key name="toggle-popup" type="as">
+      <default><![CDATA[['<Super>v']]]></default>
+      <summary>Open the Panora popup</summary>
+      <description>
+        Keyboard shortcut that opens the Panora clipboard history popup.
+      </description>
+    </key>
+  </schema>
+</schemalist>

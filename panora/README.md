@@ -6,9 +6,9 @@
 
 ## Özellikler
 
-Panora daemon ve istemci ayrımı kullanır. `panod` pano değişikliklerini yakalar, gizlilik filtresini payload okunmadan önce uygular, SQLite/FTS5 metadata araması sağlar ve MIME payload'larını XChaCha20-Poly1305 ile şifreli BLOB olarak saklar. `panora-gui`, GTK4/libadwaita ile arama, sabitleme, geri çağırma, özel mod ve ayarlar penceresini sağlar. `panora-cli` aynı 0600 Unix socket protokolü üzerinden script dostu yönetim sunar.
+Panora daemon ve istemci ayrımı kullanır. `panod` pano değişikliklerini yakalar, gizlilik filtresini payload okunmadan önce uygular, SQLite/FTS5 metadata araması sağlar ve MIME payload'larını XChaCha20-Poly1305 ile şifreli BLOB olarak saklar. `panora-gui`, GTK4/libadwaita ile arama, tür filtreleri, sabitleme, geri çağırma ve özel modu tek pencerede sağlar; açık/koyu tema ve sistem vurgu rengini libadwaita paletinden alır. `panora-cli` aynı 0600 Unix socket protokolü üzerinden script dostu yönetim sunar.
 
-Metin, HTML/RTF fallback, URI/dosya listesi, PNG/JPEG/WebP/BMP/TIFF/SVG hedefleri ve renk kodu önizlemesi için model katmanı hazırlanmıştır. X11 backend arboard üzerinden, Wayland backend `wl-clipboard-rs` ile ext-data-control/wlr-data-control protokolleri üzerinden çalışır. GNOME Wayland'de Mutter erişim kısıtları nedeniyle küçük bir GNOME Shell bridge extension kullanılır.
+Metin, HTML/RTF fallback, URI/dosya listesi, PNG/JPEG/WebP/BMP/TIFF/SVG hedefleri ve renk kodu önizlemesi için model katmanı hazırlanmıştır. X11 backend `xclip`, Wayland backend `wl-paste`/`wl-copy` komutları üzerinden çalışır; her ikisi de bu araçları alt süreç olarak çağırır ve panoyu 180 ms aralıkla yoklar (protokol seviyesinde doğrudan bir uygulama yoktur, bkz. `docs/protocol-matrix.md`). Bu nedenle `xclip` ve `wl-clipboard` paketleri zorunlu bağımlılıktır. GNOME Wayland'de Mutter erişim kısıtları nedeniyle küçük bir GNOME Shell bridge extension kullanılır.
 
 Güvenlikte parola bayrağı taşıyan TARGETS listeleri payload okunmadan reddedilir. KeePassXC, Bitwarden, 1Password, GNOME Secrets ve ilgili uygulama adları varsayılan olarak hariç tutulur. Özel mod kayıt almayı durdurur; her MIME payload için 10 MiB varsayılan boyut sınırı vardır; anahtar Secret Service üzerinden alınır; ağ ve telemetri v1'de yoktur.
 
@@ -40,8 +40,8 @@ Script kullanmadan elle kurulum:
 
 ```sh
 sudo apt update
-sudo apt install -y libgtk-4-1 libadwaita-1-0 libsqlite3-0 xclip wl-clipboard gnome-keyring
-sudo dpkg -i dist/panora_1.1.0_ui1_amd64.deb
+sudo apt install -y libgtk-4-1 libadwaita-1-0 libsqlite3-0 adwaita-icon-theme librsvg2-common xclip wl-clipboard gnome-keyring
+sudo dpkg -i dist/panora_1.1.0_amd64.deb
 sudo apt-get -f install -y
 systemctl --user daemon-reload
 systemctl --user enable --now panod.service
@@ -53,6 +53,20 @@ GUI doğrudan `panora` veya `panora-gui` ile açılabilir. Kısayol GNOME extens
 ```sh
 gnome-extensions enable panora@panora-clipboard.org
 ```
+
+### Pencere içi klavye kısayolları
+
+| Kısayol | İşlev |
+| --- | --- |
+| `Ctrl+F` | Arama alanına git |
+| `↑ ↓ ← →` | Kayıtlar arasında gez |
+| `Enter` | Seçili kaydı panoya koy ve pencereyi kapat |
+| `Ctrl+D` | Seçili kaydı sabitle / sabitlemeyi kaldır |
+| `Delete` | Seçili kaydı sil |
+| `Ctrl+Shift+P` | Özel modu aç / kapat |
+| `Esc` | Aramayı temizle, arama boşsa pencereyi kapat |
+
+Aynı liste uygulama içinde sağ üstteki menüden **Klavye kısayolları** ile de açılabilir.
 
 Panora'yı kaldırmak için:
 
@@ -78,7 +92,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 54 çekirdek, 11 daemon ve 1 senkron iskeleti testi dahil workspace testleri geçmektedir. FTS5 benchmark'ında 10.000 kayıt üzerinde 50 sonuç limitli arama yaklaşık **15.705 ms** ölçülmüştür; ayrıntılar `docs/benchmark.md` içindedir.
 
-Sandbox'ta gerçek GNOME Shell, kullanıcı Secret Service ve Wayland compositor oturumu bulunmadığından gerçek GNOME extension/Wayland uçtan uca testleri manuel test matrisine bırakılmıştır. `wl-clipboard-rs` yüksek seviyeli API'sinin olay callback'i sunmaması nedeniyle Wayland v1 watcher 120 ms düşük maliyetli değişiklik kontrolü kullanır; doğrudan data-control event queue gelecekteki optimizasyon noktasıdır. GNOME bridge public API'si tüm Shell sürümlerinde concealed MIME metadata'sını açmadığı için varsayılan uygulama hariçleri kritik güvenlik katmanıdır.
+Sandbox'ta gerçek GNOME Shell, kullanıcı Secret Service ve Wayland compositor oturumu bulunmadığından gerçek GNOME extension/Wayland uçtan uca testleri manuel test matrisine bırakılmıştır. Her iki backend de olay tabanlı değil, 180 ms aralıklı poll kullanır ve her yoklamada `xclip`/`wl-paste` alt süreci doğurur; olay tabanlı yakalama (X11 için XFIXES, Wayland için data-control event queue) gelecekteki optimizasyon noktasıdır. GNOME bridge public API'si tüm Shell sürümlerinde concealed MIME metadata'sını açmadığı için varsayılan uygulama hariçleri kritik güvenlik katmanıdır.
 
 ## Paketler ve mimari
 
@@ -100,6 +114,10 @@ GPL-3.0-only. Ayrıntı için `LICENSE` dosyasına bakın.
 Panora v1, parola yöneticilerinin kullandığı gizli pano işaretlerini ve KeePassXC, Bitwarden, 1Password gibi uygulamaları varsayılan olarak hariç tutar. Bu karar payload okunmadan önce, sunulan MIME/TARGETS listesi üzerinden verilir. Kullanıcı ayrıca özel modu açarak kayıt almayı tamamen durdurabilir.
 
 Yerel geçmiş, işletim sisteminin Secret Service anahtar deposundan alınan anahtarla XChaCha20-Poly1305 kullanılarak şifrelenir. Yeni şifreli zarf formatı sürümlüdür ve BLOB/preview verisi için AEAD associated data kullanır. BLOB ve SQLite/FTS5 içeren veri dizinleri kullanıcıya özel izinlerle oluşturulur; IPC Unix socket'i bağlantı başına frame ve istek limitlerine, ayrıca Linux peer UID kontrolüne sahiptir.
+
+Ana anahtar Secret Service oturumuna `dh-ietf1024-sha256-aes128-cbc-pkcs7` ile bağlanır (`oo7` crate'i üzerinden); yani anahtar session bus'tan şifreli geçer. Bu, yalnızca `--socket=session-bus` iznine sahip bir sandbox uygulamasının — Panora'nın veri dizinine hiç erişmeden — bus trafiğini dinleyerek anahtarı yakalamasını engeller. Servis şifreli oturum açamazsa panod düz metne düşmek yerine başlatmayı reddeder. Kilitli koleksiyon, kilitli kayıt veya reddedilen prompt durumlarında da yeni anahtar üretilmez; mevcut geçmişin sahipsiz kalmaması için hata verilir.
+
+Geçmişi temizlemek sabitlenmiş kayıtları silmez: sabitleme "bunu koru" anlamına gelir ve hem otomatik temizlik (`enforce_limit`, `enforce_age`) hem de manuel `clear` aynı sözleşmeye uyar. Sabitlenmiş bir kaydı kaldırmak için önce sabitlemeyi kaldırın.
 
 Bu kontroller **bağımsız güvenlik denetimi veya sertifikasyon yerine geçmez**. X11 clipboard API'leri bazı masaüstü uygulamalarında hassas MIME metadata'sını görünür kılmadığı için X11 watcher'ın pre-read sınırlaması vardır; GNOME Shell bridge ve Wayland data-control metadata'sı daha güçlü gizlilik kapısı sağlar. Kernel, swap, core dump, kötü amaçlı GNOME extension ve zaten ele geçirilmiş kullanıcı oturumu v1 tehdit modelinin dışındadır.
 

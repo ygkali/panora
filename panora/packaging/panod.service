@@ -1,0 +1,54 @@
+[Unit]
+Description=Panora clipboard daemon
+Documentation=https://github.com/panora-clipboard/panora
+# The daemon needs a display server, so it follows the graphical session and
+# stops with it. Without this the unit would start too early on login.
+After=graphical-session.target
+PartOf=graphical-session.target
+# A keyring that cannot be unlocked makes every start fail, and each attempt
+# raises a password prompt. Give up after a few tries instead of prompting in a
+# loop; `systemctl --user reset-failed panod.service` restarts the cycle.
+StartLimitIntervalSec=600
+StartLimitBurst=3
+
+[Service]
+Type=simple
+# ReadWritePaths below needs this directory to already exist, and ProtectHome
+# leaves panod unable to create it -- without this line a fresh install fails
+# every start with 226/NAMESPACE and restarts forever. The `+` runs the command
+# outside the sandbox; 0700 matches the mode panod sets for its own directories.
+ExecStartPre=+/usr/bin/install -d -m 0700 %h/.local/share/panora
+ExecStart=/usr/bin/panod
+Restart=on-failure
+RestartSec=2
+# Panora is local-only; keep the log quiet unless the user asks for detail.
+Environment=RUST_LOG=info
+
+# --- sandboxing (ADR 0003) ---
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+# The encrypted history, blob store and IPC socket are the only writable paths.
+# The "-" matters on a first start: without it systemd refuses to build the
+# mount namespace for a path that does not exist yet and the unit dies with
+# 226/NAMESPACE before ExecStartPre can create it.
+ReadWritePaths=-%h/.local/share/panora
+ReadWritePaths=%t
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+# v1 is local-only, so enforce that in the kernel instead of only documenting
+# it: X11, Wayland, D-Bus and the IPC socket are all AF_UNIX. Remove this line
+# if you need panod to reach a TCP X display (e.g. DISPLAY=localhost:10 over
+# SSH X forwarding), which is the one legitimate case it blocks.
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=graphical-session.target

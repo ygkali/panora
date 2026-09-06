@@ -3,20 +3,30 @@
 
 //! Master key management via the freedesktop Secret Service API.
 //!
+//! The session is opened with the `dh-ietf1024-sha256-aes128-cbc-pkcs7`
+//! algorithm, so the master key is encrypted on the session bus rather than
+//! travelling in the clear. That matters because a sandboxed application
+//! holding only `--socket=session-bus` can observe bus traffic without any
+//! access to Panora's data directory.
+//!
 //! The key never touches disk in plaintext. A missing item in an existing,
 //! unlocked collection is the only condition that creates a new key. Locked
-//! collections, missing services, malformed D-Bus replies and required
-//! prompts fail closed instead of silently generating a replacement key.
+//! collections, missing services, a service that cannot negotiate an
+//! encrypted session, and dismissed prompts all fail closed instead of
+//! silently generating a replacement key.
 
+use std::collections::HashMap;
+
+use oo7::dbus::{Collection, Service};
+use oo7::Secret;
 use panora_core::error::{Error, Result};
 use panora_core::storage::MasterKey;
 use tracing::info;
-use zbus::zvariant::{ObjectPath, OwnedObjectPath, Value};
-use zbus::Connection;
 
-const SERVICE: &str = "org.freedesktop.secrets";
-const ROOT: &str = "/org/freedesktop/secrets";
-const COLLECTION: &str = "/org/freedesktop/secrets/collection/login";
+/// How long the whole Secret Service bring-up may take, prompts included.
+const KEYRING_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+const COLLECTION_ALIAS: &str = "default";
 const ITEM_LABEL: &str = "Panora master key";
 const ITEM_ATTRS: &[(&str, &str)] = &[
     ("application", "panora"),
@@ -24,9 +34,37 @@ const ITEM_ATTRS: &[(&str, &str)] = &[
     ("format_version", "1"),
 ];
 
+fn attributes() -> HashMap<&'static str, &'static str> {
+    ITEM_ATTRS.iter().copied().collect()
+}
+
+fn keyring_err(context: &str, e: impl std::fmt::Display) -> Error {
+    Error::Keyring(format!("{context}: {e}"))
+}
+
 /// Load the master key from Secret Service, or create it on first use.
+///
+/// Bounded as a whole: creating or unlocking a collection raises a prompt on
+/// the service, and a session with no prompter never answers it. Left alone the
+/// daemon sits there "running" with no socket and no log line -- and oo7 itself
+/// eventually panics on the abandoned prompt. One timeout over the entire
+/// bring-up keeps every one of those paths from hanging panod.
 pub async fn load_or_create_master_key() -> Result<MasterKey> {
-    match load_key().await? {
+    match tokio::time::timeout(KEYRING_TIMEOUT, bring_up_key()).await {
+        Ok(result) => result,
+        Err(_) => Err(Error::Keyring(format!(
+            "Secret Service did not answer within {}s; an unlock prompt may be \
+             waiting. Unlock your login keyring, then: \
+             systemctl --user reset-failed panod.service && \
+             systemctl --user restart panod.service",
+            KEYRING_TIMEOUT.as_secs()
+        ))),
+    }
+}
+
+async fn bring_up_key() -> Result<MasterKey> {
+    let collection = open_collection().await?;
+    match load_key(&collection).await? {
         Some(key) => {
             info!("master key loaded from Secret Service");
             Ok(key)
@@ -34,150 +72,162 @@ pub async fn load_or_create_master_key() -> Result<MasterKey> {
         None => {
             info!("Panora keyring item not found; generating a new master key");
             let key = MasterKey::generate();
-            store_key(&key).await?;
+            store_key(&collection, &key).await?;
             Ok(key)
         }
     }
 }
 
-/// Open an unlocked Secret Service session using the plain algorithm.
-async fn open_session() -> Result<(Connection, OwnedObjectPath)> {
-    let conn = Connection::session()
-        .await
-        .map_err(|e| Error::Keyring(format!("session bus unavailable: {e}")))?;
-    let message = conn
-        .call_method(
-            Some(SERVICE),
-            ROOT,
-            Some("org.freedesktop.Secret.Service"),
-            "OpenSession",
-            &("plain", Value::from("")),
-        )
-        .await
-        .map_err(|e| Error::Keyring(format!("OpenSession failed: {e}")))?;
-    let body = message.body();
-    let reply: (Value<'_>, OwnedObjectPath) = body
-        .deserialize()
-        .map_err(|e| Error::Keyring(format!("OpenSession reply invalid: {e}")))?;
-    Ok((conn, reply.1))
-}
-
-/// Close a Secret Service session without masking the primary operation error.
-async fn close_session(conn: &Connection, session: &OwnedObjectPath) {
-    let _ = conn
-        .call_method(
-            Some(SERVICE),
-            session.as_str(),
-            Some("org.freedesktop.Secret.Session"),
-            "Close",
-            &(),
-        )
-        .await;
-}
-
-/// Search the login collection and read the key if present.
-async fn load_key() -> Result<Option<MasterKey>> {
-    let (conn, session) = open_session().await?;
-    let attrs: std::collections::HashMap<&str, &str> = ITEM_ATTRS.iter().copied().collect();
-    let search_message = conn
-        .call_method(
-            Some(SERVICE),
-            COLLECTION,
-            Some("org.freedesktop.Secret.Collection"),
-            "SearchItems",
-            &(attrs),
-        )
-        .await
-        .map_err(|e| Error::Keyring(format!("SearchItems failed: {e}")))?;
-    // Secret Service 0.2 specifies (unlocked, locked), while older GNOME
-    // Keyring implementations have returned only the unlocked array. Accept
-    // both signatures; a locked array is still handled fail-closed when it is
-    // available.
-    let body = search_message.body();
-    let search: (Vec<OwnedObjectPath>, Vec<OwnedObjectPath>) =
-        match body.deserialize::<(Vec<OwnedObjectPath>, Vec<OwnedObjectPath>)>() {
-            Ok(pair) => pair,
-            Err(_) => (
-                body.deserialize::<Vec<OwnedObjectPath>>()
-                    .map_err(|e| Error::Keyring(format!("SearchItems reply invalid: {e}")))?,
-                Vec::new(),
-            ),
-        };
-
-    if !search.1.is_empty() {
-        close_session(&conn, &session).await;
-        return Err(Error::Keyring(
-            "Panora keyring item is locked; unlock the login collection and retry".into(),
-        ));
+/// True when the service is telling us the object simply is not there.
+///
+/// A `default` alias can outlive the collection it points at; the service then
+/// answers method calls on that path with `UnknownMethod`/`UnknownObject`
+/// rather than reporting the alias as unset. Narrow on purpose: any other
+/// failure must stay an error, because treating it as "nothing here" would
+/// create a second collection and orphan an existing key.
+fn is_missing_object(e: &oo7::dbus::Error) -> bool {
+    use oo7::dbus::{Error as DbusError, ServiceError};
+    match e {
+        DbusError::Deleted | DbusError::NotFound(_) => true,
+        DbusError::Service(ServiceError::NoSuchObject(_)) => true,
+        DbusError::ZBus(zbus::Error::MethodError(name, ..)) => matches!(
+            name.as_str(),
+            "org.freedesktop.DBus.Error.UnknownMethod"
+                | "org.freedesktop.DBus.Error.UnknownObject"
+                | "org.freedesktop.DBus.Error.UnknownInterface"
+        ),
+        _ => false,
     }
-    let Some(item) = search.0.first() else {
-        close_session(&conn, &session).await;
+}
+
+fn locked() -> Error {
+    Error::Keyring("keyring collection is locked; unlock it and retry".into())
+}
+
+/// Unlock a collection that reported itself locked, and confirm it opened.
+///
+/// A collection created on the fly comes back locked, and a login keyring is
+/// locked whenever `pam_gnome_keyring` did not run at login. Asking the service
+/// to unlock is the normal path -- it prompts the user when it needs to. This
+/// stays fail-closed: we only proceed once the collection reports itself
+/// unlocked, so a locked collection is never mistaken for an empty one.
+async fn unlock(collection: &Collection) -> Result<()> {
+    info!("keyring collection is locked; requesting unlock (a prompt may appear)");
+    collection
+        .unlock(None)
+        .await
+        .map_err(|e| keyring_err("keyring unlock failed", e))?;
+
+    if collection
+        .is_locked()
+        .await
+        .map_err(|e| keyring_err("cannot read the collection lock state", e))?
+    {
+        return Err(locked());
+    }
+    Ok(())
+}
+
+/// Open the default collection over an encrypted Secret Service session.
+///
+/// `Service::encrypted` is deliberate: `Service::new` falls back to the plain
+/// algorithm when the DH handshake fails, which would put the master key back
+/// on the bus unencrypted. Refusing is the safer failure here.
+async fn open_collection() -> Result<Collection> {
+    let service = Service::encrypted()
+        .await
+        .map_err(|e| keyring_err("cannot open an encrypted Secret Service session", e))?;
+
+    // Three outcomes: a usable collection, nothing at all, or a hard error.
+    // The alias can outlive the collection it points at, so a "no such object"
+    // answer here means "nothing there" -- anything else stays fatal.
+    let existing = match service.with_alias(COLLECTION_ALIAS).await {
+        Ok(Some(collection)) => match collection.is_locked().await {
+            Ok(is_locked) => Some((collection, is_locked)),
+            Err(e) if is_missing_object(&e) => None,
+            Err(e) => return Err(keyring_err("cannot read the collection lock state", e)),
+        },
+        Ok(None) => None,
+        Err(e) if is_missing_object(&e) => None,
+        Err(e) => {
+            return Err(keyring_err(
+                "cannot reach the default keyring collection",
+                e,
+            ))
+        }
+    };
+
+    if let Some((collection, is_locked)) = existing {
+        if is_locked {
+            unlock(&collection).await?;
+        }
+        return Ok(collection);
+    }
+
+    // Nothing to lose here: with no collection there is no stored key that a
+    // freshly created one could orphan. Machines that never had a login keyring
+    // -- minimal installs, or a session where pam_gnome_keyring never ran --
+    // land here instead of failing to start.
+    info!("no usable default keyring collection; creating one");
+    let collection = service
+        .default_collection()
+        .await
+        .map_err(|e| keyring_err("cannot create a keyring collection", e))?;
+    // A freshly created collection comes back locked.
+    if collection
+        .is_locked()
+        .await
+        .map_err(|e| keyring_err("cannot read the collection lock state", e))?
+    {
+        unlock(&collection).await?;
+    }
+    Ok(collection)
+}
+
+/// Read the key from the collection if the item is present.
+async fn load_key(collection: &Collection) -> Result<Option<MasterKey>> {
+    let items = collection
+        .search_items(&attributes())
+        .await
+        .map_err(|e| keyring_err("keyring search failed", e))?;
+
+    let Some(item) = items.first() else {
         return Ok(None);
     };
 
-    let secret_result: Result<(OwnedObjectPath, Vec<u8>, Vec<u8>, String)> = conn
-        .call_method(
-            Some(SERVICE),
-            item.as_str(),
-            Some("org.freedesktop.Secret.Item"),
-            "GetSecret",
-            &(&session,),
-        )
+    if item
+        .is_locked()
         .await
-        .map_err(|e| Error::Keyring(format!("GetSecret failed: {e}")))?
-        .body()
-        .deserialize()
-        .map_err(|e| Error::Keyring(format!("GetSecret reply invalid: {e}")));
-    close_session(&conn, &session).await;
-    let secret = secret_result?;
+        .map_err(|e| keyring_err("cannot read the item lock state", e))?
+    {
+        return Err(Error::Keyring(
+            "Panora keyring item is locked; unlock the collection and retry".into(),
+        ));
+    }
+
+    let secret = item
+        .secret()
+        .await
+        .map_err(|e| keyring_err("cannot read the stored master key", e))?;
+
     let bytes: [u8; 32] = secret
-        .2
+        .as_bytes()
         .try_into()
         .map_err(|_| Error::Keyring("stored master key has wrong length".into()))?;
     Ok(Some(MasterKey::from_bytes(bytes)))
 }
 
-/// Store a freshly generated key in the existing unlocked login collection.
-async fn store_key(key: &MasterKey) -> Result<()> {
-    let (conn, session) = open_session().await?;
-    let attrs: std::collections::HashMap<&str, &str> = ITEM_ATTRS.iter().copied().collect();
-    let mut props: std::collections::HashMap<&str, Value<'_>> = std::collections::HashMap::new();
-    props.insert("org.freedesktop.Secret.Item.Label", Value::from(ITEM_LABEL));
-    props.insert(
-        "org.freedesktop.Secret.Item.Attributes",
-        Value::new(
-            attrs
-                .iter()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect::<std::collections::HashMap<String, String>>(),
-        ),
-    );
-
-    let secret: (ObjectPath<'_>, Vec<u8>, Vec<u8>, &str) = (
-        (&session).into(),
-        Vec::<u8>::new(),
-        key.as_bytes().to_vec(),
-        "application/octet-stream",
-    );
-    let result: Result<(OwnedObjectPath, OwnedObjectPath)> = conn
-        .call_method(
-            Some(SERVICE),
-            COLLECTION,
-            Some("org.freedesktop.Secret.Collection"),
-            "CreateItem",
-            &(props, secret, true),
+/// Store a freshly generated key in the unlocked collection.
+async fn store_key(collection: &Collection, key: &MasterKey) -> Result<()> {
+    collection
+        .create_item(
+            ITEM_LABEL,
+            &attributes(),
+            Secret::blob(key.as_bytes()),
+            true,
+            None,
         )
         .await
-        .map_err(|e| Error::Keyring(format!("CreateItem failed: {e}")))?
-        .body()
-        .deserialize()
-        .map_err(|e| Error::Keyring(format!("CreateItem reply invalid: {e}")));
-    close_session(&conn, &session).await;
-    let (_item, prompt) = result?;
-    if prompt.as_str() != "/" {
-        return Err(Error::Keyring(
-            "Secret Service requires an interactive prompt to store the key".into(),
-        ));
-    }
+        .map_err(|e| keyring_err("cannot store the master key", e))?;
     Ok(())
 }

@@ -1,0 +1,8 @@
+{
+  "uuid": "panora@panora-clipboard.org",
+  "name": "Panora Clipboard Bridge",
+  "description": "Binds Super+V to the Panora popup and, on GNOME Wayland, forwards clipboard changes to the local Panora daemon over the session bus. No network access.",
+  "shell-version": ["45", "46", "47", "48"],
+  "settings-schema": "org.gnome.shell.extensions.panora",
+  "session-modes": ["user"]
+}

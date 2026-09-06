@@ -220,6 +220,29 @@ impl Daemon {
             debug!(?verdict, "GNOME bridge content rejected by privacy policy");
             return;
         }
+
+        // The capture path enforces max_mime_bytes when it reads a payload,
+        // but bridge payloads arrive pre-read over D-Bus. Without the same
+        // check any session-bus caller could push oversized blobs straight
+        // into the encrypted store and grow it without bound.
+        let limit = self.config.history.max_mime_bytes;
+        let mut data = data;
+        data.payloads.retain(|payload| {
+            if payload.data.len() > limit {
+                warn!(
+                    mime = %payload.mime,
+                    size = payload.data.len(),
+                    limit,
+                    "GNOME bridge payload exceeds size limit, skipping"
+                );
+                return false;
+            }
+            true
+        });
+        if data.payloads.is_empty() {
+            return;
+        }
+
         if let Err(e) = self.store(data).await {
             warn!(error = %e, "failed to store GNOME bridge clipboard event");
         }
@@ -345,7 +368,7 @@ impl Daemon {
         Ok(())
     }
 
-    /// Clear all history.
+    /// Clear the history, keeping pinned entries. Returns the number cleared.
     pub async fn clear(&self) -> Result<usize> {
         let ids = self.db.clear_all()?;
         let n = ids.len();

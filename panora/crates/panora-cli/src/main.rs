@@ -6,8 +6,11 @@
 use panora_core::config::socket_path;
 use panora_core::model::Entry;
 use serde::{Deserialize, Serialize};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
+
+/// Upper bound on one daemon reply, mirroring the GUI client.
+const MAX_RESPONSE_BYTES: u64 = 128 * 1024 * 1024;
 
 #[derive(Debug, Serialize)]
 #[serde(tag = "method", content = "params")]
@@ -130,7 +133,10 @@ fn call(request: Request) -> Result<Response, String> {
     stream.write_all(&bytes).map_err(|e| e.to_string())?;
     stream.write_all(b"\n").map_err(|e| e.to_string())?;
     let mut line = String::new();
+    // Keep the reply allocation finite; Preview carries image bytes as a JSON
+    // array, so the cap is generous rather than tight.
     BufReader::new(stream)
+        .take(MAX_RESPONSE_BYTES)
         .read_line(&mut line)
         .map_err(|e| e.to_string())?;
     serde_json::from_str(line.trim()).map_err(|e| format!("invalid daemon response: {e}"))
@@ -174,7 +180,7 @@ fn print_help() {
     println!("  panora-cli copy|preview <id>");
     println!("  panora-cli pin|unpin <id>");
     println!("  panora-cli delete <id>");
-    println!("  panora-cli clear");
+    println!("  panora-cli clear            (sabitlenmemiş kayıtları siler)");
     println!("  panora-cli private on|off");
     println!("  panora-cli status");
     println!("  panora-cli toggle");

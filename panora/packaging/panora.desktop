@@ -1,0 +1,17 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Panora
+GenericName=Clipboard Manager
+GenericName[tr]=Pano Yöneticisi
+Comment=Search and restore your clipboard history
+Comment[tr]=Pano geçmişini ara ve geri çağır
+Exec=panora
+Icon=edit-paste
+Terminal=false
+Categories=Utility;GTK;
+Keywords=clipboard;history;paste;
+Keywords[tr]=pano;gecmis;kopyala;yapistir;
+# Lets the shell match the popup window back to this launcher.
+StartupWMClass=panora-gui
+StartupNotify=true

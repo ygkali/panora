@@ -150,10 +150,18 @@ pub fn data_dir() -> PathBuf {
 }
 
 /// Panora user IPC socket path.
+///
+/// The fallback deliberately avoids `/tmp`. That directory is world-writable,
+/// so on a multi-user machine without `XDG_RUNTIME_DIR` a local attacker could
+/// pre-create `/tmp/panora.sock`: the daemon's `bind` would then fail (the
+/// sticky bit stops it from removing a foreign file) and every client would
+/// instead connect to the attacker's socket, exposing search terms and letting
+/// the attacker feed fabricated entries and image bytes back to the GUI.
+/// `data_dir()` is created 0700 and owned by the user, so it cannot be squatted.
 pub fn socket_path() -> PathBuf {
     std::env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .unwrap_or_else(data_dir)
         .join("panora.sock")
 }
 

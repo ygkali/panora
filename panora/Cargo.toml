@@ -45,7 +45,12 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 x11rb = { version = "0.13", features = ["xfixes"] }
 
 # --- D-Bus ---
-zbus = { version = "4", features = ["tokio"] }
+# zbus 5 to match oo7: on zbus 4 the tree ends up carrying both major versions,
+# since even oo7 0.5 already depends on zbus 5.
+zbus = { version = "5", features = ["tokio"] }
+# Secret Service client. native_crypto keeps the DH session handshake on
+# RustCrypto instead of linking OpenSSL.
+oo7 = { version = "0.6", default-features = false, features = ["tokio", "native_crypto"] }
 
 # --- config ---
 directories = "5"

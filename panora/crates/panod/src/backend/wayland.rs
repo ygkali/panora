@@ -66,8 +66,14 @@ impl ClipboardBackend for WaylandBackend {
                     if sender
                         .send(ClipboardEvent {
                             selection,
-                            offered_mimes,
+                            // Wayland's data-control protocol deliberately
+                            // exposes no client identity, so the privacy
+                            // engine's excluded_apps list cannot match here.
+                            // The MIME secret-flag gate still applies, and on
+                            // GNOME the Shell extension supplies the real app
+                            // id. Documented in docs/protocol-matrix.md.
                             source_app: None,
+                            offered_mimes,
                         })
                         .await
                         .is_err()

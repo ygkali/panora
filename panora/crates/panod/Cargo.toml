@@ -27,6 +27,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 x11rb.workspace = true
 zbus.workspace = true
+oo7.workspace = true
 blake3.workspace = true
 
 

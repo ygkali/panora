@@ -10,6 +10,13 @@ use panora_core::model::{ClipboardData, Selection};
 use std::process::{Command, Stdio};
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
+use tracing::debug;
+use x11rb::connection::Connection as _;
+use x11rb::protocol::xproto::{Atom, AtomEnum, ConnectionExt as _, Window};
+use x11rb::rust_connection::RustConnection;
+
+/// How far up the window tree to look for a WM_CLASS before giving up.
+const WM_CLASS_DEPTH: usize = 8;
 
 /// X11 backend using the standard xclip TARGETS protocol.
 #[derive(Debug, Clone, Copy, Default)]
@@ -62,11 +69,18 @@ impl ClipboardBackend for X11Backend {
                         .map(ToOwned::to_owned)
                         .collect::<Vec<_>>();
                     last = snapshot.1;
+                    // Only resolved when the clipboard actually changed, so
+                    // this costs one X11 round trip per copy, not per poll.
+                    let source_app = tokio::task::spawn_blocking(focused_app)
+                        .await
+                        .ok()
+                        .flatten();
+                    debug!(?source_app, "x11 clipboard change");
                     if sender
                         .send(ClipboardEvent {
                             selection,
                             offered_mimes,
-                            source_app: None,
+                            source_app,
                         })
                         .await
                         .is_err()
@@ -131,6 +145,70 @@ impl ClipboardBackend for X11Backend {
         }
         Ok(())
     }
+}
+
+/// Best-effort name of the application the copy came from.
+///
+/// This is what the privacy engine's `excluded_apps` list matches against, so
+/// without it the KeePassXC/Bitwarden/1Password exclusions never fire on X11.
+///
+/// X11 offers no reliable way to name the *selection owner*: toolkits hand
+/// ownership to a hidden proxy window that carries no WM_CLASS. The focused
+/// top-level is the same heuristic the GNOME bridge uses and matches what the
+/// user was actually working in when they pressed Ctrl+C. Every failure path
+/// returns None: a missing source app must never block a capture.
+fn focused_app() -> Option<String> {
+    let (conn, screen_num) = x11rb::connect(None).ok()?;
+    let root = conn.setup().roots.get(screen_num)?.root;
+
+    let window = intern(&conn, b"_NET_ACTIVE_WINDOW")
+        .and_then(|atom| active_window(&conn, root, atom))
+        .or_else(|| conn.get_input_focus().ok()?.reply().ok().map(|r| r.focus))?;
+
+    // WM_CLASS lives on the top-level, but focus usually sits on a child.
+    let mut window = window;
+    for _ in 0..WM_CLASS_DEPTH {
+        if let Some(class) = wm_class(&conn, window) {
+            return Some(class);
+        }
+        let tree = conn.query_tree(window).ok()?.reply().ok()?;
+        if tree.parent == x11rb::NONE || tree.parent == window || window == root {
+            break;
+        }
+        window = tree.parent;
+    }
+    None
+}
+
+fn intern(conn: &RustConnection, name: &[u8]) -> Option<Atom> {
+    let atom = conn.intern_atom(true, name).ok()?.reply().ok()?.atom;
+    (atom != x11rb::NONE).then_some(atom)
+}
+
+fn active_window(conn: &RustConnection, root: Window, atom: Atom) -> Option<Window> {
+    let reply = conn
+        .get_property(false, root, atom, AtomEnum::WINDOW, 0, 1)
+        .ok()?
+        .reply()
+        .ok()?;
+    let id = reply.value32()?.next()?;
+    (id != x11rb::NONE).then_some(id)
+}
+
+/// WM_CLASS is "instance\0class\0"; the class half is the stable app name.
+fn wm_class(conn: &RustConnection, window: Window) -> Option<String> {
+    let reply = conn
+        .get_property(false, window, AtomEnum::WM_CLASS, AtomEnum::STRING, 0, 256)
+        .ok()?
+        .reply()
+        .ok()?;
+    if reply.value.is_empty() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&reply.value);
+    let mut parts = text.split('\0').filter(|part| !part.is_empty());
+    let instance = parts.next()?;
+    Some(parts.next().unwrap_or(instance).to_string())
 }
 
 fn selection_arg(selection: Selection) -> &'static str {

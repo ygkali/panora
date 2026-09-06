@@ -14,9 +14,18 @@ if grep -RInE --include='*.rs' '\bunsafe\b' crates; then
   echo 'unsafe Rust found in application crates' >&2
   exit 1
 fi
-printf '%s\n' '[5/8] sync dependency surface'
-if cargo tree -p panora-sync | grep -E 'iroh|quinn|reqwest|hyper|tokio.*net'; then
-  echo 'network dependency unexpectedly present in panora-sync v1' >&2
+printf '%s\n' '[5/8] network dependency surface'
+# This used to run `cargo tree -p panora-sync`, a package that does not exist in
+# the workspace. cargo failed, grep read nothing and exited 1, so the `if` was
+# false and the gate reported success without ever inspecting a dependency.
+# Resolve the tree for the whole workspace instead, and fail loudly if the tree
+# itself cannot be produced.
+TREE="$(cargo tree --workspace --edges normal)" || {
+  echo 'cannot resolve dependency tree; network surface unverified' >&2
+  exit 1
+}
+if printf '%s\n' "$TREE" | grep -E 'iroh|quinn|reqwest|hyper|rustls|native-tls|trust-dns|hickory'; then
+  echo 'network dependency unexpectedly present in the workspace' >&2
   exit 1
 fi
 printf '%s\n' '[6/8] GNOME extension static security checks'

@@ -433,11 +433,15 @@ impl Database {
         Ok(ids)
     }
 
-    /// Delete ALL entries (clear history). Returns all blob refs.
+    /// Clear the history, keeping pinned entries. Returns the cleared ids.
+    ///
+    /// Pinning means "keep this", which is why `enforce_limit` and
+    /// `enforce_age` skip pinned rows. A manual clear honours the same
+    /// contract, so a pinned entry survives it; unpin first to remove one.
     pub fn clear_all(&self) -> Result<Vec<i64>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT id FROM entries WHERE deleted = 0")?;
+            .prepare("SELECT id FROM entries WHERE deleted = 0 AND pinned = 0")?;
         let ids: Vec<i64> = stmt
             .query_map([], |row| row.get(0))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -622,6 +626,20 @@ mod tests {
         let ids = db.clear_all().unwrap();
         assert_eq!(db.count().unwrap(), 0);
         assert_eq!(ids.len(), 2);
+    }
+
+    #[test]
+    fn clear_all_keeps_pinned() {
+        let db = db();
+        let keep = insert(&db, "pinned", ContentKind::Text, 1);
+        insert(&db, "transient", ContentKind::Text, 2);
+        db.set_pinned(keep, true).unwrap();
+
+        let ids = db.clear_all().unwrap();
+
+        assert_eq!(ids.len(), 1, "only the unpinned entry is cleared");
+        assert!(!ids.contains(&keep));
+        assert_eq!(db.count().unwrap(), 1, "the pinned entry survives");
     }
 
     #[test]

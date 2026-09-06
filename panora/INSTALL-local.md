@@ -12,7 +12,7 @@ chmod +x install.sh test-local.sh uninstall.sh
 ./install.sh
 ```
 
-Kurulum script'i Debian/Ubuntu bağımlılıklarını kurar, `dist/panora_1.1.0_ui1_amd64.deb` paketini yükler ve `panod.service` kullanıcı servisini başlatmayı dener. Kurulumdan sonra lokal smoke test'i çalıştırın:
+Kurulum script'i Debian/Ubuntu bağımlılıklarını kurar, `dist/panora_1.1.0_amd64.deb` paketini yükler ve `panod.service` kullanıcı servisini başlatmayı dener. Kurulumdan sonra lokal smoke test'i çalıştırın:
 
 ```bash
 ./test-local.sh
@@ -42,6 +42,7 @@ Kaldırma script'i programı ve servisi kaldırır ancak şifreli kullanıcı ge
 sudo apt update
 sudo apt install -y \
   libgtk-4-1 libadwaita-1-0 libsqlite3-0 \
+  adwaita-icon-theme librsvg2-common \
   xclip wl-clipboard gnome-keyring
 ```
 
@@ -49,7 +50,7 @@ Arşiv içindeki paketi kurun:
 
 ```bash
 cd panora-local-kit-1.1.0/panora
-sudo dpkg -i dist/panora_1.1.0_ui1_amd64.deb
+sudo dpkg -i dist/panora_1.1.0_amd64.deb
 sudo apt-get -f install -y
 ```
 
@@ -112,6 +113,7 @@ sudo apt install -y \
   build-essential pkg-config \
   libgtk-4-dev libadwaita-1-dev \
   libsqlite3-dev libx11-dev libwayland-dev \
+  adwaita-icon-theme librsvg2-common \
   xclip wl-clipboard gnome-keyring
 ```
 
@@ -136,9 +138,11 @@ Release binary'lerini doğrudan çalıştırmak için daemon'ı ayrı terminalde
 
 ## 4. Sistem uyumluluğu
 
-Güncel Debian paketi Ubuntu 24.04 LTS amd64 üzerinde uçtan uca doğrulanmıştır. Debian 13 ve Ubuntu 24.04 tabanlı Linux Mint sürümleri için gerekli GTK4/libadwaita sürümleri mevcutsa uyumlu olması beklenir.
+Paket, Debian 13 (trixie) amd64 üzerinde GTK4 4.18.6 ve libadwaita 1.7.6 ile uçtan uca doğrulanmıştır: `dpkg -i` ile kurulum, `panod` başlatma, `panora-cli` status/list/search/pin/private/clear ve X11 (Xvfb) altında GUI açılışı. Ubuntu 24.04 LTS ve Linux Mint gibi türevlerde, aşağıdaki sürüm alt sınırları karşılandığı sürece uyumlu olması beklenir — ancak bu dağıtımlarda ayrıca test edilmemiştir.
 
-Paketin temel bağımlılıkları şunlardır: `libc6`, `libsqlite3-0`, `libgtk-4-1 >= 4.10`, `libadwaita-1-0 >= 1.4`, `libx11-6` ve `libwayland-client0`. Ubuntu 22.04 ve Linux Mint 21 gibi eski sistemlerde libadwaita sürümü paketin istediğinden eski olabilir; bu sistemlerde kaynak koddan uyarlama veya daha yeni masaüstü kütüphaneleri gerekir.
+Paketin `Depends` alanı şudur: `libc6`, `libgtk-4-1 (>= 4.12)`, `libadwaita-1-0 (>= 1.5)`, `libsqlite3-0`, `libglib2.0-0`, `adwaita-icon-theme`, `librsvg2-common`. Ubuntu 22.04 ve Linux Mint 21 gibi eski sistemlerde libadwaita sürümü bu alt sınırın altındadır; oralarda kaynaktan derleme veya daha yeni masaüstü kütüphaneleri gerekir.
+
+`librsvg2-common` bilerek sert bağımlılıktır: Adwaita 48 sembolik ikonları yalnızca SVG olarak dağıtır ve bu paket olmadan gdk-pixbuf'ın SVG loader'ı bulunmadığından arayüzdeki ikonların bir kısmı "image-missing" olarak çizilir. Hem `libgtk-4-1` hem `adwaita-icon-theme` bu paketi sadece `Recommends` olarak listelediği için `--no-install-recommends` ile kurulan sistemlerde eksik kalır.
 
 X11 backend'i `xclip` ile, Wayland backend'i `wl-paste`/`wl-copy` ile çalışır. Gerçek Wayland runtime'ı bu geliştirme ortamında ayrıca doğrulanmamıştır; X11 runtime'ı doğrulanmıştır.
 
@@ -148,14 +152,66 @@ Clipboard payload'ları XChaCha20-Poly1305 ile şifrelenmiş yerel storage'a yaz
 
 ## 6. Paket bütünlük özeti
 
-```text
-Dosya: dist/panora_1.1.0_ui1_amd64.deb
-SHA-256: 8f0f0b3e8af5b2d7f415d08c56c60c7e6b42a75c6fb370a84cb1f81e5f074c80
-```
-
-Kurulum sonrasında sorun yaşarsanız aşağıdaki günlükleri kontrol edin:
+Paket artık arşivle birlikte hazır gelmiyor; `packaging/build-deb.sh` (veya `install.sh`) onu bu makinede kaynaktan üretir. Bu yüzden burada sabit bir SHA-256 verilmez — derleme çıktısı derleyici sürümüne ve build yoluna göre değişir. Script tamamlanınca ürettiği paketin özetini kendisi yazdırır; kurduğunuz dosyanın o değerle aynı olduğunu şöyle doğrulayın:
 
 ```bash
+sha256sum dist/panora_1.1.0_amd64.deb
+```
+
+## 7. Sorun giderme
+
+Her şeyin başladığı yer:
+
+```bash
+systemctl --user status panod.service
 journalctl --user -u panod.service -n 100 --no-pager
 panora-cli status
 ```
+
+**`panora-cli: daemon unavailable`** — panod çalışmıyor demektir. `systemctl --user status panod.service` çıktısındaki hatayı okuyun; aşağıdaki maddeler en olası nedenleri kapsıyor.
+
+**Keyring kilidi.** panod ana anahtarı Secret Service'ten alır. Login keyring kilitliyse kilit açma istemi belirir; yanıtlanmazsa panod 60 saniye sonra şu hatayla durur:
+
+```
+Secret Service did not answer within 60s; an unlock prompt may be waiting.
+```
+
+Keyring'i açtıktan sonra deneme sayacını sıfırlayıp yeniden başlatın:
+
+```bash
+systemctl --user reset-failed panod.service
+systemctl --user restart panod.service
+```
+
+Servis birkaç başarısız denemeden sonra kendini durdurur (`StartLimitBurst=3`); bu, arka arkaya parola istemi açılmasını engellemek içindir.
+
+**Servis hiç başlamıyor, `status=226/NAMESPACE`.** Unit `~/.local/share/panora` dizinini `ReadWritePaths` ile açar ve onu `ExecStartPre` ile kendisi oluşturur. Dizini elle silip izinlerini bozduysanız geri alın:
+
+```bash
+install -d -m 0700 ~/.local/share/panora
+systemctl --user restart panod.service
+```
+
+**Arayüzde ikonlar kırık kutu görünüyor.** `librsvg2-common` eksik. Adwaita 48 sembolik ikonları yalnızca SVG dağıtır ve bu paket olmadan çizilemezler:
+
+```bash
+sudo apt install -y librsvg2-common adwaita-icon-theme
+```
+
+**Super+V çalışmıyor.** GNOME eklentisi paketle birlikte kurulur ama gnome-shell onu ancak yeniden başladıktan sonra görür. Oturumu kapatıp açın, sonra:
+
+```bash
+gnome-extensions enable panora@panora-clipboard.org
+gnome-extensions info panora@panora-clipboard.org
+```
+
+Wayland'de `gnome-shell --replace` çalışmaz; oturumu gerçekten kapatıp açmanız gerekir. Eklenti olmadan da panod pano geçmişini toplamaya devam eder; kaybettiğiniz tek şey Super+V kısayoludur — popup'ı `panora` komutuyla veya uygulama menüsünden açabilirsiniz.
+
+**Hazır paket kurulmuyor, `libc6 (>= 2.39)` hatası.** Paket Debian 13 üzerinde derlendi. Daha eski bir dağıtımdasınız (Ubuntu 22.04, Debian 12 gibi). `dist/` klasörünü silip `./install.sh` çalıştırın; script kaynaktan derleyecektir:
+
+```bash
+rm -rf dist
+./install.sh
+```
+
+**SSH üzerinden X forwarding kullanıyorsanız** panod bağlanamaz: unit `RestrictAddressFamilies=AF_UNIX` ile TCP'yi engeller, `DISPLAY=localhost:10` ise TCP gerektirir. `/usr/lib/systemd/user/panod.service` içindeki o satırı kaldırıp `systemctl --user daemon-reload` çalıştırın.

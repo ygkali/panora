@@ -20,7 +20,7 @@ use panora_core::config::{config_path, data_dir, socket_path, Config};
 use panora_core::storage::{BlobStore, Cipher, Database};
 use panora_core::sync::NoopSync;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tracing::{error, info, warn};
 
@@ -142,7 +142,13 @@ async fn serve_client(
     let mut request_count = 0usize;
     loop {
         line.clear();
-        let bytes = reader.read_line(&mut line).await?;
+        // Bound the read itself. Checking the length after an unbounded
+        // read_line would let a client allocate gigabytes before being
+        // rejected, which is exactly what MAX_FRAME_BYTES exists to prevent.
+        let bytes = {
+            let mut limited = (&mut reader).take(MAX_FRAME_BYTES as u64 + 1);
+            limited.read_line(&mut line).await?
+        };
         if bytes == 0 {
             break;
         }
