@@ -10,6 +10,7 @@ use std::path::PathBuf;
 
 /// Clipboard history limits and retention settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct HistoryConfig {
     /// Whether PRIMARY selection should be recorded where supported.
     pub record_primary: bool,
@@ -34,6 +35,7 @@ impl Default for HistoryConfig {
 
 /// Privacy-related settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct PrivacyConfig {
     /// Start with recording paused.
     pub start_private: bool,
@@ -57,11 +59,14 @@ impl Default for PrivacyConfig {
 
 /// UI preferences kept intentionally small to avoid runtime state bloat.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct UiConfig {
     /// Interface language; `system`, `tr`, or `en`.
     pub language: String,
     /// Enable automatic paste after recalling an entry where supported.
     pub instant_paste: bool,
+    /// Colour scheme; `system`, `light`, or `dark`.
+    pub theme: String,
 }
 
 impl Default for UiConfig {
@@ -69,6 +74,7 @@ impl Default for UiConfig {
         Self {
             language: "system".into(),
             instant_paste: false,
+            theme: "system".into(),
         }
     }
 }
@@ -112,8 +118,25 @@ impl Config {
                 "max_mime_bytes is outside the safe range".into(),
             ));
         }
+        if self.history.max_age_days > 36_500 {
+            return Err(Error::Config("max_age_days must be at most 36500".into()));
+        }
         if self.privacy.excluded_apps.len() > 256 {
             return Err(Error::Config("too many excluded applications".into()));
+        }
+        if self
+            .privacy
+            .excluded_apps
+            .iter()
+            .any(|app| app.chars().count() > 256)
+        {
+            return Err(Error::Config("excluded application name too long".into()));
+        }
+        if !matches!(self.ui.language.as_str(), "system" | "tr" | "en") {
+            return Err(Error::Config("language must be system, tr or en".into()));
+        }
+        if !matches!(self.ui.theme.as_str(), "system" | "light" | "dark") {
+            return Err(Error::Config("theme must be system, light or dark".into()));
         }
         Ok(())
     }
@@ -186,5 +209,39 @@ mod tests {
         cfg.validate().unwrap();
         assert_eq!(cfg.history.max_mime_bytes, 10 * 1024 * 1024);
         assert!(!cfg.privacy.excluded_apps.is_empty());
+        assert_eq!(cfg.ui.theme, "system");
+    }
+
+    #[test]
+    fn partial_toml_uses_defaults() {
+        let cfg: Config = toml::from_str("[history]\nmax_entries = 5\n").unwrap();
+        cfg.validate().unwrap();
+        assert_eq!(cfg.history.max_entries, 5);
+        assert_eq!(cfg.history.max_age_days, 30);
+        assert_eq!(cfg.ui.language, "system");
+    }
+
+    #[test]
+    fn invalid_values_are_rejected() {
+        let mut cfg = Config::default();
+        cfg.ui.language = "klingon".into();
+        assert!(cfg.validate().is_err());
+        let mut cfg = Config::default();
+        cfg.history.max_entries = 0;
+        assert!(cfg.validate().is_err());
+        let mut cfg = Config::default();
+        cfg.ui.theme = "sepia".into();
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn roundtrips_through_toml() {
+        let mut cfg = Config::default();
+        cfg.privacy.excluded_apps.push("mybank".into());
+        cfg.ui.instant_paste = true;
+        let text = toml::to_string_pretty(&cfg).unwrap();
+        let back: Config = toml::from_str(&text).unwrap();
+        assert!(back.ui.instant_paste);
+        assert!(back.privacy.excluded_apps.contains(&"mybank".to_string()));
     }
 }

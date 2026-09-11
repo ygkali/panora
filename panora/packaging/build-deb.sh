@@ -35,6 +35,7 @@ install -d "$STAGE/DEBIAN"
 install -d "$STAGE/usr/bin"
 install -d "$STAGE/usr/lib/systemd/user"
 install -d "$STAGE/usr/share/applications"
+install -d "$STAGE/usr/share/dbus-1/services"
 install -d "$STAGE/usr/share/doc/panora"
 
 install -m 0755 target/release/panod "$STAGE/usr/bin/panod"
@@ -44,10 +45,12 @@ install -m 0755 target/release/panora-cli "$STAGE/usr/bin/panora-cli"
 ln -s panora-gui "$STAGE/usr/bin/panora"
 
 install -m 0644 packaging/panod.service "$STAGE/usr/lib/systemd/user/panod.service"
-install -m 0644 packaging/panora.desktop "$STAGE/usr/share/applications/panora.desktop"
+install -m 0644 packaging/io.panora.Panora.desktop "$STAGE/usr/share/applications/io.panora.Panora.desktop"
+# D-Bus activation: panod and the GNOME extension toggle the popup by name.
+install -m 0644 packaging/io.panora.Panora.service "$STAGE/usr/share/dbus-1/services/io.panora.Panora.service"
 install -m 0644 LICENSE "$STAGE/usr/share/doc/panora/copyright"
 
-# GNOME Shell bridge: Super+V plus Wayland clipboard forwarding.
+# GNOME Shell bridge: Super+V, clipboard forwarding on GNOME < 48, paste helper.
 EXT_UUID="panora@panora-clipboard.org"
 EXT_DIR="$STAGE/usr/share/gnome-shell/extensions/$EXT_UUID"
 install -d "$EXT_DIR/schemas"
@@ -93,19 +96,19 @@ else
   echo "       çalışmayabilir. 'sudo apt install -y binutils' ile çözülür." >&2
 fi
 
-# xclip and wl-clipboard are hard dependencies, not alternatives: both backends
-# shell out to those binaries and panod refuses to start without the one that
-# matches the session. A user can switch between X11 and Wayland sessions on the
-# same install, so "xclip | wl-clipboard" would still leave the daemon dead half
-# the time, and Recommends is skipped entirely by --no-install-recommends.
+# Clipboard access is native (x11rb / wayland-client), so no helper binaries
+# are required at runtime. gnome-keyring (or another Secret Service) stores
+# the master key; wtype and ydotool are optional instant-paste helpers for
+# non-GNOME Wayland compositors.
 cat > "$STAGE/DEBIAN/control" <<CONTROL
 Package: panora
 Version: $VERSION
 Section: utils
 Priority: optional
 Architecture: $ARCH
-Depends: $LIBC_DEP, libgtk-4-1 (>= 4.12), libadwaita-1-0 (>= 1.5), libglib2.0-0, adwaita-icon-theme, librsvg2-common, xclip, wl-clipboard
+Depends: $LIBC_DEP, libgtk-4-1 (>= 4.12), libadwaita-1-0 (>= 1.5), libglib2.0-0, adwaita-icon-theme, librsvg2-common
 Recommends: gnome-keyring
+Suggests: wtype, ydotool
 Installed-Size: $INSTALLED_KB
 Maintainer: Panora contributors <panora@panora-clipboard.org>
 Homepage: https://github.com/panora-clipboard/panora

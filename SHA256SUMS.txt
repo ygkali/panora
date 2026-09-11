@@ -1,1 +1,0 @@
-8f0f0b3e8af5b2d7f415d08c56c60c7e6b42a75c6fb370a84cb1f81e5f074c80  panora/dist/panora_1.1.0_ui1_amd64.deb

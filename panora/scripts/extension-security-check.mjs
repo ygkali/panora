@@ -24,4 +24,16 @@ if (/https?:\/\//i.test(source)) throw new Error("extension contains an unexpect
 if (!source.includes("Gio.BusType.SESSION") || !source.includes("io.panora.GnomeBridge1")) {
   throw new Error("extension must use the expected session D-Bus boundary");
 }
+// The helper service the daemon calls back into must stay tiny and fixed.
+const exportedMethods = [...source.matchAll(/<method name="([A-Za-z]+)"/g)].map((m) => m[1]).sort();
+if (exportedMethods.join(",") !== "Paste,SetClipboard") {
+  throw new Error(`unexpected helper methods exported: ${exportedMethods.join(", ")}`);
+}
+if (!source.includes("io.panora.GnomeShell1") || !source.includes("Gio.DBusExportedObject")) {
+  throw new Error("extension must export the io.panora.GnomeShell1 helper");
+}
+if (/GLib\.spawn_(async|sync|command_line)/.test(source.replace(/\[POPUP_BINARY\]/g, ""))
+  && !/GLib\.spawn_async\(null, \[POPUP_BINARY\]/.test(source)) {
+  throw new Error("extension may only spawn the fixed popup binary");
+}
 console.log(`extension-security: PASS (${metadata.uuid}, ${metadata["shell-version"].join(", ")})`);

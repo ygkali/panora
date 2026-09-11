@@ -183,17 +183,44 @@ impl Database {
             .cipher
             .seal_text_with_aad(preview_aad.as_bytes(), preview)?;
         let tx = self.conn.unchecked_transaction()?;
-        let existing: Option<i64> = tx
+        let existing: Option<(i64, bool)> = tx
             .query_row(
-                "SELECT id FROM entries WHERE content_hash = ?1 AND selection = ?2",
+                "SELECT id, deleted FROM entries WHERE content_hash = ?1 AND selection = ?2",
                 params![content_hash, selection.as_str()],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get::<_, i64>(1)? != 0)),
             )
             .ok();
-        let id = if let Some(id) = existing {
+        let id = if let Some((id, false)) = existing {
             tx.execute(
-                "UPDATE entries SET last_seen_at = ?1, deleted = 0 WHERE id = ?2",
+                "UPDATE entries SET last_seen_at = ?1 WHERE id = ?2",
                 params![now, id],
+            )?;
+            id
+        } else if let Some((id, true)) = existing {
+            // Revive a tombstoned row: its blobs were removed with it, so the
+            // caller re-attaches payloads, and the FTS row must come back too.
+            tx.execute(
+                "UPDATE entries SET preview = ?1, kind = ?2, primary_mime = ?3,
+                        size_bytes = ?4, source_app = ?5, created_at = ?6,
+                        last_seen_at = ?6, pinned = 0, device_id = ?7,
+                        lamport = ?8, deleted = 0
+                 WHERE id = ?9",
+                params![
+                    sealed_preview,
+                    kind.as_str(),
+                    primary_mime,
+                    size_bytes,
+                    source_app,
+                    now,
+                    device_id,
+                    lamport,
+                    id
+                ],
+            )?;
+            tx.execute("DELETE FROM entries_fts WHERE rowid = ?1", params![id])?;
+            tx.execute(
+                "INSERT INTO entries_fts(rowid, preview) VALUES (?1, ?2)",
+                params![id, preview],
             )?;
             id
         } else {
@@ -262,12 +289,10 @@ impl Database {
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
         if let Some(search) = &filter.search {
-            let trimmed = search.trim();
-            if !trimmed.is_empty() {
+            if let Some(expression) = fts_query(search) {
                 sql.push_str(" JOIN entries_fts ON entries_fts.rowid = e.id");
                 conditions.push("entries_fts MATCH ?".to_string());
-                // Quote the query to make it a safe FTS phrase search.
-                params_vec.push(Box::new(format!("\"{}\"", trimmed.replace('"', ""))));
+                params_vec.push(Box::new(expression));
             }
         }
         if let Some(kind) = filter.kind {
@@ -354,6 +379,46 @@ impl Database {
         })
     }
 
+    /// Most recently seen visible entry of a selection, if any.
+    pub fn latest(&self, selection: Selection) -> Result<Option<Entry>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, content_hash, preview, kind, primary_mime, size_bytes,
+                    source_app, selection, created_at, last_seen_at, pinned,
+                    device_id, lamport, deleted
+             FROM entries WHERE deleted = 0 AND selection = ?1
+             ORDER BY last_seen_at DESC LIMIT 1",
+        )?;
+        let mut rows = stmt.query_map(params![selection.as_str()], |row| self.row_to_entry(row))?;
+        match rows.next() {
+            Some(row) => Ok(Some(row?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Bump `last_seen_at` (a recalled entry moves back to the top).
+    pub fn touch(&self, id: i64, now: i64) -> Result<()> {
+        let changed = self.conn.execute(
+            "UPDATE entries SET last_seen_at = ?1 WHERE id = ?2 AND deleted = 0",
+            params![now, id],
+        )?;
+        if changed == 0 {
+            return Err(Error::NotFound(id));
+        }
+        Ok(())
+    }
+
+    /// Number of entries (visible or tombstoned) still referencing a blob.
+    /// Blobs are content-addressed and shared, so a blob may only be removed
+    /// from disk once this reaches zero.
+    pub fn blob_ref_count(&self, blob_ref: &str) -> Result<i64> {
+        let n: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM entry_blobs WHERE blob_ref = ?1",
+            params![blob_ref],
+            |row| row.get(0),
+        )?;
+        Ok(n)
+    }
+
     /// Set or clear the pinned flag.
     pub fn set_pinned(&self, id: i64, pinned: bool) -> Result<()> {
         let changed = self.conn.execute(
@@ -382,7 +447,8 @@ impl Database {
     }
 
     /// Permanently purge tombstoned entries older than `before` (unix ts).
-    /// Returns blob refs that should be removed from the blob store.
+    /// Returns the blob refs that no longer have any reference and can be
+    /// removed from the blob store.
     pub fn purge_tombstones(&self, before: i64) -> Result<Vec<String>> {
         let mut stmt = self
             .conn
@@ -390,15 +456,63 @@ impl Database {
         let ids: Vec<i64> = stmt
             .query_map(params![before], |row| row.get(0))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
-        let mut blob_refs = Vec::new();
-        for id in ids {
-            blob_refs.extend(self.blobs_of(id)?.into_iter().map(|(_, r)| r));
-            self.conn
-                .execute("DELETE FROM entry_blobs WHERE entry_id = ?1", params![id])?;
-            self.conn
-                .execute("DELETE FROM entries WHERE id = ?1", params![id])?;
+        self.purge(&ids)
+    }
+
+    /// Permanently remove the given tombstoned rows. Returns blob refs that
+    /// became unreferenced.
+    pub fn purge(&self, ids: &[i64]) -> Result<Vec<String>> {
+        let tx = self.conn.unchecked_transaction()?;
+        let mut candidates = Vec::new();
+        for &id in ids {
+            let tombstoned: bool = tx
+                .query_row(
+                    "SELECT deleted FROM entries WHERE id = ?1",
+                    params![id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .map(|d| d != 0)
+                .unwrap_or(false);
+            if !tombstoned {
+                continue;
+            }
+            let mut stmt = tx.prepare("SELECT blob_ref FROM entry_blobs WHERE entry_id = ?1")?;
+            let refs: Vec<String> = stmt
+                .query_map(params![id], |row| row.get(0))?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            candidates.extend(refs);
+            tx.execute("DELETE FROM entry_blobs WHERE entry_id = ?1", params![id])?;
+            tx.execute("DELETE FROM entries_fts WHERE rowid = ?1", params![id])?;
+            tx.execute(
+                "DELETE FROM entries WHERE id = ?1 AND deleted = 1",
+                params![id],
+            )?;
         }
-        Ok(blob_refs)
+        candidates.sort();
+        candidates.dedup();
+        let mut orphaned = Vec::new();
+        for blob_ref in candidates {
+            let n: i64 = tx.query_row(
+                "SELECT COUNT(*) FROM entry_blobs WHERE blob_ref = ?1",
+                params![blob_ref],
+                |row| row.get(0),
+            )?;
+            if n == 0 {
+                orphaned.push(blob_ref);
+            }
+        }
+        tx.commit()?;
+        Ok(orphaned)
+    }
+
+    /// Total plaintext payload bytes of visible entries (settings/status).
+    pub fn total_size(&self) -> Result<i64> {
+        let n: i64 = self.conn.query_row(
+            "SELECT COALESCE(SUM(size_bytes), 0) FROM entries WHERE deleted = 0",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(n)
     }
 
     /// Evict oldest unpinned entries beyond `max_entries`. Returns the
@@ -469,6 +583,26 @@ impl Database {
                     row.get(0)
                 })?;
         Ok(n)
+    }
+}
+
+/// Build an FTS5 MATCH expression from free text typed by the user.
+///
+/// Every whitespace-separated token becomes a quoted prefix term, so the
+/// list narrows as the user types (`mer` finds `merhaba`) and no FTS
+/// operator or punctuation in the input can change the query shape.
+pub fn fts_query(search: &str) -> Option<String> {
+    let terms: Vec<String> = search
+        .split_whitespace()
+        .map(|token| token.replace('"', ""))
+        .filter(|token| !token.is_empty())
+        .take(16)
+        .map(|token| format!("\"{token}\"*"))
+        .collect();
+    if terms.is_empty() {
+        None
+    } else {
+        Some(terms.join(" "))
     }
 }
 
@@ -690,6 +824,78 @@ mod tests {
         )
         .unwrap();
         assert_eq!(db.max_lamport().unwrap(), 42);
+    }
+
+    #[test]
+    fn prefix_search_matches_while_typing() {
+        let db = db();
+        insert(&db, "merhaba dünya", ContentKind::Text, 1);
+        insert(&db, "unrelated", ContentKind::Text, 2);
+        for q in ["mer", "merhaba dün", "DÜNYA"] {
+            let hits = db
+                .query(&QueryFilter {
+                    search: Some(q.into()),
+                    ..QueryFilter::recent(10)
+                })
+                .unwrap();
+            assert_eq!(hits.len(), 1, "query {q:?}");
+        }
+        assert_eq!(fts_query("  "), None);
+        assert_eq!(fts_query("a \"b\" c"), Some("\"a\"* \"b\"* \"c\"*".into()));
+    }
+
+    #[test]
+    fn revived_tombstone_is_searchable_again() {
+        let db = db();
+        let id = insert(&db, "come back", ContentKind::Text, 1);
+        db.set_pinned(id, true).unwrap();
+        db.tombstone(id).unwrap();
+        let again = insert(&db, "come back", ContentKind::Text, 5);
+        assert_eq!(again, id);
+        let e = db.get(id).unwrap();
+        assert!(!e.deleted);
+        assert!(!e.pinned, "revived rows start unpinned");
+        assert_eq!(e.created_at, 5);
+        let hits = db
+            .query(&QueryFilter {
+                search: Some("come".into()),
+                ..QueryFilter::recent(10)
+            })
+            .unwrap();
+        assert_eq!(hits.len(), 1);
+    }
+
+    #[test]
+    fn purge_reports_only_unreferenced_blobs() {
+        let db = db();
+        let a = insert(&db, "a", ContentKind::Text, 1);
+        let b = insert(&db, "b", ContentKind::Text, 2);
+        db.attach_blob(a, "text/plain", "shared").unwrap();
+        db.attach_blob(a, "text/html", "only-a").unwrap();
+        db.attach_blob(b, "text/plain", "shared").unwrap();
+        assert_eq!(db.blob_ref_count("shared").unwrap(), 2);
+        db.tombstone(a).unwrap();
+        let orphaned = db.purge(&[a]).unwrap();
+        assert_eq!(orphaned, vec!["only-a"]);
+        assert_eq!(db.blob_ref_count("shared").unwrap(), 1);
+        assert!(db.get(a).is_err());
+        // Visible rows are never purged.
+        assert!(db.purge(&[b]).unwrap().is_empty());
+        assert!(db.get(b).is_ok());
+    }
+
+    #[test]
+    fn touch_moves_entry_to_top() {
+        let db = db();
+        assert!(db.latest(Selection::Clipboard).unwrap().is_none());
+        let old = insert(&db, "old", ContentKind::Text, 1);
+        insert(&db, "new", ContentKind::Text, 2);
+        db.touch(old, 10).unwrap();
+        assert_eq!(db.query(&QueryFilter::recent(2)).unwrap()[0].id, old);
+        assert_eq!(db.latest(Selection::Clipboard).unwrap().unwrap().id, old);
+        assert!(db.latest(Selection::Primary).unwrap().is_none());
+        assert!(db.touch(9999, 1).is_err());
+        assert_eq!(db.total_size().unwrap(), 6);
     }
 
     #[test]

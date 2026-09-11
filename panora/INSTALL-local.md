@@ -1,134 +1,86 @@
-# Panora 1.1.0 — Lokal Kurulum Kılavuzu
+# Panora 1.2.0 — Lokal Kurulum Kılavuzu
 
-Bu paket Panora'nın güncel Rust kaynak kodunu, testleri, belgeleri ve Ubuntu 24.04/Debian tabanlı amd64 sistemlerde kullanılabilen Debian paketini içerir.
+Bu paket Panora'nın güncel Rust kaynak kodunu, testleri, belgeleri ve Debian/Ubuntu tabanlı amd64 sistemlerde `.deb` paketi üreten script'leri içerir.
 
 ## 1. Tek komutla kurulum
 
-ZIP'ten çıkan `panora` klasörüne girin ve script'leri çalıştırılabilir yapın:
+`panora` klasörüne girin ve script'leri çalıştırılabilir yapın:
 
 ```bash
-cd panora-local-kit-1.1.0/panora
+cd panora
 chmod +x install.sh test-local.sh uninstall.sh
 ./install.sh
 ```
 
-Kurulum script'i Debian/Ubuntu bağımlılıklarını kurar, `dist/panora_1.1.0_amd64.deb` paketini yükler ve `panod.service` kullanıcı servisini başlatmayı dener. Kurulumdan sonra lokal smoke test'i çalıştırın:
+Kurulum script'i sırasıyla:
+
+1. Çalışma zamanı bağımlılıklarını kurar (`libgtk-4-1`, `libadwaita-1-0`, `adwaita-icon-theme`, `librsvg2-common`, `gnome-keyring`).
+2. `dist/panora_*.deb` yoksa veya makinenizle uyumsuzsa derleme bağımlılıklarını kurar, `cargo` yoksa rustup'ı kullanıcı dizinine indirir ve `packaging/build-deb.sh` ile paketi üretir.
+3. Paketi `dpkg -i` ile yükler.
+4. `panod.service` kullanıcı servisini etkinleştirip başlatır ve GNOME eklentisini etkinleştirmeyi dener.
+5. `panora-cli status` ile doğrular.
+
+Kurulumdan sonra lokal smoke test:
 
 ```bash
-./test-local.sh
-```
-
-Sadece terminal doğrulaması yapmak ve GUI'yi açmamak için:
-
-```bash
+./test-local.sh              # durum, kopyalama, arama, geri çağırma, GUI
 PANORA_NO_GUI=1 ./test-local.sh
 ```
 
-Bu test oturum tipini algılayarak X11'de `xclip`, Wayland'de `wl-copy` kullanır; metin kopyalama, daemon status, listeleme, FTS5 arama ve GUI açılışını doğrular.
-
-Panora'yı kaldırmak için:
-
-```bash
-./uninstall.sh
-```
-
-Kaldırma script'i programı ve servisi kaldırır ancak şifreli kullanıcı geçmişini silmez. Verileri silmek isterseniz `~/.local/share/panora` ve `~/.config/panora` yollarını ayrıca kaldırmanız gerekir.
+Kaldırmak için `./uninstall.sh`. Şifreli geçmiş (`~/.local/share/panora`) ve ayarlar (`~/.config/panora`) korunur.
 
 ## 2. Hazır Debian paketiyle kurulum
 
-Ön koşul olarak GTK4/libadwaita masaüstü kütüphanelerini, SQLite runtime'ını ve clipboard yardımcılarını kurun:
-
 ```bash
 sudo apt update
-sudo apt install -y \
-  libgtk-4-1 libadwaita-1-0 libsqlite3-0 \
-  adwaita-icon-theme librsvg2-common \
-  xclip wl-clipboard gnome-keyring
-```
-
-Arşiv içindeki paketi kurun:
-
-```bash
-cd panora-local-kit-1.1.0/panora
-sudo dpkg -i dist/panora_1.1.0_amd64.deb
+sudo apt install -y libgtk-4-1 libadwaita-1-0 libsqlite3-0 adwaita-icon-theme librsvg2-common gnome-keyring
+sudo dpkg -i dist/panora_1.2.0_amd64.deb
 sudo apt-get -f install -y
-```
-
-Kullanıcı systemd servisini etkinleştirin:
-
-```bash
 systemctl --user daemon-reload
 systemctl --user enable --now panod.service
 systemctl --user status panod.service
 ```
 
-Popup arayüzünü açmak için:
+Paket şunları kurar: `/usr/bin/panod`, `/usr/bin/panora-gui` (+ `panora` sembolik bağı), `/usr/bin/panora-cli`, `/usr/lib/systemd/user/panod.service`, `/usr/share/applications/io.panora.Panora.desktop`, `/usr/share/dbus-1/services/io.panora.Panora.service` ve GNOME eklentisi `/usr/share/gnome-shell/extensions/panora@panora-clipboard.org`.
 
-```bash
-panora
-# veya
-panora-gui
-```
-
-Daemon ve CLI durumunu kontrol edin:
+Popup: `panora` (ikinci çağrı açık pencereyi kapatır). Daemon ve CLI:
 
 ```bash
 panora-cli status
 panora-cli list
-```
-
-X11 kullanıyorsanız hızlı clipboard testi:
-
-```bash
-printf 'Panora lokal test\n' | xclip -selection clipboard -in -t text/plain
-sleep 1
-panora-cli list
 panora-cli search lokal
+panora-cli copy 12 --paste
+panora-cli preview 12 --mime image/png --out foto.png
 ```
 
-Wayland kullanıyorsanız aynı testi şu şekilde yapın:
+Pano testi için herhangi bir uygulamadan kopyalayın; `xclip`/`wl-copy` yalnızca komut satırından test etmek isterseniz gerekir:
 
 ```bash
-printf 'Panora Wayland test\n' | wl-copy
-sleep 1
-panora-cli list
+printf 'Panora lokal test\n' | xclip -selection clipboard -in   # X11
+printf 'Panora Wayland test\n' | wl-copy                         # Wayland (data-control)
+sleep 1 && panora-cli list
 ```
-
-Fotoğraf testi için PNG dosyasını clipboard'a aktarın:
-
-```bash
-wl-copy --type image/png < foto.png       # Wayland
-xclip -selection clipboard -in -t image/png < foto.png  # X11
-```
-
-`panora` popup'ında fotoğraf kartının `FOTO` rozeti ve thumbnail'i görünmelidir. HTML/rich-text için `text/html`, dosya/URI için `text/uri-list` MIME türü kullanılabilir.
 
 ## 3. Kaynak koddan derleme
 
-Kaynak koddan derlemek için Rust 1.85 veya daha yeni bir stable toolchain gerekir:
+Rust 1.85 veya daha yeni bir stable toolchain gerekir. X11 (x11rb) ve Wayland (wayland-client) protokolleri saf Rust'tır; yalnızca GTK4/libadwaita geliştirme paketleri gerekir:
 
 ```bash
 sudo apt update
-sudo apt install -y \
-  build-essential pkg-config \
-  libgtk-4-dev libadwaita-1-dev \
-  libsqlite3-dev libx11-dev libwayland-dev \
-  adwaita-icon-theme librsvg2-common \
-  xclip wl-clipboard gnome-keyring
+sudo apt install -y build-essential pkg-config libgtk-4-dev libadwaita-1-dev \
+  adwaita-icon-theme librsvg2-common gnome-keyring binutils libglib2.0-dev-bin
 ```
-
-Arşiv içindeki proje klasörüne girip derleyin:
 
 ```bash
 cd panora
 cargo fmt --all -- --check
-cargo check --workspace
-cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
 cargo build --workspace --release
+./packaging/build-deb.sh          # dist/panora_<sürüm>_<mimari>.deb
 ```
 
-Release binary'lerini doğrudan çalıştırmak için daemon'ı ayrı terminalde başlatın:
+Release binary'lerini doğrudan çalıştırmak için (paket kurulu değilse Super+V ve D-Bus etkinleştirme çalışmaz; `panora-cli toggle` ise `panora-gui`'yi yanındaki dizinden başlatır):
 
 ```bash
 ./target/release/panod
@@ -136,31 +88,39 @@ Release binary'lerini doğrudan çalıştırmak için daemon'ı ayrı terminalde
 ./target/release/panora-gui
 ```
 
+X11 backend'inin gerçek X sunucusuna karşı testleri `DISPLAY` tanımlıysa çalışır:
+
+```bash
+Xvfb :99 -screen 0 1280x800x24 -ac &
+DISPLAY=:99 cargo test -p panod --test x11_integration -- --test-threads=1
+```
+
 ## 4. Sistem uyumluluğu
 
-Paket, Debian 13 (trixie) amd64 üzerinde GTK4 4.18.6 ve libadwaita 1.7.6 ile uçtan uca doğrulanmıştır: `dpkg -i` ile kurulum, `panod` başlatma, `panora-cli` status/list/search/pin/private/clear ve X11 (Xvfb) altında GUI açılışı. Ubuntu 24.04 LTS ve Linux Mint gibi türevlerde, aşağıdaki sürüm alt sınırları karşılandığı sürece uyumlu olması beklenir — ancak bu dağıtımlarda ayrıca test edilmemiştir.
+Paketin `Depends` alanı: `libc6`, `libgtk-4-1 (>= 4.12)`, `libadwaita-1-0 (>= 1.5)`, `libglib2.0-0`, `adwaita-icon-theme`, `librsvg2-common`. `Recommends: gnome-keyring`, `Suggests: wtype, ydotool`. Ubuntu 22.04 ve Linux Mint 21 gibi eski sistemlerde libadwaita sürümü alt sınırın altındadır; oralarda daha yeni masaüstü kütüphaneleri gerekir.
 
-Paketin `Depends` alanı şudur: `libc6`, `libgtk-4-1 (>= 4.12)`, `libadwaita-1-0 (>= 1.5)`, `libsqlite3-0`, `libglib2.0-0`, `adwaita-icon-theme`, `librsvg2-common`. Ubuntu 22.04 ve Linux Mint 21 gibi eski sistemlerde libadwaita sürümü bu alt sınırın altındadır; oralarda kaynaktan derleme veya daha yeni masaüstü kütüphaneleri gerekir.
+`librsvg2-common` bilerek sert bağımlılıktır: Adwaita 48 sembolik ikonları yalnızca SVG olarak dağıtır ve bu paket olmadan gdk-pixbuf'ın SVG loader'ı bulunmadığından arayüzdeki ikonların bir kısmı "image-missing" olarak çizilir.
 
-`librsvg2-common` bilerek sert bağımlılıktır: Adwaita 48 sembolik ikonları yalnızca SVG olarak dağıtır ve bu paket olmadan gdk-pixbuf'ın SVG loader'ı bulunmadığından arayüzdeki ikonların bir kısmı "image-missing" olarak çizilir. Hem `libgtk-4-1` hem `adwaita-icon-theme` bu paketi sadece `Recommends` olarak listelediği için `--no-install-recommends` ile kurulan sistemlerde eksik kalır.
+Oturum tipine göre backend:
 
-X11 backend'i `xclip` ile, Wayland backend'i `wl-paste`/`wl-copy` ile çalışır. Gerçek Wayland runtime'ı bu geliştirme ortamında ayrıca doğrulanmamıştır; X11 runtime'ı doğrulanmıştır.
+- **X11**: XFIXES olayları, yerel selection ownership (INCR dahil), XTEST ile anında yapıştır.
+- **Wayland (GNOME 48+, KDE, Sway, Hyprland, …)**: `ext-data-control-v1` veya `wlr-data-control-v1`.
+- **Wayland GNOME ≤ 47**: Mutter data-control sunmadığından yakalama ve geri çağırma Panora Shell eklentisi üzerinden yapılır; eklenti etkin değilse `journalctl --user -u panod` bunu bildirir.
+- Wayland'de data-control yoksa ve GNOME değilse `DISPLAY` üzerinden XWayland'a düşülür (uygulama adı bilinmez).
 
 ## 5. Güvenlik ve veri konumu
 
-Clipboard payload'ları XChaCha20-Poly1305 ile şifrelenmiş yerel storage'a yazılır. FTS5 yalnızca metin preview'lerini indeksler. Private mode açıkken yeni clipboard içerikleri kaydedilmez. Telefon/bulut senkronu v1'de etkin değildir; senkronizasyon trait'i gelecek genişletmeler için modüler bırakılmıştır.
+Clipboard payload'ları XChaCha20-Poly1305 ile şifrelenmiş olarak `~/.local/share/panora/blobs` altına, metadata ve şifreli önizlemeler `~/.local/share/panora/history.db` içine yazılır. FTS5 yalnızca metin önizlemelerini indeksler. Private mode açıkken yeni içerik kaydedilmez. Ana anahtar Secret Service'te (`gnome-keyring`) saklanır; ayarlar `~/.config/panora/config.toml` dosyasındadır. Telefon/bulut senkronu yoktur.
 
-## 6. Paket bütünlük özeti
+## 6. Paket bütünlüğü
 
-Paket artık arşivle birlikte hazır gelmiyor; `packaging/build-deb.sh` (veya `install.sh`) onu bu makinede kaynaktan üretir. Bu yüzden burada sabit bir SHA-256 verilmez — derleme çıktısı derleyici sürümüne ve build yoluna göre değişir. Script tamamlanınca ürettiği paketin özetini kendisi yazdırır; kurduğunuz dosyanın o değerle aynı olduğunu şöyle doğrulayın:
+Paket arşivle birlikte hazır gelmez; `packaging/build-deb.sh` (veya `install.sh`) onu bu makinede kaynaktan üretir ve SHA-256 özetini yazdırır. Kurduğunuz dosyayı doğrulamak için:
 
 ```bash
-sha256sum dist/panora_1.1.0_amd64.deb
+sha256sum dist/panora_1.2.0_amd64.deb
 ```
 
 ## 7. Sorun giderme
-
-Her şeyin başladığı yer:
 
 ```bash
 systemctl --user status panod.service
@@ -168,15 +128,9 @@ journalctl --user -u panod.service -n 100 --no-pager
 panora-cli status
 ```
 
-**`panora-cli: daemon unavailable`** — panod çalışmıyor demektir. `systemctl --user status panod.service` çıktısındaki hatayı okuyun; aşağıdaki maddeler en olası nedenleri kapsıyor.
+**`panora-cli: daemon unavailable`** — panod çalışmıyor. `systemctl --user status panod.service` çıktısındaki hatayı okuyun.
 
-**Keyring kilidi.** panod ana anahtarı Secret Service'ten alır. Login keyring kilitliyse kilit açma istemi belirir; yanıtlanmazsa panod 60 saniye sonra şu hatayla durur:
-
-```
-Secret Service did not answer within 60s; an unlock prompt may be waiting.
-```
-
-Keyring'i açtıktan sonra deneme sayacını sıfırlayıp yeniden başlatın:
+**Keyring kilidi.** panod ana anahtarı Secret Service'ten alır. Login keyring kilitliyse kilit açma istemi belirir; yanıtlanmazsa panod 60 saniye sonra durur (`Secret Service did not answer within 60s`). Keyring'i açtıktan sonra:
 
 ```bash
 systemctl --user reset-failed panod.service
@@ -185,14 +139,16 @@ systemctl --user restart panod.service
 
 Servis birkaç başarısız denemeden sonra kendini durdurur (`StartLimitBurst=3`); bu, arka arkaya parola istemi açılmasını engellemek içindir.
 
-**Servis hiç başlamıyor, `status=226/NAMESPACE`.** Unit `~/.local/share/panora` dizinini `ReadWritePaths` ile açar ve onu `ExecStartPre` ile kendisi oluşturur. Dizini elle silip izinlerini bozduysanız geri alın:
+**`Wayland compositor has no data-control protocol`** — GNOME ≤ 47'de normaldir; panod GNOME bridge backend'ine geçer ve Shell eklentisinin etkin olması gerekir. Eklenti olmadan bu sürümlerde yakalama yapılamaz.
+
+**Servis hiç başlamıyor, `status=226/NAMESPACE`.** Unit `~/.local/share/panora` dizinini `ReadWritePaths` ile açar ve `ExecStartPre` ile kendisi oluşturur. Dizini elle silip izinlerini bozduysanız geri alın:
 
 ```bash
 install -d -m 0700 ~/.local/share/panora
 systemctl --user restart panod.service
 ```
 
-**Arayüzde ikonlar kırık kutu görünüyor.** `librsvg2-common` eksik. Adwaita 48 sembolik ikonları yalnızca SVG dağıtır ve bu paket olmadan çizilemezler:
+**Arayüzde ikonlar kırık kutu görünüyor.** `librsvg2-common` eksik:
 
 ```bash
 sudo apt install -y librsvg2-common adwaita-icon-theme
@@ -205,13 +161,8 @@ gnome-extensions enable panora@panora-clipboard.org
 gnome-extensions info panora@panora-clipboard.org
 ```
 
-Wayland'de `gnome-shell --replace` çalışmaz; oturumu gerçekten kapatıp açmanız gerekir. Eklenti olmadan da panod pano geçmişini toplamaya devam eder; kaybettiğiniz tek şey Super+V kısayoludur — popup'ı `panora` komutuyla veya uygulama menüsünden açabilirsiniz.
+Eklenti olmadan da panod (GNOME 48+ ve diğer masaüstlerinde) pano geçmişini toplamaya devam eder; popup'ı `panora` komutuyla, uygulama menüsünden veya `panora-cli toggle` ile açabilirsiniz. Başka bir masaüstünde kısayol için `panora-cli toggle` komutunu masaüstünüzün kısayol ayarlarına bağlayın.
 
-**Hazır paket kurulmuyor, `libc6 (>= 2.39)` hatası.** Paket Debian 13 üzerinde derlendi. Daha eski bir dağıtımdasınız (Ubuntu 22.04, Debian 12 gibi). `dist/` klasörünü silip `./install.sh` çalıştırın; script kaynaktan derleyecektir:
-
-```bash
-rm -rf dist
-./install.sh
-```
+**Anında yapıştır çalışmıyor.** X11'de XTEST, GNOME'da eklenti gerekir; diğer Wayland masaüstlerinde `wtype` (wlroots) veya `ydotool` (uinput daemon'ı ile) kurulu olmalıdır. Yapıştırma başarısız olsa da içerik panoya konur ve bir bildirim gösterilir.
 
 **SSH üzerinden X forwarding kullanıyorsanız** panod bağlanamaz: unit `RestrictAddressFamilies=AF_UNIX` ile TCP'yi engeller, `DISPLAY=localhost:10` ise TCP gerektirir. `/usr/lib/systemd/user/panod.service` içindeki o satırı kaldırıp `systemctl --user daemon-reload` çalıştırın.

@@ -1,35 +1,85 @@
 // Copyright (C) 2026 Panora contributors
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! X11 clipboard backend.
+//! Native X11 clipboard backend on top of `x11rb`.
+//!
+//! * Change detection uses the XFIXES `SelectionNotify` event, so there is
+//!   no polling and no helper process.
+//! * TARGETS are read before any payload (ADR 0003); payloads are fetched
+//!   with `ConvertSelection`, including `INCR` transfers for large data.
+//! * `offer` makes panod the selection owner itself and answers
+//!   `SelectionRequest`s for every stored format at once (text + HTML +
+//!   image), with `INCR` for payloads above the request-size limit.
+//! * When the owning application exits the daemon is told (`OwnerGone`) so
+//!   it can re-offer the last entry: X11 has no clipboard persistence.
+//! * Instant paste uses the XTEST extension.
 
 use async_trait::async_trait;
 use panora_core::backend::{Capabilities, ClipboardBackend, ClipboardEvent};
 use panora_core::error::{Error, Result};
-use panora_core::model::{ClipboardData, Selection};
-use std::process::{Command, Stdio};
+use panora_core::model::{ClipboardData, MimePayload, Selection, TEXT_MIMES};
+use std::cell::RefCell;
+use std::collections::{HashMap, VecDeque};
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
-use tokio::time::{sleep, Duration};
-use tracing::debug;
-use x11rb::connection::Connection as _;
-use x11rb::protocol::xproto::{Atom, AtomEnum, ConnectionExt as _, Window};
+use tracing::{debug, warn};
+use x11rb::connection::{Connection, RequestConnection as _};
+use x11rb::protocol::xfixes::{self, ConnectionExt as _, SelectionEventMask};
+use x11rb::protocol::xproto::{
+    Atom, AtomEnum, ChangeWindowAttributesAux, ConnectionExt as _, CreateWindowAux, EventMask,
+    GetPropertyType, PropMode, Property, SelectionNotifyEvent, SelectionRequestEvent, Time,
+    Timestamp, Window, WindowClass, SELECTION_NOTIFY_EVENT,
+};
+use x11rb::protocol::xtest::ConnectionExt as _;
+use x11rb::protocol::Event;
 use x11rb::rust_connection::RustConnection;
+use x11rb::wrapper::ConnectionExt as _;
 
 /// How far up the window tree to look for a WM_CLASS before giving up.
 const WM_CLASS_DEPTH: usize = 8;
+/// How long to wait for a selection owner to answer one conversion.
+const CONVERT_TIMEOUT: Duration = Duration::from_secs(3);
+/// How long the daemon waits for its own owner thread to take the selection.
+const OWNER_TIMEOUT: Duration = Duration::from_secs(3);
+/// Payloads above this size are served with the INCR protocol.
+const INCR_THRESHOLD: usize = 256 * 1024;
+/// Upper bound for one property read (in 32-bit units).
+const MAX_PROPERTY_LEN: u32 = u32::MAX / 4;
 
-/// X11 backend using the standard xclip TARGETS protocol.
+x11rb::atom_manager! {
+    pub Atoms: AtomsCookie {
+        CLIPBOARD,
+        TARGETS,
+        TIMESTAMP,
+        MULTIPLE,
+        INCR,
+        UTF8_STRING,
+        TEXT,
+        STRING,
+        _NET_ACTIVE_WINDOW,
+        _PANORA_OWNER,
+        _PANORA_XFER,
+    }
+}
+
+/// Native X11 backend.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct X11Backend;
 
 impl X11Backend {
-    /// Verify that the current X11 clipboard can be queried.
+    /// Verify that an X server with XFIXES is reachable.
     pub fn connect() -> Result<Self> {
         if std::env::var_os("DISPLAY").is_none() {
             return Err(Error::Backend("DISPLAY is not set".into()));
         }
-        if Command::new("xclip").arg("-version").output().is_err() {
-            return Err(Error::Backend("xclip is not installed".into()));
+        let (conn, _) = x11rb::connect(None).map_err(x11err)?;
+        let version = conn
+            .xfixes_query_version(5, 0)
+            .map_err(x11err)?
+            .reply()
+            .map_err(x11err)?;
+        if version.major_version < 1 {
+            return Err(Error::Backend("XFIXES extension unavailable".into()));
         }
         Ok(Self)
     }
@@ -45,106 +95,767 @@ impl ClipboardBackend for X11Backend {
         Capabilities {
             primary: true,
             images: true,
-            persist: false,
-            synthetic_paste: false,
+            persist: true,
+            synthetic_paste: true,
+            needs_bridge: false,
         }
     }
 
     async fn watch(&self, selection: Selection) -> Result<mpsc::Receiver<ClipboardEvent>> {
         let (sender, receiver) = mpsc::channel(64);
-        tokio::spawn(async move {
-            let mut last = String::new();
-            loop {
-                let snapshot = tokio::task::spawn_blocking(move || snapshot(selection))
-                    .await
-                    .ok()
-                    .and_then(std::result::Result::ok)
-                    .unwrap_or_default();
-                let target_text = snapshot.0;
-                if !target_text.is_empty() && snapshot.1 != last {
-                    let offered_mimes = target_text
-                        .lines()
-                        .map(str::trim)
-                        .filter(|s| !s.is_empty())
-                        .map(ToOwned::to_owned)
-                        .collect::<Vec<_>>();
-                    last = snapshot.1;
-                    // Only resolved when the clipboard actually changed, so
-                    // this costs one X11 round trip per copy, not per poll.
-                    let source_app = tokio::task::spawn_blocking(focused_app)
-                        .await
-                        .ok()
-                        .flatten();
-                    debug!(?source_app, "x11 clipboard change");
-                    if sender
-                        .send(ClipboardEvent {
-                            selection,
-                            offered_mimes,
-                            source_app,
-                        })
-                        .await
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-                sleep(Duration::from_millis(180)).await;
-            }
-        });
+        // Fail early if the watcher cannot even connect, instead of dying
+        // silently on a thread nobody observes.
+        let watcher = Watcher::new(selection)?;
+        std::thread::Builder::new()
+            .name(format!("panora-x11-watch-{}", selection.as_str()))
+            .spawn(move || watcher.run(sender))
+            .map_err(|e| Error::Backend(e.to_string()))?;
         Ok(receiver)
     }
 
     async fn read_targets(&self, selection: Selection) -> Result<Vec<String>> {
-        let output = tokio::task::spawn_blocking(move || targets(selection))
-            .await
-            .map_err(|e| Error::Backend(e.to_string()))??;
-        Ok(output
-            .lines()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(ToOwned::to_owned)
-            .collect())
+        tokio::task::spawn_blocking(move || {
+            let reader = Reader::new()?;
+            reader.targets(selection)
+        })
+        .await
+        .map_err(|e| Error::Backend(e.to_string()))?
     }
 
     async fn read(&self, selection: Selection, mime: &str) -> Result<Vec<u8>> {
-        let selection = selection_arg(selection);
         let mime = mime.to_string();
         tokio::task::spawn_blocking(move || {
-            let output = Command::new("xclip")
-                .args(["-selection", selection, "-out", "-t", &mime])
-                .output()
-                .map_err(|e| Error::Backend(e.to_string()))?;
-            if !output.status.success() {
-                return Err(Error::Backend(format!("xclip failed for MIME {mime}")));
-            }
-            Ok(output.stdout)
+            let reader = Reader::new()?;
+            reader.payload(selection, &mime)
         })
         .await
         .map_err(|e| Error::Backend(e.to_string()))?
     }
 
     async fn offer(&self, selection: Selection, data: ClipboardData) -> Result<()> {
-        let selection = selection_arg(selection).to_string();
-        for payload in data.payloads {
-            let mut child = Command::new("xclip")
-                .args(["-selection", &selection, "-in", "-t", &payload.mime])
-                .stdin(Stdio::piped())
-                .spawn()
-                .map_err(|e| Error::Backend(e.to_string()))?;
-            if let Some(stdin) = child.stdin.as_mut() {
-                use std::io::Write;
-                stdin.write_all(&payload.data)?;
+        tokio::task::spawn_blocking(move || Owner::spawn(selection, data.payloads))
+            .await
+            .map_err(|e| Error::Backend(e.to_string()))?
+    }
+
+    async fn synthetic_paste(&self) -> Result<()> {
+        tokio::task::spawn_blocking(xtest_paste)
+            .await
+            .map_err(|e| Error::Backend(e.to_string()))?
+    }
+}
+
+fn x11err(e: impl std::fmt::Display) -> Error {
+    Error::Backend(format!("x11: {e}"))
+}
+
+fn selection_atom(atoms: &Atoms, selection: Selection) -> Atom {
+    match selection {
+        Selection::Clipboard => atoms.CLIPBOARD,
+        Selection::Primary => AtomEnum::PRIMARY.into(),
+    }
+}
+
+/// A connection plus a hidden window used for selection transfers.
+struct Client {
+    conn: RustConnection,
+    root: Window,
+    window: Window,
+    atoms: Atoms,
+    /// Events received while waiting for a specific reply; they are
+    /// replayed by `next_event` so no owner change is lost during a
+    /// conversion.
+    pending: RefCell<VecDeque<Event>>,
+}
+
+impl Client {
+    fn new() -> Result<Self> {
+        let (conn, screen_num) = x11rb::connect(None).map_err(x11err)?;
+        let screen = conn
+            .setup()
+            .roots
+            .get(screen_num)
+            .ok_or_else(|| Error::Backend("x11: no screen".into()))?;
+        let root = screen.root;
+        let window = conn.generate_id().map_err(x11err)?;
+        conn.create_window(
+            x11rb::COPY_DEPTH_FROM_PARENT,
+            window,
+            root,
+            -10,
+            -10,
+            1,
+            1,
+            0,
+            WindowClass::INPUT_OUTPUT,
+            x11rb::COPY_FROM_PARENT,
+            &CreateWindowAux::new().event_mask(EventMask::PROPERTY_CHANGE),
+        )
+        .map_err(x11err)?;
+        let atoms = Atoms::new(&conn).map_err(x11err)?.reply().map_err(x11err)?;
+        conn.flush().map_err(x11err)?;
+        Ok(Self {
+            conn,
+            root,
+            window,
+            atoms,
+            pending: RefCell::new(VecDeque::new()),
+        })
+    }
+
+    /// Next event: replayed ones first, then a blocking read.
+    fn next_event(&self) -> Result<Event> {
+        if let Some(event) = self.pending.borrow_mut().pop_front() {
+            return Ok(event);
+        }
+        self.conn.wait_for_event().map_err(x11err)
+    }
+
+    fn intern(&self, name: &str) -> Result<Atom> {
+        Ok(self
+            .conn
+            .intern_atom(false, name.as_bytes())
+            .map_err(x11err)?
+            .reply()
+            .map_err(x11err)?
+            .atom)
+    }
+
+    fn atom_name(&self, atom: Atom) -> Result<String> {
+        let reply = self
+            .conn
+            .get_atom_name(atom)
+            .map_err(x11err)?
+            .reply()
+            .map_err(x11err)?;
+        Ok(String::from_utf8_lossy(&reply.name).into_owned())
+    }
+
+    /// Wait for one event matching `accept` until the deadline. Events that
+    /// do not match are queued for `next_event`.
+    fn wait_event<T>(
+        &self,
+        deadline: Instant,
+        mut accept: impl FnMut(&Event) -> Option<T>,
+    ) -> Result<T> {
+        loop {
+            if let Some(event) = self.conn.poll_for_event().map_err(x11err)? {
+                if let Some(value) = accept(&event) {
+                    return Ok(value);
+                }
+                self.pending.borrow_mut().push_back(event);
+                continue;
             }
-            let status = child.wait().map_err(|e| Error::Backend(e.to_string()))?;
-            if !status.success() {
-                return Err(Error::Backend(format!(
-                    "xclip offer failed for {}",
-                    payload.mime
-                )));
+            if Instant::now() >= deadline {
+                return Err(Error::Backend("x11: selection owner did not answer".into()));
             }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    /// Current server time, obtained through a property round trip.
+    fn server_time(&self) -> Result<Timestamp> {
+        self.conn
+            .change_property8(
+                PropMode::APPEND,
+                self.window,
+                self.atoms._PANORA_XFER,
+                AtomEnum::STRING,
+                &[],
+            )
+            .map_err(x11err)?;
+        self.conn.flush().map_err(x11err)?;
+        let window = self.window;
+        self.wait_event(Instant::now() + CONVERT_TIMEOUT, |event| match event {
+            Event::PropertyNotify(e) if e.window == window => Some(e.time),
+            _ => None,
+        })
+    }
+
+    /// Ask the owner of `selection` to convert `target` into our transfer
+    /// property and return the property's type and bytes (INCR resolved).
+    fn convert(&self, selection: Atom, target: Atom) -> Result<(Atom, u8, Vec<u8>)> {
+        let property = self.atoms._PANORA_XFER;
+        // A stale value from an earlier transfer must not be mistaken for
+        // the answer.
+        self.conn
+            .delete_property(self.window, property)
+            .map_err(x11err)?;
+        self.conn
+            .convert_selection(self.window, selection, target, property, Time::CURRENT_TIME)
+            .map_err(x11err)?;
+        self.conn.flush().map_err(x11err)?;
+        let window = self.window;
+        let deadline = Instant::now() + CONVERT_TIMEOUT;
+        let notify: SelectionNotifyEvent = self.wait_event(deadline, |event| match event {
+            Event::SelectionNotify(e) if e.requestor == window && e.selection == selection => {
+                Some(*e)
+            }
+            _ => None,
+        })?;
+        if notify.property == x11rb::NONE {
+            return Err(Error::Backend(
+                "x11: selection owner refused the conversion".into(),
+            ));
+        }
+        let reply = self
+            .conn
+            .get_property(
+                true,
+                window,
+                property,
+                GetPropertyType::ANY,
+                0,
+                MAX_PROPERTY_LEN,
+            )
+            .map_err(x11err)?
+            .reply()
+            .map_err(x11err)?;
+        if reply.type_ != self.atoms.INCR {
+            return Ok((reply.type_, reply.format, reply.value));
+        }
+
+        // INCR: the owner streams chunks into the property; every delete of
+        // ours asks for the next one, and an empty chunk ends the transfer.
+        self.conn.flush().map_err(x11err)?;
+        let mut data = Vec::new();
+        let mut type_ = self.atoms.INCR;
+        let mut format = 8;
+        loop {
+            let deadline = Instant::now() + CONVERT_TIMEOUT;
+            self.wait_event(deadline, |event| match event {
+                Event::PropertyNotify(e)
+                    if e.window == window
+                        && e.atom == property
+                        && e.state == Property::NEW_VALUE =>
+                {
+                    Some(())
+                }
+                _ => None,
+            })?;
+            let chunk = self
+                .conn
+                .get_property(
+                    true,
+                    window,
+                    property,
+                    GetPropertyType::ANY,
+                    0,
+                    MAX_PROPERTY_LEN,
+                )
+                .map_err(x11err)?
+                .reply()
+                .map_err(x11err)?;
+            self.conn.flush().map_err(x11err)?;
+            if chunk.value.is_empty() {
+                break;
+            }
+            type_ = chunk.type_;
+            format = chunk.format;
+            data.extend_from_slice(&chunk.value);
+        }
+        Ok((type_, format, data))
+    }
+}
+
+/// Reads TARGETS and payloads from whoever owns a selection.
+struct Reader {
+    client: Client,
+}
+
+impl Reader {
+    fn new() -> Result<Self> {
+        Ok(Self {
+            client: Client::new()?,
+        })
+    }
+
+    fn targets(&self, selection: Selection) -> Result<Vec<String>> {
+        let c = &self.client;
+        let sel = selection_atom(&c.atoms, selection);
+        if c.conn
+            .get_selection_owner(sel)
+            .map_err(x11err)?
+            .reply()
+            .map_err(x11err)?
+            .owner
+            == x11rb::NONE
+        {
+            return Ok(Vec::new());
+        }
+        let (type_, format, value) = c.convert(sel, c.atoms.TARGETS)?;
+        if type_ != Atom::from(AtomEnum::ATOM) || format != 32 {
+            return Ok(Vec::new());
+        }
+        let cookies: Vec<_> = value
+            .chunks_exact(4)
+            .map(|b| Atom::from_ne_bytes([b[0], b[1], b[2], b[3]]))
+            .filter(|&a| a != x11rb::NONE)
+            .map(|a| c.conn.get_atom_name(a))
+            .collect::<std::result::Result<_, _>>()
+            .map_err(x11err)?;
+        let mut names = Vec::with_capacity(cookies.len());
+        for cookie in cookies {
+            if let Ok(reply) = cookie.reply() {
+                names.push(String::from_utf8_lossy(&reply.name).into_owned());
+            }
+        }
+        Ok(names)
+    }
+
+    fn payload(&self, selection: Selection, mime: &str) -> Result<Vec<u8>> {
+        let c = &self.client;
+        let sel = selection_atom(&c.atoms, selection);
+        let target = c.intern(mime)?;
+        let (_, _, value) = c.convert(sel, target)?;
+        Ok(value)
+    }
+}
+
+/// Watches one selection with XFIXES and reports owner changes.
+struct Watcher {
+    client: Client,
+    selection: Selection,
+}
+
+impl Watcher {
+    fn new(selection: Selection) -> Result<Self> {
+        let client = Client::new()?;
+        let sel = selection_atom(&client.atoms, selection);
+        client
+            .conn
+            .xfixes_query_version(5, 0)
+            .map_err(x11err)?
+            .reply()
+            .map_err(x11err)?;
+        client
+            .conn
+            .xfixes_select_selection_input(
+                client.window,
+                sel,
+                SelectionEventMask::SET_SELECTION_OWNER
+                    | SelectionEventMask::SELECTION_WINDOW_DESTROY
+                    | SelectionEventMask::SELECTION_CLIENT_CLOSE,
+            )
+            .map_err(x11err)?;
+        client.conn.flush().map_err(x11err)?;
+        Ok(Self { client, selection })
+    }
+
+    fn run(self, sender: mpsc::Sender<ClipboardEvent>) {
+        let mut last: Option<(Window, Timestamp)> = None;
+        loop {
+            let event = match self.client.next_event() {
+                Ok(event) => event,
+                Err(e) => {
+                    warn!(error = %e, "x11 watcher connection lost");
+                    return;
+                }
+            };
+            let Event::XfixesSelectionNotify(notify) = event else {
+                continue;
+            };
+            let event = match notify.subtype {
+                xfixes::SelectionEvent::SET_SELECTION_OWNER => {
+                    if notify.owner == x11rb::NONE {
+                        continue;
+                    }
+                    // Chrome and GTK set the owner more than once per copy;
+                    // the selection timestamp identifies one user action.
+                    let identity = (notify.owner, notify.selection_timestamp);
+                    if last == Some(identity) {
+                        continue;
+                    }
+                    last = Some(identity);
+                    if self.is_own_window(notify.owner) {
+                        debug!("x11: ignoring our own selection ownership");
+                        continue;
+                    }
+                    let offered = match self.targets_of(notify.selection) {
+                        Ok(t) if !t.is_empty() => t,
+                        Ok(_) => continue,
+                        Err(e) => {
+                            debug!(error = %e, "x11: TARGETS read failed");
+                            continue;
+                        }
+                    };
+                    let source_app = focused_app(&self.client);
+                    debug!(?source_app, count = offered.len(), "x11 clipboard change");
+                    ClipboardEvent::changed(self.selection, offered, source_app)
+                }
+                xfixes::SelectionEvent::SELECTION_WINDOW_DESTROY
+                | xfixes::SelectionEvent::SELECTION_CLIENT_CLOSE => {
+                    last = None;
+                    ClipboardEvent::owner_gone(self.selection)
+                }
+                _ => continue,
+            };
+            if sender.blocking_send(event).is_err() {
+                return;
+            }
+        }
+    }
+
+    fn targets_of(&self, selection: Atom) -> Result<Vec<String>> {
+        let c = &self.client;
+        let (type_, format, value) = c.convert(selection, c.atoms.TARGETS)?;
+        if type_ != Atom::from(AtomEnum::ATOM) || format != 32 {
+            return Ok(Vec::new());
+        }
+        let mut names = Vec::new();
+        for chunk in value.chunks_exact(4) {
+            let atom = Atom::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+            if atom == x11rb::NONE {
+                continue;
+            }
+            if let Ok(name) = c.atom_name(atom) {
+                names.push(name);
+            }
+        }
+        Ok(names)
+    }
+
+    /// Our owner windows carry `_PANORA_OWNER`, so a recall never loops
+    /// back into the capture path.
+    fn is_own_window(&self, window: Window) -> bool {
+        self.client
+            .conn
+            .get_property(
+                false,
+                window,
+                self.client.atoms._PANORA_OWNER,
+                AtomEnum::CARDINAL,
+                0,
+                1,
+            )
+            .ok()
+            .and_then(|c| c.reply().ok())
+            .map(|r| r.value_len > 0)
+            .unwrap_or(false)
+    }
+}
+
+/// Serves our payloads to other applications while we own a selection.
+struct Owner {
+    client: Client,
+    selection: Atom,
+    payloads: Vec<MimePayload>,
+    /// Target atom -> payload index.
+    targets: HashMap<Atom, usize>,
+    /// TARGETS reply (atoms we advertise).
+    advertised: Vec<Atom>,
+    timestamp: Timestamp,
+    /// In-flight INCR transfers keyed by (requestor, property).
+    incr: HashMap<(Window, Atom), IncrTransfer>,
+    chunk: usize,
+}
+
+struct IncrTransfer {
+    target: Atom,
+    payload: usize,
+    offset: usize,
+}
+
+impl Owner {
+    /// Take ownership on a dedicated thread and return once the X server
+    /// confirms it. The thread keeps serving until another owner appears.
+    fn spawn(selection: Selection, payloads: Vec<MimePayload>) -> Result<()> {
+        if payloads.is_empty() {
+            return Err(Error::Backend("nothing to offer".into()));
+        }
+        let (tx, rx) = std::sync::mpsc::channel::<Result<()>>();
+        std::thread::Builder::new()
+            .name("panora-x11-owner".into())
+            .spawn(move || {
+                let owner = match Owner::new(selection, payloads) {
+                    Ok(owner) => owner,
+                    Err(e) => {
+                        let _ = tx.send(Err(e));
+                        return;
+                    }
+                };
+                let _ = tx.send(Ok(()));
+                owner.serve();
+            })
+            .map_err(|e| Error::Backend(e.to_string()))?;
+        rx.recv_timeout(OWNER_TIMEOUT)
+            .map_err(|_| Error::Backend("x11: owner thread did not start".into()))?
+    }
+
+    fn new(selection: Selection, payloads: Vec<MimePayload>) -> Result<Self> {
+        let client = Client::new()?;
+        let sel = selection_atom(&client.atoms, selection);
+        client
+            .conn
+            .change_property32(
+                PropMode::REPLACE,
+                client.window,
+                client.atoms._PANORA_OWNER,
+                AtomEnum::CARDINAL,
+                &[1],
+            )
+            .map_err(x11err)?;
+
+        let mut targets = HashMap::new();
+        let mut advertised = vec![client.atoms.TARGETS, client.atoms.TIMESTAMP];
+        for (index, payload) in payloads.iter().enumerate() {
+            let atom = client.intern(&payload.mime)?;
+            targets.entry(atom).or_insert(index);
+            advertised.push(atom);
+        }
+        // Legacy text targets map to the best text payload so old
+        // toolkits and terminals can paste too.
+        if let Some(text_index) = payloads.iter().position(MimePayload::is_text) {
+            let best = TEXT_MIMES
+                .iter()
+                .find_map(|m| payloads.iter().position(|p| p.mime == *m))
+                .unwrap_or(text_index);
+            for alias in [
+                "UTF8_STRING",
+                "text/plain;charset=utf-8",
+                "text/plain",
+                "TEXT",
+                "STRING",
+            ] {
+                let atom = client.intern(alias)?;
+                if targets.insert(atom, best).is_none() {
+                    advertised.push(atom);
+                }
+            }
+        }
+
+        let timestamp = client.server_time()?;
+        client
+            .conn
+            .set_selection_owner(client.window, sel, timestamp)
+            .map_err(x11err)?;
+        let owner = client
+            .conn
+            .get_selection_owner(sel)
+            .map_err(x11err)?
+            .reply()
+            .map_err(x11err)?
+            .owner;
+        if owner != client.window {
+            return Err(Error::Backend(
+                "x11: could not take selection ownership".into(),
+            ));
+        }
+        let max_request = client.conn.maximum_request_bytes();
+        let chunk = max_request.saturating_sub(128).clamp(4096, 1024 * 1024);
+        Ok(Self {
+            client,
+            selection: sel,
+            payloads,
+            targets,
+            advertised,
+            timestamp,
+            incr: HashMap::new(),
+            chunk,
+        })
+    }
+
+    fn serve(mut self) {
+        loop {
+            let event = match self.client.next_event() {
+                Ok(event) => event,
+                Err(e) => {
+                    debug!(error = %e, "x11 owner connection closed");
+                    return;
+                }
+            };
+            match event {
+                Event::SelectionClear(e) if e.selection == self.selection => {
+                    debug!("x11: selection ownership taken by another client");
+                    let _ = self.client.conn.destroy_window(self.client.window);
+                    let _ = self.client.conn.flush();
+                    return;
+                }
+                Event::SelectionRequest(req) => {
+                    if let Err(e) = self.answer(req) {
+                        debug!(error = %e, "x11: selection request failed");
+                    }
+                }
+                Event::PropertyNotify(e) if e.state == Property::DELETE => {
+                    if let Err(err) = self.continue_incr(e.window, e.atom) {
+                        debug!(error = %err, "x11: INCR transfer failed");
+                        self.incr.remove(&(e.window, e.atom));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn answer(&mut self, req: SelectionRequestEvent) -> Result<()> {
+        let atoms = &self.client.atoms;
+        // Obsolete clients pass None; ICCCM says use the target as property.
+        let property = if req.property == x11rb::NONE {
+            req.target
+        } else {
+            req.property
+        };
+        let mut granted = property;
+
+        if req.target == atoms.TARGETS {
+            self.client
+                .conn
+                .change_property32(
+                    PropMode::REPLACE,
+                    req.requestor,
+                    property,
+                    AtomEnum::ATOM,
+                    &self.advertised,
+                )
+                .map_err(x11err)?;
+        } else if req.target == atoms.TIMESTAMP {
+            self.client
+                .conn
+                .change_property32(
+                    PropMode::REPLACE,
+                    req.requestor,
+                    property,
+                    AtomEnum::INTEGER,
+                    &[self.timestamp],
+                )
+                .map_err(x11err)?;
+        } else if let Some(&index) = self.targets.get(&req.target) {
+            let data = &self.payloads[index].data;
+            if data.len() > INCR_THRESHOLD {
+                self.client
+                    .conn
+                    .change_property32(
+                        PropMode::REPLACE,
+                        req.requestor,
+                        property,
+                        atoms.INCR,
+                        &[data.len() as u32],
+                    )
+                    .map_err(x11err)?;
+                self.client
+                    .conn
+                    .change_window_attributes(
+                        req.requestor,
+                        &ChangeWindowAttributesAux::new().event_mask(EventMask::PROPERTY_CHANGE),
+                    )
+                    .map_err(x11err)?;
+                self.incr.insert(
+                    (req.requestor, property),
+                    IncrTransfer {
+                        target: req.target,
+                        payload: index,
+                        offset: 0,
+                    },
+                );
+            } else {
+                self.client
+                    .conn
+                    .change_property8(PropMode::REPLACE, req.requestor, property, req.target, data)
+                    .map_err(x11err)?;
+            }
+        } else {
+            granted = x11rb::NONE;
+        }
+
+        let notify = SelectionNotifyEvent {
+            response_type: SELECTION_NOTIFY_EVENT,
+            sequence: 0,
+            time: req.time,
+            requestor: req.requestor,
+            selection: req.selection,
+            target: req.target,
+            property: granted,
+        };
+        self.client
+            .conn
+            .send_event(false, req.requestor, EventMask::NO_EVENT, notify)
+            .map_err(x11err)?;
+        self.client.conn.flush().map_err(x11err)?;
+        Ok(())
+    }
+
+    /// The requestor deleted the property: send the next INCR chunk.
+    fn continue_incr(&mut self, requestor: Window, property: Atom) -> Result<()> {
+        let Some(transfer) = self.incr.get_mut(&(requestor, property)) else {
+            return Ok(());
+        };
+        let data = &self.payloads[transfer.payload].data;
+        let end = (transfer.offset + self.chunk).min(data.len());
+        let chunk = &data[transfer.offset..end];
+        self.client
+            .conn
+            .change_property8(
+                PropMode::REPLACE,
+                requestor,
+                property,
+                transfer.target,
+                chunk,
+            )
+            .map_err(x11err)?;
+        self.client.conn.flush().map_err(x11err)?;
+        if chunk.is_empty() {
+            // Zero-length chunk terminates the transfer.
+            self.incr.remove(&(requestor, property));
+            let _ = self.client.conn.change_window_attributes(
+                requestor,
+                &ChangeWindowAttributesAux::new().event_mask(EventMask::NO_EVENT),
+            );
+        } else {
+            transfer.offset = end;
         }
         Ok(())
     }
+}
+
+/// Send Ctrl+V to the focused window through XTEST.
+fn xtest_paste() -> Result<()> {
+    let (conn, screen_num) = x11rb::connect(None).map_err(x11err)?;
+    let root = conn
+        .setup()
+        .roots
+        .get(screen_num)
+        .ok_or_else(|| Error::Backend("x11: no screen".into()))?
+        .root;
+    conn.xtest_get_version(2, 2)
+        .map_err(x11err)?
+        .reply()
+        .map_err(|_| Error::Backend("x11: XTEST extension unavailable".into()))?;
+    let control = keycode_for(&conn, 0xffe3)
+        .ok_or_else(|| Error::Backend("x11: no keycode for Control_L".into()))?;
+    let v =
+        keycode_for(&conn, 0x0076).ok_or_else(|| Error::Backend("x11: no keycode for v".into()))?;
+    const PRESS: u8 = 2;
+    const RELEASE: u8 = 3;
+    for (kind, code) in [
+        (PRESS, control),
+        (PRESS, v),
+        (RELEASE, v),
+        (RELEASE, control),
+    ] {
+        conn.xtest_fake_input(kind, code, x11rb::CURRENT_TIME, root, 0, 0, 0)
+            .map_err(x11err)?;
+    }
+    conn.flush().map_err(x11err)?;
+    Ok(())
+}
+
+/// First keycode producing `keysym` in the current keyboard mapping.
+fn keycode_for(conn: &RustConnection, keysym: u32) -> Option<u8> {
+    let setup = conn.setup();
+    let min = setup.min_keycode;
+    let max = setup.max_keycode;
+    let count = max.checked_sub(min)? + 1;
+    let mapping = conn.get_keyboard_mapping(min, count).ok()?.reply().ok()?;
+    let per = usize::from(mapping.keysyms_per_keycode);
+    if per == 0 {
+        return None;
+    }
+    mapping
+        .keysyms
+        .chunks(per)
+        .enumerate()
+        .find(|(_, syms)| syms.contains(&keysym))
+        .map(|(i, _)| min + i as u8)
 }
 
 /// Best-effort name of the application the copy came from.
@@ -157,18 +868,16 @@ impl ClipboardBackend for X11Backend {
 /// top-level is the same heuristic the GNOME bridge uses and matches what the
 /// user was actually working in when they pressed Ctrl+C. Every failure path
 /// returns None: a missing source app must never block a capture.
-fn focused_app() -> Option<String> {
-    let (conn, screen_num) = x11rb::connect(None).ok()?;
-    let root = conn.setup().roots.get(screen_num)?.root;
-
-    let window = intern(&conn, b"_NET_ACTIVE_WINDOW")
-        .and_then(|atom| active_window(&conn, root, atom))
+fn focused_app(client: &Client) -> Option<String> {
+    let conn = &client.conn;
+    let root = client.root;
+    let window = active_window(conn, root, client.atoms._NET_ACTIVE_WINDOW)
         .or_else(|| conn.get_input_focus().ok()?.reply().ok().map(|r| r.focus))?;
 
     // WM_CLASS lives on the top-level, but focus usually sits on a child.
     let mut window = window;
     for _ in 0..WM_CLASS_DEPTH {
-        if let Some(class) = wm_class(&conn, window) {
+        if let Some(class) = wm_class(conn, window) {
             return Some(class);
         }
         let tree = conn.query_tree(window).ok()?.reply().ok()?;
@@ -178,11 +887,6 @@ fn focused_app() -> Option<String> {
         window = tree.parent;
     }
     None
-}
-
-fn intern(conn: &RustConnection, name: &[u8]) -> Option<Atom> {
-    let atom = conn.intern_atom(true, name).ok()?.reply().ok()?.atom;
-    (atom != x11rb::NONE).then_some(atom)
 }
 
 fn active_window(conn: &RustConnection, root: Window, atom: Atom) -> Option<Window> {
@@ -209,57 +913,4 @@ fn wm_class(conn: &RustConnection, window: Window) -> Option<String> {
     let mut parts = text.split('\0').filter(|part| !part.is_empty());
     let instance = parts.next()?;
     Some(parts.next().unwrap_or(instance).to_string())
-}
-
-fn selection_arg(selection: Selection) -> &'static str {
-    match selection {
-        Selection::Clipboard => "clipboard",
-        Selection::Primary => "primary",
-    }
-}
-
-fn snapshot(selection: Selection) -> Result<(String, String)> {
-    let target_text = targets(selection)?;
-    if target_text.is_empty() {
-        return Ok((String::new(), String::new()));
-    }
-    // TARGETS often stays constant for consecutive text copies. X11's
-    // TIMESTAMP target changes with the clipboard owner and avoids losing
-    // events without reading large image payloads on every poll.
-    let timestamp = read_target(selection, "TIMESTAMP").unwrap_or_default();
-    let fingerprint = if timestamp.is_empty() {
-        format!(
-            "{}:{}",
-            target_text,
-            blake3::hash(target_text.as_bytes()).to_hex()
-        )
-    } else {
-        blake3::hash(&timestamp).to_hex().to_string()
-    };
-    Ok((target_text, fingerprint))
-}
-
-fn targets(selection: Selection) -> Result<String> {
-    let selection = selection_arg(selection);
-    let output = Command::new("xclip")
-        .args(["-selection", selection, "-target", "TARGETS", "-out"])
-        .output()
-        .map_err(|e| Error::Backend(e.to_string()))?;
-    if !output.status.success() {
-        return Ok(String::new());
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
-}
-
-fn read_target(selection: Selection, mime: &str) -> Result<Vec<u8>> {
-    let output = Command::new("xclip")
-        .args(["-selection", selection_arg(selection), "-out", "-t", mime])
-        .output()
-        .map_err(|e| Error::Backend(e.to_string()))?;
-    if !output.status.success() {
-        return Err(Error::Backend(format!(
-            "xclip target read failed for {mime}"
-        )));
-    }
-    Ok(output.stdout)
 }

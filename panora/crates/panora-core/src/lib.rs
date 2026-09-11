@@ -21,6 +21,10 @@ pub mod backend;
 pub mod config;
 /// Error types shared across the crate.
 pub mod error;
+/// User-facing strings in Turkish and English.
+pub mod i18n;
+/// JSON-lines IPC protocol shared by daemon, GUI and CLI.
+pub mod ipc;
 /// Data model (entries, MIME payloads, content kinds).
 pub mod model;
 /// Privacy engine: secret flags, exclusion lists, private mode.

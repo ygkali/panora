@@ -1,16 +1,15 @@
-# Panora 1.1.0 — Lokal Kurulum Kiti
+# Panora 1.2.0 — Lokal Kurulum Kiti
 
 ## En hızlı kurulum
 
-Bu arşivi açtıktan sonra terminalde şu komutları çalıştırın:
+Bu klasörde terminalde şu komutları çalıştırın:
 
 ```bash
-cd panora-local-kit-1.1.0
 chmod +x KUR.sh TEST.sh KALDIR.sh
 ./KUR.sh
 ```
 
-`KUR.sh` Debian/Ubuntu bağımlılıklarını kurar, `panora_1.1.0_ui1_amd64.deb` paketini yükler ve kullanıcı daemon servisini başlatır. Sudo parolanız istenebilir.
+`KUR.sh` Debian/Ubuntu bağımlılıklarını kurar, Rust araç zinciri yoksa rustup ile kullanıcı dizinine indirir, Panora'yı kaynaktan derleyip `.deb` paketini üretir, yükler ve kullanıcı daemon servisini (`panod.service`) başlatır. Sudo parolanız istenebilir. İlk derleme birkaç dakika sürer; hazır bir `dist/panora_*.deb` varsa ve makinenizle uyumluysa derleme atlanır.
 
 Kurulumdan sonra test:
 
@@ -18,69 +17,43 @@ Kurulumdan sonra test:
 ./TEST.sh
 ```
 
-Bu test X11 oturumunda `xclip`, Wayland oturumunda `wl-copy` kullanarak örnek metni panoya kopyalar; daemon status, liste, FTS5 arama ve GUI açılışını kontrol eder. GUI'yi açmadan yalnızca terminal smoke testi için:
+Test daemon durumunu, gerçek bir pano kopyasını (X11'de `xclip`, Wayland'de `wl-copy` veya GNOME eklentisi varsa onun üzerinden), listeleme/FTS5 aramayı ve geri çağırmayı doğrular, ardından GUI'yi açar. Yalnızca terminal testi için:
 
 ```bash
 PANORA_NO_GUI=1 ./TEST.sh
 ```
 
-GUI'yi manuel açmak için:
+GUI'yi elle açmak / kapatmak için `panora` (ikinci çağrı açık pencereyi kapatır). GNOME'da oturumu yeniden açtıktan sonra Super+V:
 
 ```bash
-panora
+gnome-extensions enable panora@panora-clipboard.org
 ```
 
-## Fotoğraf testi
+## Görsel ve biçimli içerik testi
 
-X11 kullanıyorsanız:
-
-```bash
-xclip -selection clipboard -in -t image/png < /path/to/foto.png
-panora
-```
-
-Wayland kullanıyorsanız:
-
-```bash
-wl-copy --type image/png < /path/to/foto.png
-panora
-```
-
-Popup içinde fotoğrafın `FOTO` kartı ve thumbnail'i görünmelidir. Metin, HTML/rich-text ve URI clipboard testleri için ayrıntılı komutlar `panora/INSTALL-local.md` içindedir.
+Bir görsel kopyalayın (ekran görüntüsü, tarayıcıdan "Resmi kopyala") ve `panora` içinde **GÖRSEL** kartını ve küçük resmi görün; `Space` tam boy önizlemeyi açar. Tarayıcıdan biçimli metin kopyaladığınızda kayıt **BİÇİMLİ** olarak işaretlenir ve geri çağırma hem HTML'i hem düz metni sunar. `panora-cli preview <id> --mime image/png --out foto.png` ile payload'ı dosyaya yazabilirsiniz.
 
 ## Kaynak koddan derleme
 
-Hazır Debian paketi yerine kaynak kodunu derlemek için:
-
 ```bash
-cd panora-local-kit-1.1.0/panora
-sudo apt update
-sudo apt install -y build-essential pkg-config libgtk-4-dev libadwaita-1-dev libsqlite3-dev libx11-dev libwayland-dev xclip wl-clipboard gnome-keyring
+cd panora
+sudo apt install -y build-essential pkg-config libgtk-4-dev libadwaita-1-dev
 cargo fmt --all -- --check
-cargo check --workspace
-cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
 cargo build --workspace --release
 ```
 
-Rust 1.85 veya daha yeni stable toolchain gereklidir. Ayrıntılı sistem uyumluluğu, servis günlükleri, manuel paket kurulumu ve kaldırma davranışı için `panora/INSTALL-local.md` dosyasını okuyun.
+Rust 1.85 veya daha yeni stable toolchain gereklidir. Sistem uyumluluğu, servis günlükleri ve sorun giderme için `panora/INSTALL-local.md` dosyasını okuyun.
 
 ## Kaldırma
 
-Programı kaldırmak için:
-
 ```bash
-cd panora-local-kit-1.1.0
 ./KALDIR.sh
 ```
 
 Kaldırma script'i programı ve servisi kaldırır, fakat şifreli clipboard geçmişini varsayılan olarak silmez. Verileri de silmek isterseniz `~/.local/share/panora` ve `~/.config/panora` yollarını ayrıca ve bilinçli olarak kaldırın.
 
-## Paket ve kaynak içeriği
+## İçerik
 
-`panora/` klasörü Rust kaynaklarını, GTK4/libadwaita GUI'yi, daemon/CLI'yi, X11/Wayland backend'lerini, GNOME extension'ı, test scriptlerini ve belgeleri içerir. Hazır paket `panora/dist/panora_1.1.0_ui1_amd64.deb` yolundadır.
-
-```text
-Debian package SHA-256:
-8f0f0b3e8af5b2d7f415d08c56c60c7e6b42a75c6fb370a84cb1f81e5f074c80
-```
+`panora/` klasörü Rust kaynaklarını (daemon, GTK4/libadwaita GUI, CLI), yerel X11/Wayland backend'lerini, GNOME Shell eklentisini, paketleme script'lerini, testleri ve belgeleri içerir. Hazır paket kitle birlikte gelmez; `KUR.sh` (veya `panora/packaging/build-deb.sh`) onu bu makinede üretir ve SHA-256 özetini yazdırır.

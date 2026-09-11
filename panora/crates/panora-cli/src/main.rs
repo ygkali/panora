@@ -3,185 +3,296 @@
 
 //! Low-overhead Panora CLI client.
 
-use panora_core::config::socket_path;
-use panora_core::model::Entry;
-use serde::{Deserialize, Serialize};
-use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::net::UnixStream;
+#![forbid(unsafe_code)]
 
-/// Upper bound on one daemon reply, mirroring the GUI client.
-const MAX_RESPONSE_BYTES: u64 = 128 * 1024 * 1024;
+use panora_core::config::Config;
+use panora_core::i18n::{fill, Language, Strings};
+use panora_core::ipc::{client, QueryRequest, Request, ResponseData};
+use std::io::Write;
 
-#[derive(Debug, Serialize)]
-#[serde(tag = "method", content = "params")]
-enum Request {
-    List(QueryRequest),
-    Recall { id: i64 },
-    Pin { id: i64, pinned: bool },
-    Delete { id: i64 },
-    Clear,
-    SetPrivate { enabled: bool },
-    Toggle,
-    Status,
-    Preview { id: i64 },
-}
-
-#[derive(Debug, Serialize, Default)]
-struct QueryRequest {
-    search: Option<String>,
-    kind: Option<String>,
-    pinned_only: bool,
-    limit: usize,
-    offset: usize,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "ok", content = "data")]
-enum Response {
-    #[serde(rename = "true")]
-    Success(ResponseData),
-    #[serde(rename = "false")]
-    Failure { message: String },
-}
-
-#[derive(Debug, Deserialize)]
-enum ResponseData {
-    Entries(Vec<Entry>),
-    Count(usize),
-    Status(StatusData),
-    Empty,
-    Payloads(Vec<panora_core::model::MimePayload>),
-}
-
-#[derive(Debug, Deserialize)]
-struct StatusData {
-    backend: String,
-    entries: i64,
-    private_mode: bool,
-    sync_active: bool,
+/// Parsed command line.
+struct Invocation {
+    request: Request,
+    json: bool,
+    /// `preview --mime`: write only this payload.
+    mime: Option<String>,
+    /// `preview --out`: write the payload to a file instead of stdout.
+    out: Option<String>,
 }
 
 fn main() {
-    if let Err(error) = run() {
+    let language = Config::load()
+        .map(|c| Language::from_config(&c.ui.language))
+        .unwrap_or_else(|_| Language::from_environment());
+    let s = language.strings();
+    if let Err(error) = run(s) {
         eprintln!("panora-cli: {error}");
         std::process::exit(1);
     }
 }
 
-fn run() -> Result<(), String> {
+fn run(s: &Strings) -> Result<(), String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let request = match args.first().map(String::as_str) {
-        None | Some("help") | Some("--help") => {
-            print_help();
-            return Ok(());
+    let Some(invocation) = parse(&args, s)? else {
+        println!("{}", s.cli_help);
+        return Ok(());
+    };
+    let data = client::call(&invocation.request).map_err(|e| e.to_string())?;
+    print_response(s, &invocation, data)
+}
+
+fn parse(args: &[String], s: &Strings) -> Result<Option<Invocation>, String> {
+    let mut json = false;
+    let mut positional: Vec<&str> = Vec::new();
+    let mut kind = None;
+    let mut pinned = false;
+    let mut limit = 50usize;
+    let mut offset = 0usize;
+    let mut paste = false;
+    let mut mime = None;
+    let mut out = None;
+
+    let mut iter = args.iter();
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "--json" => json = true,
+            "--pinned" => pinned = true,
+            "--paste" => paste = true,
+            "--kind" => kind = Some(next_value(&mut iter, "--kind")?),
+            "--limit" => {
+                limit = next_value(&mut iter, "--limit")?
+                    .parse()
+                    .map_err(|_| "--limit must be a number")?
+            }
+            "--offset" => {
+                offset = next_value(&mut iter, "--offset")?
+                    .parse()
+                    .map_err(|_| "--offset must be a number")?
+            }
+            "--mime" => mime = Some(next_value(&mut iter, "--mime")?),
+            "--out" => out = Some(next_value(&mut iter, "--out")?),
+            other => positional.push(other),
         }
+    }
+
+    let request = match positional.first().copied() {
+        None | Some("help") | Some("--help") | Some("-h") => return Ok(None),
         Some("list") => Request::List(QueryRequest {
-            search: args.get(1).cloned(),
-            limit: 50,
-            ..Default::default()
+            search: positional.get(1).map(|q| q.to_string()),
+            kind,
+            pinned_only: pinned,
+            limit,
+            offset,
         }),
         Some("search") => Request::List(QueryRequest {
-            search: Some(args.get(1).ok_or("search requires text")?.clone()),
-            limit: 50,
-            ..Default::default()
+            search: Some(positional.get(1).ok_or("search requires text")?.to_string()),
+            kind,
+            pinned_only: pinned,
+            limit,
+            offset,
         }),
-        Some("copy") => Request::Recall {
-            id: parse_id(&args)?,
+        Some("copy") | Some("recall") => Request::Recall {
+            id: parse_id(&positional)?,
+            paste,
         },
         Some("pin") => Request::Pin {
-            id: parse_id(&args)?,
+            id: parse_id(&positional)?,
             pinned: true,
         },
         Some("unpin") => Request::Pin {
-            id: parse_id(&args)?,
+            id: parse_id(&positional)?,
             pinned: false,
         },
-        Some("delete") => Request::Delete {
-            id: parse_id(&args)?,
+        Some("delete") | Some("rm") => Request::Delete {
+            id: parse_id(&positional)?,
         },
         Some("clear") => Request::Clear,
         Some("private") => Request::SetPrivate {
-            enabled: match args.get(1).map(String::as_str) {
-                Some("on") => true,
-                Some("off") => false,
+            enabled: match positional.get(1).copied() {
+                Some("on") | Some("1") | Some("true") => true,
+                Some("off") | Some("0") | Some("false") => false,
                 _ => return Err("private requires on or off".into()),
             },
         },
         Some("status") => Request::Status,
-        Some("preview") => Request::Preview {
-            id: parse_id(&args)?,
+        Some("preview") | Some("show") => Request::Preview {
+            id: parse_id(&positional)?,
         },
         Some("toggle") => Request::Toggle,
-        Some(other) => return Err(format!("unknown command: {other}")),
+        Some("reload") => Request::ReloadConfig,
+        Some(other) => return Err(format!("{}: {other}", s.cli_unknown_command)),
     };
-    let response = call(request)?;
-    print_response(response);
-    Ok(())
+    Ok(Some(Invocation {
+        request,
+        json,
+        mime,
+        out,
+    }))
 }
 
-fn parse_id(args: &[String]) -> Result<i64, String> {
+fn next_value<'a>(iter: &mut std::slice::Iter<'a, String>, flag: &str) -> Result<String, String> {
+    iter.next()
+        .map(|v| v.to_string())
+        .ok_or_else(|| format!("{flag} requires a value"))
+}
+
+fn parse_id(args: &[&str]) -> Result<i64, String> {
     args.get(1)
         .ok_or("command requires an id")?
         .parse()
         .map_err(|_| "id must be an integer".into())
 }
 
-fn call(request: Request) -> Result<Response, String> {
-    let mut stream =
-        UnixStream::connect(socket_path()).map_err(|e| format!("daemon unavailable: {e}"))?;
-    let bytes = serde_json::to_vec(&request).map_err(|e| e.to_string())?;
-    stream.write_all(&bytes).map_err(|e| e.to_string())?;
-    stream.write_all(b"\n").map_err(|e| e.to_string())?;
-    let mut line = String::new();
-    // Keep the reply allocation finite; Preview carries image bytes as a JSON
-    // array, so the cap is generous rather than tight.
-    BufReader::new(stream)
-        .take(MAX_RESPONSE_BYTES)
-        .read_line(&mut line)
-        .map_err(|e| e.to_string())?;
-    serde_json::from_str(line.trim()).map_err(|e| format!("invalid daemon response: {e}"))
+fn print_response(s: &Strings, invocation: &Invocation, data: ResponseData) -> Result<(), String> {
+    if invocation.json {
+        let json = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
+        println!("{json}");
+        return Ok(());
+    }
+    match data {
+        ResponseData::Entries(entries) => {
+            for entry in entries {
+                let pin = if entry.pinned { "*" } else { " " };
+                let preview = entry.preview.replace('\n', " ⏎ ");
+                println!(
+                    "{pin} {:>5} [{}] {}",
+                    entry.id,
+                    entry.kind.as_str(),
+                    preview
+                );
+            }
+        }
+        ResponseData::Status(status) => {
+            let caps = &status.capabilities;
+            println!(
+                "backend={} entries={} private={} version={} protocol={} revision={} \
+                 primary={} persist={} paste={}",
+                status.backend,
+                status.entries,
+                status.private_mode,
+                status.version,
+                status.protocol,
+                status.revision,
+                caps.primary,
+                caps.persist,
+                caps.synthetic_paste
+            );
+        }
+        ResponseData::Count(count) => println!("{}", fill(s.cli_count, "n", &count.to_string())),
+        ResponseData::Payloads(payloads) => {
+            if let Some(mime) = &invocation.mime {
+                let payload = payloads
+                    .iter()
+                    .find(|p| p.mime.eq_ignore_ascii_case(mime))
+                    .ok_or_else(|| format!("no payload with MIME {mime}"))?;
+                write_payload(&payload.data, invocation.out.as_deref())?;
+            } else if let Some(out) = &invocation.out {
+                let payload = payloads.first().ok_or("entry has no payloads")?;
+                write_payload(&payload.data, Some(out))?;
+            } else {
+                for payload in &payloads {
+                    if payload.is_text() {
+                        println!(
+                            "--- {} ({} bytes)\n{}",
+                            payload.mime,
+                            payload.data.len(),
+                            String::from_utf8_lossy(&payload.data)
+                        );
+                    } else {
+                        println!(
+                            "--- {} ({} bytes) [binary]",
+                            payload.mime,
+                            payload.data.len()
+                        );
+                    }
+                }
+            }
+        }
+        ResponseData::Recalled { pasted } => {
+            if pasted {
+                println!("{} (pasted)", s.cli_ok);
+            } else {
+                println!("{}", s.cli_ok);
+            }
+        }
+        ResponseData::Empty => println!("{}", s.cli_ok),
+    }
+    Ok(())
 }
 
-fn print_response(response: Response) {
-    match response {
-        Response::Failure { message } => eprintln!("error: {message}"),
-        Response::Success(data) => match data {
-            ResponseData::Entries(entries) => {
-                for entry in entries {
-                    let pin = if entry.pinned { "*" } else { " " };
-                    println!(
-                        "{pin} {:>4} [{}] {}",
-                        entry.id,
-                        entry.kind.as_str(),
-                        entry.preview
-                    );
-                }
-            }
-            ResponseData::Status(status) => println!(
-                "backend={} entries={} private={} sync={}",
-                status.backend, status.entries, status.private_mode, status.sync_active
-            ),
-            ResponseData::Count(count) => println!("{count} kayıt işlendi."),
-            ResponseData::Payloads(payloads) => {
-                for payload in payloads {
-                    println!("{} {} bytes", payload.mime, payload.data.len());
-                }
-            }
-            ResponseData::Empty => println!("ok"),
-        },
+fn write_payload(data: &[u8], out: Option<&str>) -> Result<(), String> {
+    match out {
+        Some(path) => std::fs::write(path, data).map_err(|e| format!("cannot write {path}: {e}")),
+        None => {
+            let stdout = std::io::stdout();
+            let mut lock = stdout.lock();
+            lock.write_all(data).map_err(|e| e.to_string())?;
+            lock.flush().map_err(|e| e.to_string())
+        }
     }
 }
 
-fn print_help() {
-    println!("Panora güvenli pano yöneticisi CLI");
-    println!("Kullanım:");
-    println!("  panora-cli list [arama]");
-    println!("  panora-cli search <metin>");
-    println!("  panora-cli copy|preview <id>");
-    println!("  panora-cli pin|unpin <id>");
-    println!("  panora-cli delete <id>");
-    println!("  panora-cli clear            (sabitlenmemiş kayıtları siler)");
-    println!("  panora-cli private on|off");
-    println!("  panora-cli status");
-    println!("  panora-cli toggle");
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn parses_list_with_options() {
+        let s = Language::English.strings();
+        let inv = parse(
+            &args(&[
+                "list", "foo", "--kind", "image", "--pinned", "--limit", "5", "--json",
+            ]),
+            s,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(inv.json);
+        match inv.request {
+            Request::List(q) => {
+                assert_eq!(q.search.as_deref(), Some("foo"));
+                assert_eq!(q.kind.as_deref(), Some("image"));
+                assert!(q.pinned_only);
+                assert_eq!(q.limit, 5);
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_copy_with_paste_and_preview_options() {
+        let s = Language::Turkish.strings();
+        let inv = parse(&args(&["copy", "7", "--paste"]), s).unwrap().unwrap();
+        assert!(matches!(
+            inv.request,
+            Request::Recall { id: 7, paste: true }
+        ));
+        let inv = parse(
+            &args(&["preview", "3", "--mime", "image/png", "--out", "x.png"]),
+            s,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(matches!(inv.request, Request::Preview { id: 3 }));
+        assert_eq!(inv.mime.as_deref(), Some("image/png"));
+        assert_eq!(inv.out.as_deref(), Some("x.png"));
+    }
+
+    #[test]
+    fn rejects_bad_input() {
+        let s = Language::English.strings();
+        assert!(parse(&args(&["copy", "x"]), s).is_err());
+        assert!(parse(&args(&["private", "maybe"]), s).is_err());
+        assert!(parse(&args(&["bogus"]), s).is_err());
+        assert!(parse(&args(&["--limit"]), s).is_err());
+        assert!(parse(&args(&[]), s).unwrap().is_none());
+        assert!(matches!(
+            parse(&args(&["reload"]), s).unwrap().unwrap().request,
+            Request::ReloadConfig
+        ));
+    }
 }

@@ -8,7 +8,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.1.0"
+version = "1.2.0"
 edition = "2021"
 rust-version = "1.85"
 license = "GPL-3.0-only"
@@ -35,14 +35,19 @@ zeroize = { version = "1", features = ["derive"] }
 # --- serialization / errors ---
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-bincode = "1.3"
+base64 = "0.22"
 thiserror = "2"
 anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # --- X11 ---
-x11rb = { version = "0.13", features = ["xfixes"] }
+x11rb = { version = "0.13", features = ["xfixes", "xtest"] }
+
+# --- Wayland (native data-control; no wl-clipboard subprocesses) ---
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "staging"] }
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 
 # --- D-Bus ---
 # zbus 5 to match oo7: on zbus 4 the tree ends up carrying both major versions,

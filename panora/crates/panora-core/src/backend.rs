@@ -12,6 +12,18 @@ use crate::model::{ClipboardData, Selection};
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 
+/// What happened to a selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EventKind {
+    /// A new owner took the selection; `offered_mimes` lists its targets.
+    #[default]
+    Changed,
+    /// The owner went away (application exit) and the selection is now
+    /// empty. Backends that cannot persist content themselves report this so
+    /// the daemon can re-offer the last entry (CLIPBOARD_MANAGER-like).
+    OwnerGone,
+}
+
 /// Notification emitted by a backend when a selection changes.
 #[derive(Debug, Clone)]
 pub struct ClipboardEvent {
@@ -22,6 +34,34 @@ pub struct ClipboardEvent {
     pub offered_mimes: Vec<String>,
     /// Best-effort source application name.
     pub source_app: Option<String>,
+    /// Change or loss of the owner.
+    pub kind: EventKind,
+}
+
+impl ClipboardEvent {
+    /// A new selection owner with the given TARGETS.
+    pub fn changed(
+        selection: Selection,
+        offered_mimes: Vec<String>,
+        source_app: Option<String>,
+    ) -> Self {
+        Self {
+            selection,
+            offered_mimes,
+            source_app,
+            kind: EventKind::Changed,
+        }
+    }
+
+    /// The selection owner disappeared.
+    pub fn owner_gone(selection: Selection) -> Self {
+        Self {
+            selection,
+            offered_mimes: Vec::new(),
+            source_app: None,
+            kind: EventKind::OwnerGone,
+        }
+    }
 }
 
 /// Backend capability flags, reported at runtime so the daemon can
@@ -37,6 +77,10 @@ pub struct Capabilities {
     pub persist: bool,
     /// Can synthesize paste keystrokes (instant paste).
     pub synthetic_paste: bool,
+    /// Capture depends on the GNOME Shell bridge extension pushing data
+    /// (compositor without a data-control protocol). Native backends set
+    /// this to false so bridge pushes are ignored instead of duplicated.
+    pub needs_bridge: bool,
 }
 
 /// A clipboard capture/injection backend.
@@ -54,7 +98,8 @@ pub trait ClipboardBackend: Send + Sync {
     fn capabilities(&self) -> Capabilities;
 
     /// Start watching a selection. Returns a receiver of change events.
-    /// Implementations must be event-driven (no polling).
+    /// Implementations are event-driven (XFIXES on X11, data-control on
+    /// Wayland); they never poll or spawn helper processes.
     async fn watch(&self, selection: Selection) -> Result<mpsc::Receiver<ClipboardEvent>>;
 
     /// Read the current TARGETS (offered MIME list) without payloads.
@@ -113,6 +158,7 @@ impl ClipboardBackend for MockBackend {
             images: true,
             persist: true,
             synthetic_paste: false,
+            needs_bridge: false,
         }
     }
 
@@ -170,16 +216,21 @@ mod tests {
         backend.offer(Selection::Clipboard, data).await.unwrap();
 
         backend
-            .push_event(ClipboardEvent {
-                selection: Selection::Clipboard,
-                offered_mimes: vec!["text/plain".into()],
-                source_app: Some("test".into()),
-            })
+            .push_event(ClipboardEvent::changed(
+                Selection::Clipboard,
+                vec!["text/plain".into()],
+                Some("test".into()),
+            ))
             .await;
 
         let ev = rx.recv().await.unwrap();
         assert_eq!(ev.selection, Selection::Clipboard);
         assert_eq!(ev.offered_mimes, vec!["text/plain"]);
+        assert_eq!(ev.kind, EventKind::Changed);
+        assert_eq!(
+            ClipboardEvent::owner_gone(Selection::Primary).kind,
+            EventKind::OwnerGone
+        );
 
         let targets = backend.read_targets(Selection::Clipboard).await.unwrap();
         assert_eq!(targets, vec!["text/plain"]);

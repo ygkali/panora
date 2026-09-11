@@ -58,6 +58,10 @@ pub enum Error {
     /// Serialization failure.
     #[error("serialization error: {0}")]
     Serialization(String),
+
+    /// IPC transport failure or a failure reported by the daemon.
+    #[error("{0}")]
+    Ipc(String),
 }
 
 impl From<chacha20poly1305::Error> for Error {

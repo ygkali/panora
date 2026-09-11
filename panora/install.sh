@@ -88,30 +88,42 @@ echo "[1/5] Sistem bağımlılıkları kuruluyor..."
 # librsvg2-common is not optional: Adwaita 48 ships symbolic icons as SVG only,
 # and without gdk-pixbuf's SVG loader half the icons render as "image-missing".
 # Both libgtk-4-1 and adwaita-icon-theme list it as Recommends, so a machine
-# installed with --no-install-recommends does not have it.
+# installed with --no-install-recommends does not have it. gnome-keyring is
+# the Secret Service that keeps the encryption key; clipboard access itself is
+# native and needs no xclip/wl-clipboard.
 "${SUDO[@]}" apt-get install -y \
   libgtk-4-1 libadwaita-1-0 \
   adwaita-icon-theme librsvg2-common \
-  xclip wl-clipboard gnome-keyring
+  gnome-keyring
 
 if [[ "$BUILD_FROM_SOURCE" -eq 1 ]]; then
   echo "[2/5] Derleme bağımlılıkları kuruluyor..."
   # binutils lets build-deb.sh read the real glibc floor out of the binaries;
   # libglib2.0-dev-bin provides glib-compile-schemas for the Super+V shortcut.
   "${SUDO[@]}" apt-get install -y \
-    build-essential pkg-config \
+    build-essential pkg-config curl \
     libgtk-4-dev libadwaita-1-dev \
-    libdbus-1-dev libxcb1-dev libxcb-xfixes0-dev \
     binutils libglib2.0-dev-bin
 
+  # Pick up a rustup toolchain installed for this user earlier.
+  # shellcheck disable=SC1091
+  [[ -f "$HOME/.cargo/env" ]] && source "$HOME/.cargo/env"
+
   if ! command -v cargo >/dev/null 2>&1; then
-    echo >&2
-    echo "Hata: 'cargo' bulunamadı, kaynaktan derleme yapılamıyor." >&2
-    echo "Rust'ı kurup bu script'i tekrar çalıştırın:" >&2
-    echo "  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh" >&2
-    echo "  source \"\$HOME/.cargo/env\"" >&2
+    echo "      'cargo' bulunamadı; Rust araç zinciri rustup ile kuruluyor (kullanıcı dizinine)..."
+    if [[ "$(id -un)" != "$DESKTOP_USER" ]]; then
+      echo "Hata: rustup kurulumu masaüstü kullanıcısı olarak yapılmalı; sudo olmadan çalıştırın." >&2
+      exit 1
+    fi
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --no-modify-path
+    # shellcheck disable=SC1091
+    source "$HOME/.cargo/env"
+  fi
+  if ! command -v cargo >/dev/null 2>&1; then
+    echo "Hata: Rust kurulamadı. https://rustup.rs adresinden kurup tekrar deneyin." >&2
     exit 1
   fi
+  echo "      $(cargo --version)"
 
   echo "      Panora derleniyor (ilk derleme birkaç dakika sürebilir)..."
   "$ROOT_DIR/packaging/build-deb.sh"
@@ -140,7 +152,7 @@ if command -v systemctl >/dev/null 2>&1; then
   # Without these the unit starts with no DISPLAY/WAYLAND_DISPLAY and the
   # backend fails to connect. GNOME imports them itself; other sessions do not.
   run_as_desktop_user systemctl --user import-environment \
-    DISPLAY WAYLAND_DISPLAY XAUTHORITY XDG_SESSION_TYPE 2>/dev/null || true
+    DISPLAY WAYLAND_DISPLAY XAUTHORITY XDG_SESSION_TYPE XDG_CURRENT_DESKTOP 2>/dev/null || true
   if run_as_desktop_user systemctl --user daemon-reload 2>/dev/null &&
     run_as_desktop_user systemctl --user enable --now panod.service 2>/dev/null; then
     echo "      panod.service çalışıyor."

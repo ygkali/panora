@@ -9,4 +9,4 @@ pub mod db;
 
 pub use blob::BlobStore;
 pub use crypto::{content_hash, Cipher, MasterKey};
-pub use db::{Database, QueryFilter};
+pub use db::{fts_query, Database, QueryFilter};

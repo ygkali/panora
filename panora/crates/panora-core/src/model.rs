@@ -79,8 +79,41 @@ impl ContentKind {
 pub struct MimePayload {
     /// MIME type, e.g. "text/plain" or "image/png".
     pub mime: String,
-    /// Raw bytes as offered by the source application.
+    /// Raw bytes as offered by the source application. Serialized as base64
+    /// so image payloads do not explode into JSON number arrays over IPC.
+    #[serde(with = "base64_bytes")]
     pub data: Vec<u8>,
+}
+
+impl MimePayload {
+    /// Convenience constructor.
+    pub fn new(mime: impl Into<String>, data: impl Into<Vec<u8>>) -> Self {
+        Self {
+            mime: mime.into(),
+            data: data.into(),
+        }
+    }
+
+    /// True for text-like MIME types (including X11 legacy targets).
+    pub fn is_text(&self) -> bool {
+        is_text_mime(&self.mime)
+    }
+}
+
+/// Serde adapter: `Vec<u8>` as a standard base64 string.
+mod base64_bytes {
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine as _;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&STANDARD.encode(bytes))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        STANDARD.decode(text).map_err(serde::de::Error::custom)
+    }
 }
 
 /// A captured clipboard event before it is persisted. Produced by
@@ -149,14 +182,8 @@ impl ClipboardData {
 
     /// Extract the best plain-text representation, if any.
     pub fn text(&self) -> Option<String> {
-        for mime in [
-            "text/plain;charset=utf-8",
-            "text/plain",
-            "UTF8_STRING",
-            "STRING",
-            "TEXT",
-        ] {
-            if let Some(p) = self.payloads.iter().find(|p| p.mime == mime) {
+        for mime in TEXT_MIMES {
+            if let Some(p) = self.payloads.iter().find(|p| p.mime == *mime) {
                 if let Ok(s) = std::str::from_utf8(&p.data) {
                     return Some(s.trim_end_matches('\0').to_string());
                 }
@@ -201,9 +228,23 @@ pub struct Entry {
 }
 
 /// True for canonical text MIME names and X11 legacy text targets.
-fn is_text_mime(mime: &str) -> bool {
-    mime.starts_with("text/") || matches!(mime, "UTF8_STRING" | "STRING" | "TEXT")
+pub fn is_text_mime(mime: &str) -> bool {
+    mime.starts_with("text/")
+        || matches!(
+            mime,
+            "UTF8_STRING" | "STRING" | "TEXT" | "COMPOUND_TEXT" | "UTF8_STRING;charset=utf-8"
+        )
 }
+
+/// Plain-text MIME names in preference order, shared by backends and the
+/// daemon so every path agrees on what "the text of an entry" means.
+pub const TEXT_MIMES: &[&str] = &[
+    "text/plain;charset=utf-8",
+    "text/plain",
+    "UTF8_STRING",
+    "STRING",
+    "TEXT",
+];
 
 /// True if the text looks like a single color value.
 fn looks_like_color(t: &str) -> bool {

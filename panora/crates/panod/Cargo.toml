@@ -17,7 +17,7 @@ path = "src/main.rs"
 
 [dependencies]
 panora-core = { path = "../panora-core" }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["process"] }
 async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -27,9 +27,14 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 x11rb.workspace = true
 zbus.workspace = true
-oo7.workspace = true
 blake3.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+oo7.workspace = true
+wayland-client.workspace = true
+wayland-protocols.workspace = true
+wayland-protocols-wlr.workspace = true
+rustix = { version = "1", features = ["event", "pipe"] }
 
 [dev-dependencies]
 tempfile = "3"

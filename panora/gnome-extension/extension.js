@@ -3,12 +3,17 @@
 //
 // Panora GNOME Shell bridge.
 //
-// Two jobs, both local:
-//   1. Bind Super+V to the Panora popup.
-//   2. On Wayland only, forward clipboard changes to the daemon over the
-//      session bus, because Mutter denies non-focused clients clipboard reads.
-// On X11 the daemon reads the clipboard itself, so the forwarder stays off.
+// Three jobs, all local:
+//   1. Bind Super+V to the Panora popup (activates the running instance,
+//      which toggles it, or launches it through the .desktop entry).
+//   2. On Wayland without a data-control protocol (GNOME < 48), forward
+//      clipboard changes to the daemon over the session bus, because Mutter
+//      denies non-focused clients clipboard reads. On newer GNOME the daemon
+//      captures natively and ignores these pushes.
+//   3. Export a tiny helper service the daemon calls to set the clipboard
+//      (recall on GNOME < 48) and to synthesize Ctrl+V (instant paste).
 
+import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
@@ -19,13 +24,17 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 const BRIDGE_NAME = 'io.panora.GnomeBridge1';
 const BRIDGE_PATH = '/io/panora/GnomeBridge1';
+const HELPER_NAME = 'io.panora.GnomeShell1';
+const HELPER_PATH = '/io/panora/GnomeShell1';
 const KEYBINDING = 'toggle-popup';
-// Where the Debian package installs the popup.
+const APP_DESKTOP_ID = 'io.panora.Panora.desktop';
+// Where the Debian package installs the popup (fallback when the desktop
+// entry is not visible to the Shell, e.g. source installs).
 const POPUP_BINARY = '/usr/bin/panora';
 
 // Mirrors panora-core's privacy markers. Content a password manager flagged
 // as secret is dropped here, before any payload is read.
-const SECRET_MARKERS = ['passwordmanagerhint', 'concealedtype'];
+const SECRET_MARKERS = ['passwordmanagerhint', 'concealedtype', 'clipboard viewer ignore'];
 
 // The bridge forwards exactly one payload per event; this is the preference
 // order used to pick it.
@@ -47,12 +56,27 @@ const MAX_PAYLOAD_BYTES = 10 * 1024 * 1024;
 const DEBOUNCE_MS = 120;
 const CALL_TIMEOUT_MS = 2000;
 
+const HELPER_IFACE = `
+<node>
+  <interface name="${HELPER_NAME}">
+    <method name="SetClipboard">
+      <arg type="s" direction="in" name="mime"/>
+      <arg type="ay" direction="in" name="bytes"/>
+    </method>
+    <method name="Paste"/>
+    <property name="Version" type="u" access="read"/>
+  </interface>
+</node>`;
+
 export default class PanoraExtension extends Extension {
     enable() {
         this._bus = null;
         this._selection = null;
         this._ownerChangedId = 0;
         this._debounceId = 0;
+        this._helper = null;
+        this._nameId = 0;
+        this._virtualKeyboard = null;
 
         this._settings = this.getSettings();
         Main.wm.addKeybinding(
@@ -63,15 +87,17 @@ export default class PanoraExtension extends Extension {
             () => this._openPopup()
         );
 
-        if (!Meta.is_wayland_compositor())
-            return;
-
         try {
             this._bus = Gio.bus_get_sync(Gio.BusType.SESSION, null);
         } catch (error) {
             logError(error, 'Panora: session bus unavailable');
             return;
         }
+
+        this._exportHelper();
+
+        if (!Meta.is_wayland_compositor())
+            return;
 
         this._selection = global.display.get_selection();
         this._ownerChangedId = this._selection.connect(
@@ -94,22 +120,99 @@ export default class PanoraExtension extends Extension {
             this._selection.disconnect(this._ownerChangedId);
             this._ownerChangedId = 0;
         }
+        if (this._nameId) {
+            Gio.bus_unown_name(this._nameId);
+            this._nameId = 0;
+        }
+        if (this._helper) {
+            this._helper.unexport();
+            this._helper = null;
+        }
+        this._virtualKeyboard = null;
         this._selection = null;
         this._bus = null;
         this._settings = null;
     }
 
+    // ------------------------------------------------------------ popup
+
     _openPopup() {
+        // Activation of the running instance toggles the popup; when it is
+        // not running the Shell launches it from the desktop entry, outside
+        // any sandbox. Fall back to the binary for installs without the entry.
+        const app = Shell.AppSystem.get_default().lookup_app(APP_DESKTOP_ID);
+        if (app) {
+            try {
+                app.activate();
+                return;
+            } catch (error) {
+                logError(error, 'Panora: application activation failed');
+            }
+        }
         try {
             // Absolute path on purpose: this runs inside the gnome-shell
             // process, so resolving through $PATH would let anything earlier
-            // on the session PATH take over the shortcut. Source installs that
-            // land outside /usr/bin should adjust POPUP_BINARY.
+            // on the session PATH take over the shortcut.
             GLib.spawn_async(null, [POPUP_BINARY], null, GLib.SpawnFlags.DEFAULT, null);
         } catch (error) {
             logError(error, 'Panora: could not launch the popup');
         }
     }
+
+    // ------------------------------------------------------ helper service
+
+    _exportHelper() {
+        try {
+            this._helper = Gio.DBusExportedObject.wrapJSObject(HELPER_IFACE, this);
+            this._helper.export(this._bus, HELPER_PATH);
+            this._nameId = Gio.bus_own_name_on_connection(
+                this._bus,
+                HELPER_NAME,
+                Gio.BusNameOwnerFlags.NONE,
+                null,
+                null
+            );
+        } catch (error) {
+            logError(error, 'Panora: could not export the Shell helper');
+            this._helper = null;
+        }
+    }
+
+    get Version() {
+        return 2;
+    }
+
+    // SetClipboard(s mime, ay bytes): put one payload on the clipboard.
+    SetClipboard(mime, bytes) {
+        if (typeof mime !== 'string' || mime.length === 0 || mime.length > 256)
+            throw new Error('invalid MIME type');
+        const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+        if (data.length === 0 || data.length > MAX_PAYLOAD_BYTES)
+            throw new Error('payload size out of range');
+        const clipboard = St.Clipboard.get_default();
+        const lowered = mime.toLowerCase();
+        if (lowered.startsWith('text/plain') || lowered === 'utf8_string') {
+            clipboard.set_text(St.ClipboardType.CLIPBOARD, new TextDecoder().decode(data));
+        } else {
+            clipboard.set_content(St.ClipboardType.CLIPBOARD, mime, new GLib.Bytes(data));
+        }
+    }
+
+    // Paste(): Ctrl+V into the focused window through a virtual keyboard.
+    Paste() {
+        if (!this._virtualKeyboard) {
+            const seat = Clutter.get_default_backend().get_default_seat();
+            this._virtualKeyboard = seat.create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
+        }
+        const keyboard = this._virtualKeyboard;
+        const now = () => GLib.get_monotonic_time();
+        keyboard.notify_keyval(now(), Clutter.KEY_Control_L, Clutter.KeyState.PRESSED);
+        keyboard.notify_keyval(now(), Clutter.KEY_v, Clutter.KeyState.PRESSED);
+        keyboard.notify_keyval(now(), Clutter.KEY_v, Clutter.KeyState.RELEASED);
+        keyboard.notify_keyval(now(), Clutter.KEY_Control_L, Clutter.KeyState.RELEASED);
+    }
+
+    // ------------------------------------------------------------ capture
 
     _scheduleCapture() {
         if (this._debounceId)
