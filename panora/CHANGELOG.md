@@ -20,6 +20,7 @@
 - Shared protocol types from `panora-core`; `--json`, `--kind`, `--pinned`, `--limit`, `--offset`, `copy --paste`, `preview --mime/--out`, `toggle`, `reload`, localized help.
 
 ### Packaging
+- Review fixes: dialogs no longer lose Escape/Delete/Space to the main window, Super+V toggles through `org.freedesktop.Application.Activate`, the GUI spawned by panod escapes the service sandbox via `systemd-run --user`, package upgrades restart the daemon, `PrivateTmp` dropped so `ydotool` can reach its socket, aspect-correct thumbnails, "copy as plain text" goes through the daemon (`Recall { mime }`), `install.sh` builds as the desktop user and hands display variables to the user session.
 - `io.panora.Panora.desktop` with `DBusActivatable=true`, `io.panora.Panora.service`, `.deb` without xclip/wl-clipboard dependencies (`Suggests: wtype, ydotool`), `install.sh` installs rustup when `cargo` is missing, CI builds the package and runs the new X11 integration tests under Xvfb.
 
 ## 1.1.0

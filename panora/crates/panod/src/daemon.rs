@@ -507,9 +507,38 @@ impl Daemon {
     /// PRIMARY are recalled to the clipboard too: that is what the user
     /// pastes with Ctrl+V.
     async fn offer_entry(&self, entry: &Entry) -> Result<()> {
-        let payloads = self.load_payloads(entry.id)?;
+        self.offer_entry_as(entry, None).await
+    }
+
+    /// Like `offer_entry`, restricted to one format when `only` is given
+    /// (a text request also accepts the other plain-text aliases).
+    async fn offer_entry_as(&self, entry: &Entry, only: Option<&str>) -> Result<()> {
+        let mut payloads = self.load_payloads(entry.id)?;
+        if let Some(only) = only {
+            let exact: Vec<MimePayload> = payloads
+                .iter()
+                .filter(|p| p.mime.eq_ignore_ascii_case(only))
+                .cloned()
+                .collect();
+            payloads = if !exact.is_empty() {
+                exact
+            } else if panora_core::model::is_text_mime(only) {
+                panora_core::model::TEXT_MIMES
+                    .iter()
+                    .find_map(|m| payloads.iter().find(|p| p.mime == *m))
+                    .or_else(|| payloads.iter().find(|p| p.is_text()))
+                    .cloned()
+                    .into_iter()
+                    .collect()
+            } else {
+                Vec::new()
+            };
+        }
         if payloads.is_empty() {
-            return Err(Error::NotFound(entry.id));
+            return Err(Error::Backend(format!(
+                "entry {} has no payload for the requested format",
+                entry.id
+            )));
         }
         let data = ClipboardData {
             selection: Selection::Clipboard,
@@ -521,12 +550,17 @@ impl Daemon {
     }
 
     /// Put a history entry back on the clipboard, then optionally paste it.
-    pub async fn recall(&self, entry_id: i64, paste: bool) -> Result<RecallOutcome> {
+    pub async fn recall(
+        &self,
+        entry_id: i64,
+        paste: bool,
+        mime: Option<&str>,
+    ) -> Result<RecallOutcome> {
         let entry = self.db.get(entry_id)?;
         if entry.deleted {
             return Err(Error::NotFound(entry_id));
         }
-        self.offer_entry(&entry).await?;
+        self.offer_entry_as(&entry, mime).await?;
         self.db.touch(entry_id, unix_now())?;
         self.bump();
         if !paste {
@@ -822,7 +856,7 @@ mod tests {
         let rev = daemon.revision();
 
         // Recall puts it back on the (mock) clipboard.
-        let outcome = daemon.recall(entries[0].id, false).await.unwrap();
+        let outcome = daemon.recall(entries[0].id, false, None).await.unwrap();
         assert!(!outcome.pasted);
         let back = backend
             .read(Selection::Clipboard, "text/plain")
@@ -839,8 +873,52 @@ mod tests {
         offer_text(&backend, "paste me").await;
         daemon.handle_event(text_event()).await;
         let id = daemon.query(&QueryFilter::recent(1)).unwrap()[0].id;
-        let outcome = daemon.recall(id, true).await.unwrap();
+        let outcome = daemon.recall(id, true, None).await.unwrap();
         assert!(!outcome.pasted, "mock backend has no synthetic paste");
+    }
+
+    #[tokio::test]
+    async fn recall_can_be_limited_to_plain_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let (daemon, backend) = test_daemon(&dir);
+        backend
+            .offer(
+                Selection::Clipboard,
+                ClipboardData {
+                    selection: Selection::Clipboard,
+                    payloads: vec![
+                        MimePayload::new("text/plain;charset=utf-8", "plain"),
+                        MimePayload::new("text/html", "<b>plain</b>"),
+                    ],
+                    offered_mimes: vec!["text/plain;charset=utf-8".into(), "text/html".into()],
+                    source_app: None,
+                },
+            )
+            .await
+            .unwrap();
+        daemon
+            .handle_event(ClipboardEvent::changed(
+                Selection::Clipboard,
+                vec!["text/plain;charset=utf-8".into(), "text/html".into()],
+                None,
+            ))
+            .await;
+        let id = daemon.query(&QueryFilter::recent(1)).unwrap()[0].id;
+
+        daemon.recall(id, false, Some("text/plain")).await.unwrap();
+        let offered = backend.read_targets(Selection::Clipboard).await.unwrap();
+        assert_eq!(offered, vec!["text/plain;charset=utf-8".to_string()]);
+
+        daemon.recall(id, false, None).await.unwrap();
+        assert_eq!(
+            backend
+                .read_targets(Selection::Clipboard)
+                .await
+                .unwrap()
+                .len(),
+            2
+        );
+        assert!(daemon.recall(id, false, Some("image/png")).await.is_err());
     }
 
     #[tokio::test]
@@ -946,7 +1024,7 @@ mod tests {
 
         daemon.delete(id).await.unwrap();
         assert_eq!(daemon.query(&QueryFilter::recent(10)).unwrap().len(), 0);
-        assert!(daemon.recall(id, false).await.is_err());
+        assert!(daemon.recall(id, false, None).await.is_err());
         assert!(daemon.delete(id).await.is_err());
     }
 

@@ -40,6 +40,10 @@ pub enum Request {
         /// Synthesize a paste keystroke after the clipboard is set.
         #[serde(default)]
         paste: bool,
+        /// Offer only this format (e.g. `text/plain` to drop the HTML of a
+        /// rich-text entry). `None` offers every stored format.
+        #[serde(default)]
+        mime: Option<String>,
     },
     /// Set pin state.
     Pin {
@@ -273,7 +277,8 @@ mod tests {
             decoded,
             Request::Recall {
                 id: 3,
-                paste: false
+                paste: false,
+                mime: None
             }
         ));
     }

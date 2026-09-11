@@ -25,6 +25,8 @@ fi
 # `sudo ./install.sh` that is SUDO_USER, not root: enabling the unit as root
 # would start a daemon in a session that has no clipboard.
 DESKTOP_USER="${SUDO_USER:-$(id -un)}"
+DESKTOP_HOME="$(getent passwd "$DESKTOP_USER" | cut -d: -f6)"
+DESKTOP_HOME="${DESKTOP_HOME:-$HOME}"
 run_as_desktop_user() {
   if [[ "$(id -un)" == "$DESKTOP_USER" ]]; then
     "$@"
@@ -32,9 +34,18 @@ run_as_desktop_user() {
   fi
   local uid
   uid="$(id -u "$DESKTOP_USER")"
+  # sudo's env_reset drops the display variables; hand them over explicitly
+  # so the user unit learns about the session it must attach to.
   sudo -u "$DESKTOP_USER" \
+    HOME="$DESKTOP_HOME" \
+    PATH="$DESKTOP_HOME/.cargo/bin:/usr/local/bin:/usr/bin:/bin" \
     XDG_RUNTIME_DIR="/run/user/$uid" \
     DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+    DISPLAY="${DISPLAY:-}" \
+    WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
+    XAUTHORITY="${XAUTHORITY:-}" \
+    XDG_SESSION_TYPE="${XDG_SESSION_TYPE:-}" \
+    XDG_CURRENT_DESKTOP="${XDG_CURRENT_DESKTOP:-}" \
     "$@"
 }
 
@@ -105,11 +116,11 @@ if [[ "$BUILD_FROM_SOURCE" -eq 1 ]]; then
     libgtk-4-dev libadwaita-1-dev \
     binutils libglib2.0-dev-bin
 
-  # Pick up a rustup toolchain installed for this user earlier.
+  # Pick up a rustup toolchain installed for the desktop user earlier.
   # shellcheck disable=SC1091
-  [[ -f "$HOME/.cargo/env" ]] && source "$HOME/.cargo/env"
+  [[ -f "$DESKTOP_HOME/.cargo/env" ]] && source "$DESKTOP_HOME/.cargo/env"
 
-  if ! command -v cargo >/dev/null 2>&1; then
+  if ! run_as_desktop_user bash -c 'command -v cargo' >/dev/null 2>&1; then
     echo "      'cargo' bulunamadı; Rust araç zinciri rustup ile kuruluyor (kullanıcı dizinine)..."
     if [[ "$(id -un)" != "$DESKTOP_USER" ]]; then
       echo "Hata: rustup kurulumu masaüstü kullanıcısı olarak yapılmalı; sudo olmadan çalıştırın." >&2
@@ -119,14 +130,16 @@ if [[ "$BUILD_FROM_SOURCE" -eq 1 ]]; then
     # shellcheck disable=SC1091
     source "$HOME/.cargo/env"
   fi
-  if ! command -v cargo >/dev/null 2>&1; then
+  if ! run_as_desktop_user bash -c 'command -v cargo' >/dev/null 2>&1; then
     echo "Hata: Rust kurulamadı. https://rustup.rs adresinden kurup tekrar deneyin." >&2
     exit 1
   fi
-  echo "      $(cargo --version)"
+  echo "      $(run_as_desktop_user cargo --version)"
 
   echo "      Panora derleniyor (ilk derleme birkaç dakika sürebilir)..."
-  "$ROOT_DIR/packaging/build-deb.sh"
+  # Built as the desktop user so target/ and dist/ do not end up root-owned
+  # when the script itself runs under sudo.
+  run_as_desktop_user "$ROOT_DIR/packaging/build-deb.sh"
   DEB_FILE="$(find "$ROOT_DIR/dist" -maxdepth 1 -type f -name 'panora_*.deb' -print -quit 2>/dev/null || true)"
   if [[ -z "$DEB_FILE" ]]; then
     echo "Hata: paket üretilemedi." >&2

@@ -55,6 +55,7 @@ fn parse(args: &[String], s: &Strings) -> Result<Option<Invocation>, String> {
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
         match arg.as_str() {
+            "--help" | "-h" => return Ok(None),
             "--json" => json = true,
             "--pinned" => pinned = true,
             "--paste" => paste = true,
@@ -94,6 +95,7 @@ fn parse(args: &[String], s: &Strings) -> Result<Option<Invocation>, String> {
         Some("copy") | Some("recall") => Request::Recall {
             id: parse_id(&positional)?,
             paste,
+            mime: mime.take(),
         },
         Some("pin") => Request::Pin {
             id: parse_id(&positional)?,
@@ -269,7 +271,11 @@ mod tests {
         let inv = parse(&args(&["copy", "7", "--paste"]), s).unwrap().unwrap();
         assert!(matches!(
             inv.request,
-            Request::Recall { id: 7, paste: true }
+            Request::Recall {
+                id: 7,
+                paste: true,
+                mime: None
+            }
         ));
         let inv = parse(
             &args(&["preview", "3", "--mime", "image/png", "--out", "x.png"]),

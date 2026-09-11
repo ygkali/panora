@@ -459,6 +459,11 @@ fn install_shortcuts(ui: &Rc<Ui>) {
     let window = ui.window.clone();
     let ui = ui.clone();
     controller.connect_key_pressed(move |_, key, _, state| {
+        // Adwaita dialogs render inside this window, so the capture-phase
+        // handler would otherwise steal Escape/Delete/Space from them.
+        if ui.window.visible_dialog().is_some() {
+            return glib::Propagation::Proceed;
+        }
         let ctrl = state.contains(gdk::ModifierType::CONTROL_MASK);
         let shift = state.contains(gdk::ModifierType::SHIFT_MASK);
         let is_delete = key == gdk::Key::Delete || key == gdk::Key::KP_Delete;
@@ -584,6 +589,11 @@ fn current_query(ui: &Ui, offset: usize) -> Request {
 
 /// Query the daemon and rebuild the grid, empty state or error state.
 pub fn refresh(ui: &Rc<Ui>) {
+    // Record the revision we are about to render so the live-refresh poller
+    // does not rebuild the grid a second time right after this.
+    sync_status(ui);
+    let previous = current_child(ui).map(|c| c.index());
+    let grid_focused = ui.flow.focus_child().is_some();
     while let Some(child) = ui.flow.first_child() {
         ui.flow.remove(&child);
     }
@@ -646,6 +656,19 @@ pub fn refresh(ui: &Rc<Ui>) {
     append_entries(ui, entries);
     update_subtitle(ui);
     ui.stack.set_visible_child_name("list");
+
+    // Keep the user's place after pin/delete: reselect the same position
+    // (or the new last card) and restore keyboard focus to the grid.
+    if let Some(index) = previous {
+        let count = ui.entries.borrow().len() as i32;
+        let index = index.min(count.saturating_sub(1));
+        if let Some(child) = ui.flow.child_at_index(index) {
+            if grid_focused {
+                child.grab_focus();
+            }
+            ui.flow.select_child(&child);
+        }
+    }
 }
 
 fn update_subtitle(ui: &Rc<Ui>) {
@@ -879,7 +902,11 @@ pub fn recall(ui: &Rc<Ui>, id: i64) {
     glib::timeout_add_local_once(Duration::from_millis(60), move || {
         let (sender, receiver) = mpsc::channel();
         std::thread::spawn(move || {
-            let _ = sender.send(call(&Request::Recall { id, paste }));
+            let _ = sender.send(call(&Request::Recall {
+                id,
+                paste,
+                mime: None,
+            }));
         });
         glib::timeout_add_local(Duration::from_millis(20), move || {
             let result = match receiver.try_recv() {
@@ -901,11 +928,30 @@ pub fn recall(ui: &Rc<Ui>, id: i64) {
                 Err(_) => {
                     ui.window.set_visible(true);
                     toast(&ui, ui.s.toast_recall_failed);
+                    // Hiding the window stopped the poller; bring it back.
+                    start_live_refresh(&ui);
                 }
             }
             glib::ControlFlow::Break
         });
     });
+}
+
+/// Put only one format of an entry on the clipboard (plain text of a rich
+/// text entry, for instance). Routed through the daemon so ownership does
+/// not die with this process.
+pub fn recall_as(ui: &Rc<Ui>, id: i64, mime: &str) -> bool {
+    match call(&Request::Recall {
+        id,
+        paste: false,
+        mime: Some(mime.to_string()),
+    }) {
+        Ok(_) => true,
+        Err(_) => {
+            toast(ui, ui.s.toast_recall_failed);
+            false
+        }
+    }
 }
 
 /// Desktop notification for outcomes the (already hidden) popup cannot show.
@@ -1010,7 +1056,20 @@ pub fn load_image_preview_async(id: i64, picture: gtk::Picture) {
 /// Decode image bytes into a texture, scaled down to the given box.
 pub fn texture_from_bytes(bytes: &[u8], width: i32, height: i32) -> Option<gdk::Texture> {
     let loader = PixbufLoader::new();
-    loader.set_size(width, height);
+    // Scale to fit the box while keeping the aspect ratio; `set_size` alone
+    // would stretch the image to exactly width x height.
+    loader.connect_size_prepared(move |loader, w, h| {
+        if w <= 0 || h <= 0 {
+            return;
+        }
+        let scale = (f64::from(width) / f64::from(w))
+            .min(f64::from(height) / f64::from(h))
+            .min(1.0);
+        loader.set_size(
+            ((f64::from(w) * scale).round() as i32).max(1),
+            ((f64::from(h) * scale).round() as i32).max(1),
+        );
+    });
     if loader.write(bytes).is_err() || loader.close().is_err() {
         return None;
     }

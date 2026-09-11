@@ -222,31 +222,30 @@ async fn serve_client(
 /// Dispatch one request. Every arm maps to a daemon method; errors become
 /// `Response::Failure` with a message safe to show to the user.
 pub async fn handle_request(request: Request, daemon: &Daemon) -> Response {
-    let result = match request {
-        Request::List(q) => daemon.query(&q.into()).map(ResponseData::Entries),
-        Request::Recall { id, paste } => {
-            daemon
-                .recall(id, paste)
+    let result =
+        match request {
+            Request::List(q) => daemon.query(&q.into()).map(ResponseData::Entries),
+            Request::Recall { id, paste, mime } => daemon
+                .recall(id, paste, mime.as_deref())
                 .await
                 .map(|outcome| ResponseData::Recalled {
                     pasted: outcome.pasted,
-                })
-        }
-        Request::Pin { id, pinned } => daemon
-            .set_pinned(id, pinned)
-            .await
-            .map(|_| ResponseData::Empty),
-        Request::Delete { id } => daemon.delete(id).await.map(|_| ResponseData::Empty),
-        Request::Clear => daemon.clear().await.map(ResponseData::Count),
-        Request::SetPrivate { enabled } => {
-            daemon.set_private_mode(enabled);
-            Ok(ResponseData::Empty)
-        }
-        Request::Toggle => gnome::activate_gui().await.map(|_| ResponseData::Empty),
-        Request::Status => daemon.status().map(ResponseData::Status),
-        Request::Preview { id } => daemon.load_payloads(id).map(ResponseData::Payloads),
-        Request::ReloadConfig => daemon.reload_config().map(|_| ResponseData::Empty),
-    };
+                }),
+            Request::Pin { id, pinned } => daemon
+                .set_pinned(id, pinned)
+                .await
+                .map(|_| ResponseData::Empty),
+            Request::Delete { id } => daemon.delete(id).await.map(|_| ResponseData::Empty),
+            Request::Clear => daemon.clear().await.map(ResponseData::Count),
+            Request::SetPrivate { enabled } => {
+                daemon.set_private_mode(enabled);
+                Ok(ResponseData::Empty)
+            }
+            Request::Toggle => gnome::activate_gui().await.map(|_| ResponseData::Empty),
+            Request::Status => daemon.status().map(ResponseData::Status),
+            Request::Preview { id } => daemon.load_payloads(id).map(ResponseData::Payloads),
+            Request::ReloadConfig => daemon.reload_config().map(|_| ResponseData::Empty),
+        };
     match result {
         Ok(data) => Response::Success(data),
         Err(e) => Response::Failure {

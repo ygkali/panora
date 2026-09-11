@@ -4,7 +4,7 @@
 //! Full-content view for one entry: complete text, image, format list.
 
 use crate::util::{call, format_size, kind_label};
-use crate::window::{color_swatch, recall, texture_from_bytes, toast, Ui};
+use crate::window::{color_swatch, recall, recall_as, texture_from_bytes, toast, Ui};
 use gtk4 as gtk;
 use libadwaita as adw;
 use libadwaita::prelude::*;
@@ -88,18 +88,18 @@ pub fn show(ui: &Rc<Ui>, entry: &Entry) {
     let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     actions.set_halign(gtk::Align::End);
 
-    if let Some(text) = text.clone() {
-        if payloads.len() > 1 {
-            let plain = gtk::Button::with_label(s.details_copy_plain);
-            let ui = ui.clone();
-            let dialog = dialog.clone();
-            plain.connect_clicked(move |_| {
-                ui.window.clipboard().set_text(&text);
+    if text.is_some() && payloads.len() > 1 {
+        let plain = gtk::Button::with_label(s.details_copy_plain);
+        let ui = ui.clone();
+        let dialog = dialog.clone();
+        let id = entry.id;
+        plain.connect_clicked(move |_| {
+            if recall_as(&ui, id, "text/plain") {
                 toast(&ui, ui.s.toast_copied_text);
                 dialog.close();
-            });
-            actions.append(&plain);
-        }
+            }
+        });
+        actions.append(&plain);
     }
 
     let copy = gtk::Button::with_label(s.details_copy);

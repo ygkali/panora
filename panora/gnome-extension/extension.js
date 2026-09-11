@@ -27,6 +27,8 @@ const BRIDGE_PATH = '/io/panora/GnomeBridge1';
 const HELPER_NAME = 'io.panora.GnomeShell1';
 const HELPER_PATH = '/io/panora/GnomeShell1';
 const KEYBINDING = 'toggle-popup';
+const APP_BUS_NAME = 'io.panora.Panora';
+const APP_OBJECT_PATH = '/io/panora/Panora';
 const APP_DESKTOP_ID = 'io.panora.Panora.desktop';
 // Where the Debian package installs the popup (fallback when the desktop
 // entry is not visible to the Shell, e.g. source installs).
@@ -156,9 +158,35 @@ export default class PanoraExtension extends Extension {
     // ------------------------------------------------------------ popup
 
     _openPopup() {
-        // Activation of the running instance toggles the popup; when it is
-        // not running the Shell launches it from the desktop entry, outside
-        // any sandbox. Fall back to the binary for installs without the entry.
+        // org.freedesktop.Application.Activate reaches the running instance
+        // (which toggles its window) and, through the D-Bus service file,
+        // starts the popup outside any sandbox when it is not running.
+        // Shell.App.activate() would only focus an existing window.
+        if (this._bus) {
+            this._bus.call(
+                APP_BUS_NAME,
+                APP_OBJECT_PATH,
+                'org.freedesktop.Application',
+                'Activate',
+                new GLib.Variant('(a{sv})', [{}]),
+                null,
+                Gio.DBusCallFlags.NONE,
+                CALL_TIMEOUT_MS,
+                null,
+                (connection, result) => {
+                    try {
+                        connection.call_finish(result);
+                    } catch (_error) {
+                        this._spawnPopup();
+                    }
+                }
+            );
+            return;
+        }
+        this._spawnPopup();
+    }
+
+    _spawnPopup() {
         const app = Shell.AppSystem.get_default().lookup_app(APP_DESKTOP_ID);
         if (app) {
             try {

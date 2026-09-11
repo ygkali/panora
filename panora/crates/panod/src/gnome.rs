@@ -189,16 +189,37 @@ pub async fn activate_gui() -> Result<()> {
     }
 }
 
+/// Start the popup without D-Bus activation. `systemd-run --user` is tried
+/// first so the GUI does not inherit panod's sandbox (read-only home,
+/// W^X memory) when panod runs as a systemd service; a plain spawn covers
+/// source checkouts started from a terminal.
 fn spawn_gui() -> Result<()> {
     let sibling = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.join("panora-gui")))
         .filter(|p| p.exists());
     let program = sibling.unwrap_or_else(|| std::path::PathBuf::from("panora-gui"));
-    std::process::Command::new(program)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+    let quiet = |command: &mut std::process::Command| {
+        command
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+    };
+    if std::env::var_os("INVOCATION_ID").is_some() {
+        let mut command = std::process::Command::new("systemd-run");
+        command
+            .args(["--user", "--quiet", "--collect", "--"])
+            .arg(&program);
+        quiet(&mut command);
+        if let Ok(status) = command.status() {
+            if status.success() {
+                return Ok(());
+            }
+        }
+    }
+    let mut command = std::process::Command::new(&program);
+    quiet(&mut command);
+    command
         .spawn()
         .map(|_| ())
         .map_err(|e| Error::Backend(format!("cannot start panora-gui: {e}")))

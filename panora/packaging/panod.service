@@ -26,7 +26,8 @@ Environment=RUST_LOG=info
 
 # --- sandboxing (ADR 0003) ---
 NoNewPrivileges=yes
-PrivateTmp=yes
+# No PrivateTmp: panod itself never touches /tmp, but the optional ydotool
+# paste helper connects to /tmp/.ydotool_socket and would not see it.
 ProtectSystem=strict
 ProtectHome=read-only
 # The encrypted history, blob store and IPC socket are the only writable paths.

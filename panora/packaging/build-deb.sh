@@ -129,6 +129,17 @@ if [ "$1" = "configure" ]; then
     if command -v update-desktop-database >/dev/null 2>&1; then
         update-desktop-database -q /usr/share/applications || true
     fi
+    # prerm stopped the daemon for every logged-in user before the upgrade;
+    # bring it back for users who had it enabled so capture does not stay
+    # off until the next login.
+    if command -v loginctl >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1; then
+        for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+            systemctl --user --machine="${uid}@.host" daemon-reload >/dev/null 2>&1 || true
+            if systemctl --user --machine="${uid}@.host" is-enabled panod.service >/dev/null 2>&1; then
+                systemctl --user --machine="${uid}@.host" start panod.service >/dev/null 2>&1 || true
+            fi
+        done
+    fi
 fi
 exit 0
 POSTINST
