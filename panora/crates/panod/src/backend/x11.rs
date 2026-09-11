@@ -454,6 +454,13 @@ impl Watcher {
 
     fn run(self, sender: mpsc::Sender<ClipboardEvent>) {
         let mut last: Option<(Window, Timestamp)> = None;
+        // Report whatever is on the clipboard already, so history picks it
+        // up after a (re)start just like the Wayland backend does.
+        if let Some(event) = self.initial_state() {
+            if sender.blocking_send(event).is_err() {
+                return;
+            }
+        }
         loop {
             let event = match self.client.next_event() {
                 Ok(event) => event,
@@ -504,6 +511,28 @@ impl Watcher {
                 return;
             }
         }
+    }
+
+    /// The selection as found at startup, if some other client owns it.
+    fn initial_state(&self) -> Option<ClipboardEvent> {
+        let sel = selection_atom(&self.client.atoms, self.selection);
+        let owner = self
+            .client
+            .conn
+            .get_selection_owner(sel)
+            .ok()?
+            .reply()
+            .ok()?
+            .owner;
+        if owner == x11rb::NONE || self.is_own_window(owner) {
+            return None;
+        }
+        let offered = self.targets_of(sel).ok().filter(|t| !t.is_empty())?;
+        Some(ClipboardEvent::changed(
+            self.selection,
+            offered,
+            focused_app(&self.client),
+        ))
     }
 
     fn targets_of(&self, selection: Atom) -> Result<Vec<String>> {
