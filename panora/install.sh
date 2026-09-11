@@ -249,7 +249,7 @@ if [[ "$BUILD_FROM_SOURCE" -eq 1 ]]; then
   echo "      Panora derleniyor (ilk derleme birkaç dakika sürebilir)..."
   # Built as the desktop user so target/ and dist/ do not end up root-owned
   # when the script itself runs under sudo.
-  run_as_desktop_user "$ROOT_DIR/packaging/build-deb.sh"
+  run_as_desktop_user bash "$ROOT_DIR/packaging/build-deb.sh"
   DEB_FILE="$(find "$ROOT_DIR/dist" -maxdepth 1 -type f -name 'panora_*.deb' -print -quit 2>/dev/null || true)"
   if [[ -z "$DEB_FILE" ]]; then
     echo "Hata: paket üretilemedi." >&2

@@ -26,7 +26,7 @@ if [[ -n "$DOCTOR" ]]; then
   echo
   echo "[1/3] Tanı (panora-doctor)"
   echo "--------------------------"
-  if ! "$DOCTOR"; then
+  if ! bash "$DOCTOR"; then
     echo
     echo "Hata: panora-doctor daemon'un kullanılamaz olduğunu bildirdi; yukarıdaki HATA satırlarını düzeltip tekrar deneyin." >&2
     exit 1
@@ -99,7 +99,7 @@ echo "  $ROOT_DIR/scripts/e2e-test.sh --safe     # geçmişi silen adımları at
 echo "  $ROOT_DIR/scripts/e2e-test.sh --install-helpers   # xclip / wl-clipboard eksikse kur"
 if [[ "${PANORA_E2E:-0}" == "1" ]]; then
   echo
-  "$ROOT_DIR/scripts/e2e-test.sh" --safe --no-gui
+  bash "$ROOT_DIR/scripts/e2e-test.sh" --safe --no-gui
 fi
 
 if [[ "${PANORA_NO_GUI:-0}" == "1" ]]; then
