@@ -68,7 +68,7 @@ Rust 1.85 veya daha yeni bir stable toolchain gerekir. X11 (x11rb) ve Wayland (w
 ```bash
 sudo apt update
 sudo apt install -y build-essential pkg-config libgtk-4-dev libadwaita-1-dev \
-  adwaita-icon-theme librsvg2-common gnome-keyring binutils libglib2.0-dev-bin
+  adwaita-icon-theme librsvg2-common gnome-keyring binutils libglib2.0-bin
 ```
 
 ```bash
@@ -97,7 +97,7 @@ DISPLAY=:99 cargo test -p panod --test x11_integration -- --test-threads=1
 
 ## 4. Sistem uyumluluğu
 
-Paketin `Depends` alanı: `libc6`, `libgtk-4-1 (>= 4.12)`, `libadwaita-1-0 (>= 1.5)`, `libglib2.0-0`, `adwaita-icon-theme`, `librsvg2-common`. `Recommends: gnome-keyring`, `Suggests: wtype, ydotool`. Ubuntu 22.04 ve Linux Mint 21 gibi eski sistemlerde libadwaita sürümü alt sınırın altındadır; oralarda daha yeni masaüstü kütüphaneleri gerekir.
+Paketin `Depends` alanı: `libc6`, `libgtk-4-1 (>= 4.12)`, `libadwaita-1-0 (>= 1.5)`, `libglib2.0-0t64 | libglib2.0-0`, `adwaita-icon-theme`, `librsvg2-common`. `Recommends: gnome-keyring`, `Suggests: wtype, ydotool`. Ubuntu 22.04 ve Linux Mint 21 gibi eski sistemlerde libadwaita sürümü alt sınırın altındadır; oralarda daha yeni masaüstü kütüphaneleri gerekir.
 
 `librsvg2-common` bilerek sert bağımlılıktır: Adwaita 48 sembolik ikonları yalnızca SVG olarak dağıtır ve bu paket olmadan gdk-pixbuf'ın SVG loader'ı bulunmadığından arayüzdeki ikonların bir kısmı "image-missing" olarak çizilir.
 

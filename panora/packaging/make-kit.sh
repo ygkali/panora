@@ -42,7 +42,8 @@ WRAPPER
 done
 chmod 0755 "$STAGE/$KIT/panora/install.sh" "$STAGE/$KIT/panora/uninstall.sh" \
            "$STAGE/$KIT/panora/test-local.sh" "$STAGE/$KIT/panora/packaging/"*.sh \
-           "$STAGE/$KIT/panora/scripts/"*.sh "$STAGE/$KIT/panora/test-artifacts/"*.sh 2>/dev/null || true
+           "$STAGE/$KIT/panora/scripts/"*.sh "$STAGE/$KIT/panora/scripts/panora-doctor" \
+           "$STAGE/$KIT/panora/test-artifacts/"*.sh 2>/dev/null || true
 
 echo "[3/4] Kullanım notu yazılıyor..."
 cat > "$STAGE/$KIT/BENI-OKU.md" <<'READMEKIT'

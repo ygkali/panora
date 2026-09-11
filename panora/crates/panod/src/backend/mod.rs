@@ -20,14 +20,14 @@ use tracing::{info, warn};
 /// compositor lacks the protocol, GNOME sessions fall back to the Shell
 /// bridge and everything else to X11 through XWayland (with a warning,
 /// since app names are then unknown). Plain X11 sessions use XFIXES.
-pub fn select_backend() -> Result<Arc<dyn ClipboardBackend>> {
+pub async fn select_backend() -> Result<Arc<dyn ClipboardBackend>> {
     let session_type = std::env::var("XDG_SESSION_TYPE").unwrap_or_default();
     let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some() && session_type != "x11";
     let x11 = std::env::var_os("DISPLAY").is_some();
     let desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default();
     // systemd user services do not always inherit XDG_CURRENT_DESKTOP, so
     // also look for gnome-shell on the session bus.
-    let is_gnome = desktop.to_ascii_lowercase().contains("gnome") || gnome_shell_running();
+    let is_gnome = desktop.to_ascii_lowercase().contains("gnome");
 
     if wayland {
         #[cfg(unix)]
@@ -35,7 +35,7 @@ pub fn select_backend() -> Result<Arc<dyn ClipboardBackend>> {
             Ok(backend) => return Ok(Arc::new(backend)),
             Err(e) => warn!(error = %e, "native Wayland capture unavailable"),
         }
-        if is_gnome {
+        if is_gnome || gnome_shell_running().await {
             info!("using the GNOME Shell bridge backend; the Panora extension must be enabled");
             return Ok(Arc::new(bridge::GnomeBridgeBackend::new()));
         }
@@ -55,16 +55,18 @@ pub fn select_backend() -> Result<Arc<dyn ClipboardBackend>> {
     ))
 }
 
-/// True when `org.gnome.Shell` owns its name on the session bus.
-fn gnome_shell_running() -> bool {
-    let Ok(connection) = zbus::blocking::Connection::session() else {
+/// True when `org.gnome.Shell` owns its name on the session bus. Async on
+/// purpose: the blocking zbus API spins up its own runtime and panics when
+/// called from inside ours.
+async fn gnome_shell_running() -> bool {
+    let Ok(connection) = zbus::Connection::session().await else {
         return false;
     };
-    let Ok(proxy) = zbus::blocking::fdo::DBusProxy::new(&connection) else {
+    let Ok(proxy) = zbus::fdo::DBusProxy::new(&connection).await else {
         return false;
     };
     let Ok(name) = zbus::names::BusName::try_from("org.gnome.Shell") else {
         return false;
     };
-    proxy.name_has_owner(name).unwrap_or(false)
+    proxy.name_has_owner(name).await.unwrap_or(false)
 }

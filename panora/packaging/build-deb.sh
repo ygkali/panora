@@ -41,6 +41,7 @@ install -d "$STAGE/usr/share/doc/panora"
 install -m 0755 target/release/panod "$STAGE/usr/bin/panod"
 install -m 0755 target/release/panora-gui "$STAGE/usr/bin/panora-gui"
 install -m 0755 target/release/panora-cli "$STAGE/usr/bin/panora-cli"
+install -m 0755 scripts/panora-doctor "$STAGE/usr/bin/panora-doctor"
 # Both README and the .desktop entry launch the popup as `panora`.
 ln -s panora-gui "$STAGE/usr/bin/panora"
 
@@ -61,7 +62,7 @@ if command -v glib-compile-schemas >/dev/null 2>&1; then
   glib-compile-schemas "$EXT_DIR/schemas"
 else
   echo "Uyarı: glib-compile-schemas yok; Super+V kısayolu şema olmadan çalışmaz." >&2
-  echo "        sudo apt install -y libglib2.0-dev-bin" >&2
+  echo "        sudo apt install -y libglib2.0-bin" >&2
 fi
 
 INSTALLED_KB="$(du -sk "$STAGE" | cut -f1)"
@@ -106,7 +107,7 @@ Version: $VERSION
 Section: utils
 Priority: optional
 Architecture: $ARCH
-Depends: $LIBC_DEP, libgtk-4-1 (>= 4.12), libadwaita-1-0 (>= 1.5), libglib2.0-0, adwaita-icon-theme, librsvg2-common
+Depends: $LIBC_DEP, libgtk-4-1 (>= 4.12), libadwaita-1-0 (>= 1.5), libglib2.0-0t64 (>= 2.76) | libglib2.0-0 (>= 2.76), adwaita-icon-theme, librsvg2-common
 Recommends: gnome-keyring
 Suggests: wtype, ydotool
 Installed-Size: $INSTALLED_KB

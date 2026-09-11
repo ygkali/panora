@@ -34,6 +34,8 @@ pub const GUI_OBJECT_PATH: &str = "/io/panora/Panora";
 
 /// How long one call into the Shell may take.
 const CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+/// A cold GTK start on a slow disk can take a while; the D-Bus default is 25 s.
+const ACTIVATE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(25);
 
 /// Small D-Bus endpoint used by the GNOME Shell extension.
 pub struct GnomeBridge {
@@ -54,6 +56,23 @@ impl GnomeBridge {
         )
     }
 }
+
+impl GnomeBridge {
+    async fn forward(&self, data: ClipboardData) -> zbus::fdo::Result<()> {
+        let sender = self
+            .sender
+            .lock()
+            .map_err(|_| zbus::fdo::Error::Failed("GNOME bridge channel lock poisoned".into()))?
+            .clone();
+        sender
+            .send(data)
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("daemon bridge receiver stopped".into()))
+    }
+}
+
+/// Upper bound on formats per `PushMany` call (text, html, uri-list, …).
+const MAX_BRIDGE_PAYLOADS: usize = 8;
 
 #[zbus::interface(name = "io.panora.GnomeBridge1")]
 impl GnomeBridge {
@@ -79,21 +98,48 @@ impl GnomeBridge {
                 Some(source_app)
             },
         };
-        let sender = self
-            .sender
-            .lock()
-            .map_err(|_| zbus::fdo::Error::Failed("GNOME bridge channel lock poisoned".into()))?
-            .clone();
-        sender
-            .send(data)
-            .await
-            .map_err(|_| zbus::fdo::Error::Failed("daemon bridge receiver stopped".into()))
+        self.forward(data).await
+    }
+
+    /// Receive every format of one clipboard change at once (text + HTML,
+    /// or uri-list + text), so bridge entries carry the same fidelity as
+    /// native captures and hash to one entry.
+    async fn push_many(
+        &self,
+        mimes: Vec<String>,
+        payloads: Vec<(String, Vec<u8>)>,
+        source_app: String,
+    ) -> zbus::fdo::Result<()> {
+        if payloads.is_empty() || payloads.len() > MAX_BRIDGE_PAYLOADS {
+            return Err(zbus::fdo::Error::InvalidArgs(format!(
+                "between 1 and {MAX_BRIDGE_PAYLOADS} payloads expected"
+            )));
+        }
+        let payloads: Vec<MimePayload> = payloads
+            .into_iter()
+            .map(|(mime, data)| MimePayload { mime, data })
+            .collect();
+        let data = ClipboardData {
+            selection: Selection::Clipboard,
+            offered_mimes: if mimes.is_empty() {
+                payloads.iter().map(|p| p.mime.clone()).collect()
+            } else {
+                mimes
+            },
+            payloads,
+            source_app: if source_app.trim().is_empty() {
+                None
+            } else {
+                Some(source_app)
+            },
+        };
+        self.forward(data).await
     }
 
     /// Protocol version, so the extension can detect an incompatible daemon.
     #[zbus(property)]
     fn version(&self) -> u32 {
-        2
+        3
     }
 
     /// Whether capture depends on the extension forwarding clipboard
@@ -167,25 +213,39 @@ pub async fn shell_paste() -> Result<()> {
 
 /// Show or hide the popup. GApplication toggles on a second activation, and
 /// D-Bus activation starts it outside panod's systemd sandbox when it is not
-/// running. Falls back to spawning the binary for source checkouts without
-/// the service file installed.
+/// running. Falls back to spawning the binary only when no D-Bus service
+/// for the popup exists (source checkouts); a slow cold start must not be
+/// mistaken for that, or the fallback would open a second instance that
+/// immediately toggles the first one closed.
 pub async fn activate_gui() -> Result<()> {
-    let via_bus = async {
-        let connection = session().await?;
-        let proxy = FreedesktopApplicationProxy::new(&connection)
-            .await
-            .map_err(|e| dbus_err("GUI activation unavailable", e))?;
-        tokio::time::timeout(CALL_TIMEOUT, proxy.activate(HashMap::new()))
-            .await
-            .map_err(|_| Error::Backend("GUI activation timed out".into()))?
-            .map_err(|e| dbus_err("GUI activation failed", e))
-    };
-    match via_bus.await {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            debug!(error = %e, "D-Bus activation failed; spawning panora-gui");
-            spawn_gui()
+    let connection = session().await?;
+    let proxy = FreedesktopApplicationProxy::new(&connection)
+        .await
+        .map_err(|e| dbus_err("GUI activation unavailable", e))?;
+    match tokio::time::timeout(ACTIVATE_TIMEOUT, proxy.activate(HashMap::new())).await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) if is_service_unknown(&e) => {
+            debug!(error = %e, "no D-Bus service for the popup; spawning panora-gui");
+            spawn_gui().await
         }
+        Ok(Err(e)) => Err(dbus_err("GUI activation failed", e)),
+        Err(_) => Err(Error::Backend("GUI activation timed out".into())),
+    }
+}
+
+/// The bus knows no owner and no activatable service for the name.
+fn is_service_unknown(e: &zbus::Error) -> bool {
+    match e {
+        zbus::Error::MethodError(name, ..) => matches!(
+            name.as_str(),
+            "org.freedesktop.DBus.Error.ServiceUnknown"
+                | "org.freedesktop.DBus.Error.NameHasNoOwner"
+        ),
+        zbus::Error::FDO(fdo) => matches!(
+            **fdo,
+            zbus::fdo::Error::ServiceUnknown(_) | zbus::fdo::Error::NameHasNoOwner(_)
+        ),
+        _ => false,
     }
 }
 
@@ -193,33 +253,29 @@ pub async fn activate_gui() -> Result<()> {
 /// first so the GUI does not inherit panod's sandbox (read-only home,
 /// W^X memory) when panod runs as a systemd service; a plain spawn covers
 /// source checkouts started from a terminal.
-fn spawn_gui() -> Result<()> {
+async fn spawn_gui() -> Result<()> {
     let sibling = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.join("panora-gui")))
         .filter(|p| p.exists());
     let program = sibling.unwrap_or_else(|| std::path::PathBuf::from("panora-gui"));
-    let quiet = |command: &mut std::process::Command| {
-        command
+    if std::env::var_os("INVOCATION_ID").is_some() {
+        let status = tokio::process::Command::new("systemd-run")
+            .args(["--user", "--quiet", "--collect", "--"])
+            .arg(&program)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
-    };
-    if std::env::var_os("INVOCATION_ID").is_some() {
-        let mut command = std::process::Command::new("systemd-run");
-        command
-            .args(["--user", "--quiet", "--collect", "--"])
-            .arg(&program);
-        quiet(&mut command);
-        if let Ok(status) = command.status() {
-            if status.success() {
-                return Ok(());
-            }
+            .stderr(std::process::Stdio::null())
+            .status()
+            .await;
+        if matches!(status, Ok(s) if s.success()) {
+            return Ok(());
         }
     }
-    let mut command = std::process::Command::new(&program);
-    quiet(&mut command);
-    command
+    tokio::process::Command::new(&program)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .spawn()
         .map(|_| ())
         .map_err(|e| Error::Backend(format!("cannot start panora-gui: {e}")))

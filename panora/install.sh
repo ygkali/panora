@@ -15,6 +15,61 @@ if [[ ! -f /etc/debian_version ]]; then
   exit 1
 fi
 
+# ------------------------------------------------------------ release floor
+
+# libadwaita >= 1.5 (GTK 4.12+) is the hard floor, which means Debian 13,
+# Ubuntu 24.04 or Zorin OS 18 (Ubuntu 24.04 base). Older releases would fail
+# halfway through apt with an unhelpful "libadwaita-1-0 (>= 1.5)" error, so
+# refuse them here with a message that says what to upgrade.
+os_field() {
+  sed -n "s/^$1=//p" /etc/os-release 2>/dev/null | head -n1 | tr -d '"'
+}
+OS_ID="$(os_field ID || true)"
+OS_PRETTY="$(os_field PRETTY_NAME || true)"
+OS_VERSION_ID="$(os_field VERSION_ID || true)"
+# Ubuntu derivatives (Zorin, Mint, Pop!_OS) carry the base release here; Zorin
+# 17 ships UBUNTU_CODENAME=jammy, Zorin 18 UBUNTU_CODENAME=noble.
+OS_UBUNTU_CODENAME="$(os_field UBUNTU_CODENAME || true)"
+OS_UBUNTU_CODENAME="${OS_UBUNTU_CODENAME:-$(os_field VERSION_CODENAME || true)}"
+
+too_old() {
+  echo "Hata: ${OS_PRETTY:-Bu dağıtım} ($1) Panora tarafından desteklenmiyor." >&2
+  echo "      Panora, libadwaita >= 1.5 ve GTK >= 4.12 gerektirir; bu kütüphaneler" >&2
+  echo "      ancak Ubuntu 24.04, Debian 13 veya Zorin OS 18 ve sonrasında bulunur." >&2
+  echo "      Zorin OS 17 (Ubuntu 22.04 tabanlı) libadwaita 1.1 ile gelir ve" >&2
+  echo "      paket deposundan güncellenemez; sistemi Zorin OS 18'e yükseltin." >&2
+  exit 1
+}
+
+# Ubuntu codenames older than noble (24.04). Unknown/newer codenames pass and
+# apt has the final say.
+OLD_UBUNTU_CODENAMES=" xenial bionic focal jammy kinetic lunar mantic "
+case "$OS_ID" in
+  zorin)
+    if [[ -n "$OS_UBUNTU_CODENAME" ]]; then
+      [[ "$OLD_UBUNTU_CODENAMES" == *" $OS_UBUNTU_CODENAME "* ]] &&
+        too_old "Ubuntu $OS_UBUNTU_CODENAME tabanı"
+    elif [[ "${OS_VERSION_ID%%.*}" =~ ^[0-9]+$ && "${OS_VERSION_ID%%.*}" -lt 18 ]]; then
+      too_old "Zorin OS $OS_VERSION_ID"
+    fi
+    ;;
+  ubuntu)
+    if [[ -n "$OS_VERSION_ID" ]] && ! printf '%s\n%s\n' "24.04" "$OS_VERSION_ID" | sort -VC; then
+      too_old "Ubuntu $OS_VERSION_ID"
+    fi
+    ;;
+  debian)
+    if [[ "${OS_VERSION_ID%%.*}" =~ ^[0-9]+$ && "${OS_VERSION_ID%%.*}" -lt 13 ]]; then
+      too_old "Debian $OS_VERSION_ID"
+    fi
+    ;;
+  *)
+    if [[ -n "$OS_UBUNTU_CODENAME" && "$OLD_UBUNTU_CODENAMES" == *" $OS_UBUNTU_CODENAME "* ]]; then
+      too_old "Ubuntu $OS_UBUNTU_CODENAME tabanı"
+    fi
+    ;;
+esac
+
 if [[ "${EUID}" -eq 0 ]]; then
   SUDO=()
 else
@@ -25,7 +80,7 @@ fi
 # `sudo ./install.sh` that is SUDO_USER, not root: enabling the unit as root
 # would start a daemon in a session that has no clipboard.
 DESKTOP_USER="${SUDO_USER:-$(id -un)}"
-DESKTOP_HOME="$(getent passwd "$DESKTOP_USER" | cut -d: -f6)"
+DESKTOP_HOME="$(getent passwd "$DESKTOP_USER" 2>/dev/null | cut -d: -f6 || true)"
 DESKTOP_HOME="${DESKTOP_HOME:-$HOME}"
 run_as_desktop_user() {
   if [[ "$(id -un)" == "$DESKTOP_USER" ]]; then
@@ -95,7 +150,31 @@ fi
 # ------------------------------------------------------------ dependencies
 
 echo "[1/5] Sistem bağımlılıkları kuruluyor..."
-"${SUDO[@]}" apt-get update
+# A single broken third-party repo (Zorin's premium repo after an in-place
+# upgrade is a known case) makes apt-get update exit non-zero even though the
+# main archive refreshed fine; keep going with whatever lists we have.
+if ! "${SUDO[@]}" apt-get update; then
+  echo "      Uyarı: apt-get update bazı depolar için başarısız oldu; mevcut paket listeleriyle devam ediliyor."
+fi
+
+# Ubuntu 24.04 and Debian 13 renamed the GLib runtime to libglib2.0-0t64 for
+# the time64 transition (the old name survives only as a versioned Provides);
+# GTK 4 and libadwaita kept their names on both. Ask apt which spelling has a
+# real candidate here instead of hard-coding one distro's.
+apt_first_available() {
+  local pkg
+  for pkg in "$@"; do
+    if apt-cache policy "$pkg" 2>/dev/null | grep -qE '^\s*Candidate: [0-9]'; then
+      echo "$pkg"
+      return 0
+    fi
+  done
+  echo "$1"
+}
+GLIB_RUNTIME="$(apt_first_available libglib2.0-0t64 libglib2.0-0)"
+GTK_RUNTIME="$(apt_first_available libgtk-4-1 libgtk-4-1t64)"
+ADW_RUNTIME="$(apt_first_available libadwaita-1-0 libadwaita-1-0t64)"
+
 # librsvg2-common is not optional: Adwaita 48 ships symbolic icons as SVG only,
 # and without gdk-pixbuf's SVG loader half the icons render as "image-missing".
 # Both libgtk-4-1 and adwaita-icon-theme list it as Recommends, so a machine
@@ -103,35 +182,66 @@ echo "[1/5] Sistem bağımlılıkları kuruluyor..."
 # the Secret Service that keeps the encryption key; clipboard access itself is
 # native and needs no xclip/wl-clipboard.
 "${SUDO[@]}" apt-get install -y \
-  libgtk-4-1 libadwaita-1-0 \
+  "$GLIB_RUNTIME" "$GTK_RUNTIME" "$ADW_RUNTIME" \
   adwaita-icon-theme librsvg2-common \
   gnome-keyring
+
+# The workspace declares rust-version 1.85 and Cargo.lock is v4 (cargo 1.78+).
+# Ubuntu 24.04's apt cargo is 1.75, so "some cargo on PATH" is not enough.
+MIN_RUST="1.85"
+cargo_version() {
+  run_as_desktop_user bash -c 'command -v cargo >/dev/null 2>&1 && cargo --version' 2>/dev/null |
+    grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -n1 || true
+}
+cargo_ok() {
+  local have
+  have="$(cargo_version)"
+  [[ -n "$have" ]] && printf '%s\n%s\n' "$MIN_RUST" "$have" | sort -VC
+}
 
 if [[ "$BUILD_FROM_SOURCE" -eq 1 ]]; then
   echo "[2/5] Derleme bağımlılıkları kuruluyor..."
   # binutils lets build-deb.sh read the real glibc floor out of the binaries;
-  # libglib2.0-dev-bin provides glib-compile-schemas for the Super+V shortcut.
+  # libglib2.0-bin provides glib-compile-schemas for the Super+V shortcut
+  # (it lives there on both Debian 13 and Ubuntu 24.04, not in -dev-bin).
   "${SUDO[@]}" apt-get install -y \
     build-essential pkg-config curl \
     libgtk-4-dev libadwaita-1-dev \
-    binutils libglib2.0-dev-bin
+    binutils libglib2.0-bin
 
-  # Pick up a rustup toolchain installed for the desktop user earlier.
+  # Prefer a rustup toolchain installed for the desktop user over apt's cargo:
+  # ~/.cargo/env only prepends when the directory is missing from PATH, so
+  # force it to the front. run_as_desktop_user does the same under sudo.
   # shellcheck disable=SC1091
   [[ -f "$DESKTOP_HOME/.cargo/env" ]] && source "$DESKTOP_HOME/.cargo/env"
+  [[ -d "$DESKTOP_HOME/.cargo/bin" ]] && export PATH="$DESKTOP_HOME/.cargo/bin:$PATH"
 
-  if ! run_as_desktop_user bash -c 'command -v cargo' >/dev/null 2>&1; then
-    echo "      'cargo' bulunamadı; Rust araç zinciri rustup ile kuruluyor (kullanıcı dizinine)..."
+  if ! cargo_ok; then
+    HAVE_RUST="$(cargo_version)"
+    if [[ -n "$HAVE_RUST" ]]; then
+      echo "      Sistemdeki cargo $HAVE_RUST çok eski (en az $MIN_RUST gerekiyor)."
+    else
+      echo "      'cargo' bulunamadı."
+    fi
     if [[ "$(id -un)" != "$DESKTOP_USER" ]]; then
-      echo "Hata: rustup kurulumu masaüstü kullanıcısı olarak yapılmalı; sudo olmadan çalıştırın." >&2
+      echo "Hata: Rust araç zinciri (rustup) masaüstü kullanıcısı olarak kurulmalı; sudo olmadan çalıştırın." >&2
       exit 1
     fi
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --no-modify-path
+    if [[ -x "$HOME/.cargo/bin/rustup" ]]; then
+      echo "      rustup mevcut; stable araç zinciri güncelleniyor..."
+      "$HOME/.cargo/bin/rustup" update stable
+      "$HOME/.cargo/bin/rustup" default stable
+    else
+      echo "      Rust araç zinciri rustup ile kuruluyor (kullanıcı dizinine)..."
+      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --no-modify-path
+    fi
     # shellcheck disable=SC1091
     source "$HOME/.cargo/env"
+    export PATH="$HOME/.cargo/bin:$PATH"
   fi
-  if ! run_as_desktop_user bash -c 'command -v cargo' >/dev/null 2>&1; then
-    echo "Hata: Rust kurulamadı. https://rustup.rs adresinden kurup tekrar deneyin." >&2
+  if ! cargo_ok; then
+    echo "Hata: Rust >= $MIN_RUST kurulamadı (bulunan: $(cargo_version))." >&2
+    echo "      https://rustup.rs adresinden kurup tekrar deneyin." >&2
     exit 1
   fi
   echo "      $(run_as_desktop_user cargo --version)"

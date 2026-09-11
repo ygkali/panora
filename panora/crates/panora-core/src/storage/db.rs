@@ -192,7 +192,11 @@ impl Database {
             .ok();
         let id = if let Some((id, false)) = existing {
             tx.execute(
-                "UPDATE entries SET last_seen_at = ?1 WHERE id = ?2",
+                // Same-second re-copies must still move to the top, so the
+                // timestamp never ties with the current newest row.
+                "UPDATE entries SET last_seen_at = MAX(?1,
+                    (SELECT COALESCE(MAX(last_seen_at), 0) FROM entries WHERE id != ?2) + 1)
+                 WHERE id = ?2",
                 params![now, id],
             )?;
             id
@@ -304,7 +308,7 @@ impl Database {
         }
 
         sql.push_str(&format!(" WHERE {}", conditions.join(" AND ")));
-        sql.push_str(" ORDER BY e.pinned DESC, e.last_seen_at DESC LIMIT ? OFFSET ?");
+        sql.push_str(" ORDER BY e.pinned DESC, e.last_seen_at DESC, e.id DESC LIMIT ? OFFSET ?");
         params_vec.push(Box::new(filter.limit as i64));
         params_vec.push(Box::new(filter.offset as i64));
 
@@ -398,7 +402,9 @@ impl Database {
     /// Bump `last_seen_at` (a recalled entry moves back to the top).
     pub fn touch(&self, id: i64, now: i64) -> Result<()> {
         let changed = self.conn.execute(
-            "UPDATE entries SET last_seen_at = ?1 WHERE id = ?2 AND deleted = 0",
+            "UPDATE entries SET last_seen_at = MAX(?1,
+                (SELECT COALESCE(MAX(last_seen_at), 0) FROM entries WHERE id != ?2) + 1)
+             WHERE id = ?2 AND deleted = 0",
             params![now, id],
         )?;
         if changed == 0 {

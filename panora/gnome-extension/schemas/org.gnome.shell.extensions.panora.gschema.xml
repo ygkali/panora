@@ -9,5 +9,16 @@
         Keyboard shortcut that opens the Panora clipboard history popup.
       </description>
     </key>
+    <key name="restore-message-tray" type="as">
+      <default>[]</default>
+      <summary>Saved notification-list shortcut</summary>
+      <description>
+        The original value of org.gnome.shell.keybindings toggle-message-tray,
+        saved when the extension removed a shortcut that collided with
+        toggle-popup (GNOME binds Super+V to the notification list by
+        default). Restored when the extension is disabled. Empty when
+        nothing was changed.
+      </description>
+    </key>
   </schema>
 </schemalist>

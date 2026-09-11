@@ -12,6 +12,9 @@
 //      captures natively and ignores these pushes.
 //   3. Export a tiny helper service the daemon calls to set the clipboard
 //      (recall on GNOME < 48) and to synthesize Ctrl+V (instant paste).
+//
+// Verified against GNOME Shell / Mutter 46 (Zorin OS 18, Ubuntu 24.04) and
+// kept within the API surface that is unchanged from 45 to 48.
 
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
@@ -27,6 +30,7 @@ const BRIDGE_PATH = '/io/panora/GnomeBridge1';
 const HELPER_NAME = 'io.panora.GnomeShell1';
 const HELPER_PATH = '/io/panora/GnomeShell1';
 const KEYBINDING = 'toggle-popup';
+const RESTORE_KEY = 'restore-message-tray';
 const APP_BUS_NAME = 'io.panora.Panora';
 const APP_OBJECT_PATH = '/io/panora/Panora';
 const APP_DESKTOP_ID = 'io.panora.Panora.desktop';
@@ -34,22 +38,25 @@ const APP_DESKTOP_ID = 'io.panora.Panora.desktop';
 // entry is not visible to the Shell, e.g. source installs).
 const POPUP_BINARY = '/usr/bin/panora';
 
+// GNOME's own binding for the notification list. Its default value is
+// ['<Super>v', '<Super>m'] (data/org.gnome.shell.gschema.xml.in), so it
+// collides with the Panora shortcut; see _claimShortcut().
+const SHELL_KEYBINDINGS_SCHEMA = 'org.gnome.shell.keybindings';
+const MESSAGE_TRAY_KEY = 'toggle-message-tray';
+
 // Mirrors panora-core's privacy markers. Content a password manager flagged
 // as secret is dropped here, before any payload is read.
 const SECRET_MARKERS = ['passwordmanagerhint', 'concealedtype', 'clipboard viewer ignore'];
 
-// The bridge forwards exactly one payload per event; this is the preference
-// order used to pick it.
-const MIME_PRIORITY = [
-    'image/png',
-    'image/jpeg',
-    'image/webp',
-    'text/uri-list',
-    'text/html',
-    'text/plain;charset=utf-8',
-    'text/plain',
-    'UTF8_STRING',
-];
+// One clipboard change is pushed as up to a handful of payloads
+// (PushMany). If an image is offered only the best image is sent; otherwise
+// the best plain-text flavour is sent together with text/html and the file
+// list flavours when present, so browser copies stay pasteable in terminals
+// and file copies keep their URIs. The first entry of the list is the
+// primary payload (the one the legacy single-payload Push() carries).
+const IMAGE_MIMES = ['image/png', 'image/jpeg', 'image/webp'];
+const TEXT_MIMES = ['text/plain;charset=utf-8', 'text/plain', 'UTF8_STRING'];
+const EXTRA_MIMES = ['text/html', 'text/uri-list', 'x-special/gnome-copied-files'];
 
 // Mirrors panora-core's default HistoryConfig::max_mime_bytes.
 const MAX_PAYLOAD_BYTES = 10 * 1024 * 1024;
@@ -57,6 +64,27 @@ const MAX_PAYLOAD_BYTES = 10 * 1024 * 1024;
 // Coalesce the burst of owner-changed signals a single copy can produce.
 const DEBOUNCE_MS = 120;
 const CALL_TIMEOUT_MS = 2000;
+// A cold GTK start (D-Bus activation compiling CSS, loading icons) can take
+// seconds on a slow disk; the Activate reply only arrives once the
+// application has started up.
+const ACTIVATE_TIMEOUT_MS = 25000;
+// After SetClipboard() the Shell's own owner-changed must not be pushed
+// back to the daemon as a new entry.
+const SUPPRESS_ECHO_US = 1500000;
+
+// Paste(): how long to wait for keyboard focus to leave the Panora popup
+// before giving up, and how often to look.
+const PASTE_FOCUS_TIMEOUT_MS = 700;
+const PASTE_POLL_MS = 25;
+
+// Linux evdev key codes (input-event-codes.h). Clutter's
+// notify_key() takes evdev codes on both backends: the native backend
+// injects them as-is and the X11 backend adds the 8 offset for XTest. Using
+// key codes instead of keyvals keeps Ctrl+V working on layouts that have no
+// Latin "v" (Cyrillic, Greek, ...), where notify_keyval() would log
+// "No keycode found for keyval" and send nothing.
+const KEY_LEFTCTRL = 29;
+const KEY_V = 47;
 
 const HELPER_IFACE = `
 <node>
@@ -70,6 +98,10 @@ const HELPER_IFACE = `
   </interface>
 </node>`;
 
+function normalizeAccelerator(accelerator) {
+    return accelerator.replace(/\s+/g, '').toLowerCase();
+}
+
 export default class PanoraExtension extends Extension {
     enable() {
         this._bus = null;
@@ -81,6 +113,10 @@ export default class PanoraExtension extends Extension {
         this._watchId = 0;
         this._needsBridge = false;
         this._virtualKeyboard = null;
+        this._pendingPastes = new Set();
+        this._suppressUntil = 0;
+        this._shellKeybindings = null;
+        this._shortcutChangedId = 0;
 
         this._settings = this.getSettings();
         Main.wm.addKeybinding(
@@ -89,6 +125,14 @@ export default class PanoraExtension extends Extension {
             Meta.KeyBindingFlags.NONE,
             Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW,
             () => this._openPopup()
+        );
+        this._claimShortcut();
+        this._shortcutChangedId = this._settings.connect(
+            `changed::${KEYBINDING}`,
+            () => {
+                this._releaseShortcut();
+                this._claimShortcut();
+            }
         );
 
         try {
@@ -116,6 +160,9 @@ export default class PanoraExtension extends Extension {
             () => { this._needsBridge = false; }
         );
 
+        // MetaSelection::owner-changed (selection-type: uint, source) fires
+        // for every clipboard owner change, including ones made by X11
+        // clients through Xwayland and by the Shell itself.
         this._selection = global.display.get_selection();
         this._ownerChangedId = this._selection.connect(
             'owner-changed',
@@ -129,10 +176,26 @@ export default class PanoraExtension extends Extension {
     disable() {
         Main.wm.removeKeybinding(KEYBINDING);
 
+        if (this._shortcutChangedId) {
+            this._settings.disconnect(this._shortcutChangedId);
+            this._shortcutChangedId = 0;
+        }
+        this._releaseShortcut();
+        this._shellKeybindings = null;
+
         if (this._debounceId) {
             GLib.Source.remove(this._debounceId);
             this._debounceId = 0;
         }
+        for (const pending of this._pendingPastes) {
+            if (pending.sourceId)
+                GLib.Source.remove(pending.sourceId);
+            pending.invocation.return_dbus_error(
+                `${HELPER_NAME}.Error.Disabled`,
+                'the Panora extension was disabled'
+            );
+        }
+        this._pendingPastes.clear();
         if (this._selection && this._ownerChangedId) {
             this._selection.disconnect(this._ownerChangedId);
             this._ownerChangedId = 0;
@@ -155,6 +218,59 @@ export default class PanoraExtension extends Extension {
         this._settings = null;
     }
 
+    // --------------------------------------------------------- shortcut
+
+    // Mutter indexes key bindings in a hash table keyed by (keycode, mask)
+    // and keeps ONE binding per combo: the last one indexed wins
+    // (src/core/keybindings.c, index_binding → g_hash_table_replace), and
+    // the whole index is rebuilt in hash-table order whenever any binding
+    // or the keyboard layout changes. So with GNOME's default
+    // toggle-message-tray = ['<Super>v', '<Super>m'] in place, Super+V would
+    // open Panora or the notification list depending on which binding
+    // happened to be indexed last. Nothing in the Shell resolves the
+    // conflict, so it is resolved here: the colliding entries are removed
+    // from toggle-message-tray (Super+M keeps working), the original list is
+    // remembered in this extension's settings and put back on disable().
+    _claimShortcut() {
+        try {
+            if (!this._shellKeybindings)
+                this._shellKeybindings = new Gio.Settings({schema_id: SHELL_KEYBINDINGS_SCHEMA});
+            const ours = this._settings.get_strv(KEYBINDING).map(normalizeAccelerator);
+            if (ours.length === 0)
+                return;
+            const tray = this._shellKeybindings.get_strv(MESSAGE_TRAY_KEY);
+            const kept = tray.filter(accel => !ours.includes(normalizeAccelerator(accel)));
+            if (kept.length === tray.length)
+                return;
+            // Never overwrite a saved value: if the previous session ended
+            // without disable() running, it still holds the user's original.
+            if (this._settings.get_strv(RESTORE_KEY).length === 0)
+                this._settings.set_strv(RESTORE_KEY, tray);
+            this._shellKeybindings.set_strv(MESSAGE_TRAY_KEY, kept);
+        } catch (error) {
+            logError(error, 'Panora: could not take over the shortcut');
+        }
+    }
+
+    _releaseShortcut() {
+        try {
+            const saved = this._settings.get_strv(RESTORE_KEY);
+            if (saved.length === 0)
+                return;
+            if (!this._shellKeybindings)
+                this._shellKeybindings = new Gio.Settings({schema_id: SHELL_KEYBINDINGS_SCHEMA});
+            const current = this._shellKeybindings.get_strv(MESSAGE_TRAY_KEY);
+            // Only restore what this extension wrote: the current value must
+            // still be a subset of the saved one. If the user gave the
+            // notification list a new shortcut meanwhile, their value stays.
+            if (current.every(accel => saved.includes(accel)))
+                this._shellKeybindings.set_strv(MESSAGE_TRAY_KEY, saved);
+            this._settings.set_strv(RESTORE_KEY, []);
+        } catch (error) {
+            logError(error, 'Panora: could not restore the notification shortcut');
+        }
+    }
+
     // ------------------------------------------------------------ popup
 
     _openPopup() {
@@ -168,22 +284,65 @@ export default class PanoraExtension extends Extension {
                 APP_OBJECT_PATH,
                 'org.freedesktop.Application',
                 'Activate',
-                new GLib.Variant('(a{sv})', [{}]),
+                new GLib.Variant('(a{sv})', [this._activationPlatformData()]),
                 null,
                 Gio.DBusCallFlags.NONE,
-                CALL_TIMEOUT_MS,
+                ACTIVATE_TIMEOUT_MS,
                 null,
                 (connection, result) => {
                     try {
                         connection.call_finish(result);
-                    } catch (_error) {
-                        this._spawnPopup();
+                    } catch (error) {
+                        // Only spawn when nothing owns the name and D-Bus
+                        // could not start it (no service file, e.g. a source
+                        // checkout). A timeout or any other failure means an
+                        // instance is (being) started: spawning a second one
+                        // would just toggle the fresh window closed again.
+                        if (this._isNoOwnerError(error))
+                            this._spawnPopup();
+                        else
+                            logError(error, 'Panora: popup activation failed');
                     }
                 }
             );
             return;
         }
         this._spawnPopup();
+    }
+
+    _isNoOwnerError(error) {
+        if (error.matches?.(Gio.DBusError, Gio.DBusError.SERVICE_UNKNOWN) ||
+            error.matches?.(Gio.DBusError, Gio.DBusError.NAME_HAS_NO_OWNER))
+            return true;
+        if (!Gio.DBusError.is_remote_error(error))
+            return false;
+        const name = Gio.DBusError.get_remote_error(error);
+        return name === 'org.freedesktop.DBus.Error.ServiceUnknown' ||
+            name === 'org.freedesktop.DBus.Error.NameHasNoOwner';
+    }
+
+    // Mutter grants focus to a presented window only with a valid activation
+    // token (xdg-activation on Wayland, startup notification on X11);
+    // without one the popup can end up behind the current window with a
+    // "Panora is ready" notification. The Shell's launch context mints a
+    // token the compositor recognises, and GtkApplication picks it up from
+    // the 'activation-token' / 'desktop-startup-id' platform data.
+    _activationPlatformData() {
+        try {
+            const appInfo = Gio.DesktopAppInfo.new(APP_DESKTOP_ID);
+            if (!appInfo)
+                return {};
+            const context = global.create_app_launch_context(global.get_current_time(), -1);
+            const token = context.get_startup_notify_id(appInfo, []);
+            if (!token)
+                return {};
+            return {
+                'activation-token': new GLib.Variant('s', token),
+                'desktop-startup-id': new GLib.Variant('s', token),
+            };
+        } catch (_error) {
+            return {};
+        }
     }
 
     _spawnPopup() {
@@ -230,6 +389,12 @@ export default class PanoraExtension extends Extension {
     }
 
     // SetClipboard(s mime, ay bytes): put one payload on the clipboard.
+    // St.Clipboard.set_content(type, mimetype, GBytes) creates a
+    // MetaSelectionSourceMemory that offers exactly that one MIME type; for
+    // 'image/png' that is what GTK, Qt, LibreOffice and browsers request
+    // when pasting an image. set_text() is the same call with
+    // 'text/plain;charset=utf-8', which Xwayland maps to UTF8_STRING for
+    // X11 clients.
     SetClipboard(mime, bytes) {
         if (typeof mime !== 'string' || mime.length === 0 || mime.length > 256)
             throw new Error('invalid MIME type');
@@ -243,20 +408,75 @@ export default class PanoraExtension extends Extension {
         } else {
             clipboard.set_content(St.ClipboardType.CLIPBOARD, mime, new GLib.Bytes(data));
         }
+        // The Shell's own owner-changed follows; the daemon already holds
+        // this content (and has its own echo detection), so captures are
+        // muted briefly instead of pushing the recall back as a new entry.
+        this._suppressUntil = GLib.get_monotonic_time() + SUPPRESS_ECHO_US;
     }
 
     // Paste(): Ctrl+V into the focused window through a virtual keyboard.
-    Paste() {
+    // Implemented as the *Async variant so the reply can wait for keyboard
+    // focus to leave the Panora popup: the popup hides itself and the daemon
+    // calls this ~200 ms later, but on a loaded system the unmap may not
+    // have been processed yet, and Ctrl+V would then land in the popup.
+    PasteAsync(_params, invocation) {
+        const pending = {invocation, sourceId: 0};
+        this._pendingPastes.add(pending);
+        const deadline = GLib.get_monotonic_time() + PASTE_FOCUS_TIMEOUT_MS * 1000;
+
+        const attempt = () => {
+            pending.sourceId = 0;
+            if (this._popupHasFocus()) {
+                if (GLib.get_monotonic_time() < deadline) {
+                    pending.sourceId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, PASTE_POLL_MS, attempt);
+                    return GLib.SOURCE_REMOVE;
+                }
+                this._pendingPastes.delete(pending);
+                invocation.return_dbus_error(
+                    `${HELPER_NAME}.Error.Focus`,
+                    'the Panora popup still has keyboard focus'
+                );
+                return GLib.SOURCE_REMOVE;
+            }
+            this._pendingPastes.delete(pending);
+            try {
+                this._sendCtrlV();
+                invocation.return_value(null);
+            } catch (error) {
+                invocation.return_dbus_error(`${HELPER_NAME}.Error.Paste`, String(error.message ?? error));
+            }
+            return GLib.SOURCE_REMOVE;
+        };
+        attempt();
+    }
+
+    _popupHasFocus() {
+        const window = global.display.focus_window;
+        if (!window)
+            return false;
+        // Wayland app_id and the X11 WM_CLASS class both equal the
+        // GApplication id for GTK4 windows.
+        if (window.get_wm_class() === APP_BUS_NAME)
+            return true;
+        const app = Shell.WindowTracker.get_default().get_window_app(window);
+        return app !== null && app.get_id() === APP_DESKTOP_ID;
+    }
+
+    _sendCtrlV() {
         if (!this._virtualKeyboard) {
             const seat = global.backend.get_default_seat();
             this._virtualKeyboard = seat.create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
         }
         const keyboard = this._virtualKeyboard;
+        // Events are queued in order on the seat; no extra delay is needed
+        // between press and release. Wayland clients get them from the
+        // compositor seat, X11 clients through Xwayland (or XTest on the
+        // X11 backend), so the same code covers both window types.
         const now = () => GLib.get_monotonic_time();
-        keyboard.notify_keyval(now(), Clutter.KEY_Control_L, Clutter.KeyState.PRESSED);
-        keyboard.notify_keyval(now(), Clutter.KEY_v, Clutter.KeyState.PRESSED);
-        keyboard.notify_keyval(now(), Clutter.KEY_v, Clutter.KeyState.RELEASED);
-        keyboard.notify_keyval(now(), Clutter.KEY_Control_L, Clutter.KeyState.RELEASED);
+        keyboard.notify_key(now(), KEY_LEFTCTRL, Clutter.KeyState.PRESSED);
+        keyboard.notify_key(now(), KEY_V, Clutter.KeyState.PRESSED);
+        keyboard.notify_key(now(), KEY_V, Clutter.KeyState.RELEASED);
+        keyboard.notify_key(now(), KEY_LEFTCTRL, Clutter.KeyState.RELEASED);
     }
 
     // ------------------------------------------------------------ capture
@@ -289,6 +509,8 @@ export default class PanoraExtension extends Extension {
     _scheduleCapture() {
         if (!this._needsBridge)
             return;
+        if (GLib.get_monotonic_time() < this._suppressUntil)
+            return;
         if (this._debounceId)
             GLib.Source.remove(this._debounceId);
 
@@ -301,6 +523,7 @@ export default class PanoraExtension extends Extension {
 
     _capture() {
         const clipboard = St.Clipboard.get_default();
+        // GList<utf8> (transfer full) → JS string array.
         const mimes = clipboard.get_mimetypes(St.ClipboardType.CLIPBOARD);
         if (!mimes || mimes.length === 0)
             return;
@@ -312,30 +535,93 @@ export default class PanoraExtension extends Extension {
         if (secret)
             return;
 
-        let chosen = null;
-        for (const candidate of MIME_PRIORITY) {
-            const index = lowered.indexOf(candidate.toLowerCase());
-            if (index >= 0) {
-                chosen = mimes[index];
-                break;
+        const wanted = [];
+        const pick = candidates => {
+            for (const candidate of candidates) {
+                const index = lowered.indexOf(candidate.toLowerCase());
+                if (index >= 0)
+                    return mimes[index];
+            }
+            return null;
+        };
+        const image = pick(IMAGE_MIMES);
+        if (image !== null) {
+            wanted.push(image);
+        } else {
+            const text = pick(TEXT_MIMES);
+            if (text !== null)
+                wanted.push(text);
+            for (const extra of EXTRA_MIMES) {
+                const found = pick([extra]);
+                if (found !== null)
+                    wanted.push(found);
             }
         }
-        if (chosen === null)
+        if (wanted.length === 0)
             return;
 
-        clipboard.get_content(St.ClipboardType.CLIPBOARD, chosen, (_source, bytes) => {
-            if (!bytes)
+        // get_content() transfers the selection into a memory stream and
+        // hands the callback a GLib.Bytes (null on failure) for every MIME
+        // type, text or binary; get_data() views it as a Uint8Array. The
+        // formats are read one after another and pushed together.
+        const payloads = [];
+        const readNext = () => {
+            if (wanted.length === 0) {
+                if (payloads.length > 0)
+                    this._pushMany(mimes, payloads);
                 return;
-            const data = bytes.get_data();
-            if (!data || data.length === 0)
-                return;
-            // Matches the daemon's default max_mime_bytes. Dropping oversized
-            // payloads here avoids pushing megabytes across the session bus
-            // only for the daemon to discard them.
-            if (data.length > MAX_PAYLOAD_BYTES)
-                return;
-            this._push(mimes, chosen, data);
-        });
+            }
+            const mime = wanted.shift();
+            clipboard.get_content(St.ClipboardType.CLIPBOARD, mime, (_source, bytes) => {
+                const data = bytes ? bytes.get_data() : null;
+                // Matches the daemon's default max_mime_bytes. Dropping
+                // oversized payloads here avoids pushing megabytes across the
+                // session bus only for the daemon to discard them.
+                if (data && data.length > 0 && data.length <= MAX_PAYLOAD_BYTES)
+                    payloads.push([mime, data]);
+                readNext();
+            });
+        };
+        readNext();
+    }
+
+    // PushMany(mimes: as, payloads: a(say), source_app: s). Falls back to the
+    // single-payload Push() for daemons that predate it.
+    _pushMany(mimes, payloads) {
+        if (!this._bus)
+            return;
+        const variant = new GLib.Variant('(asa(say)s)', [mimes, payloads, this._sourceApp()]);
+        this._bus.call(
+            BRIDGE_NAME,
+            BRIDGE_PATH,
+            BRIDGE_NAME,
+            'PushMany',
+            variant,
+            null,
+            Gio.DBusCallFlags.NO_AUTO_START,
+            CALL_TIMEOUT_MS,
+            null,
+            (connection, result) => {
+                try {
+                    connection.call_finish(result);
+                } catch (error) {
+                    if (this._isUnknownMethodError(error)) {
+                        const [mime, data] = payloads[0];
+                        this._push(mimes, mime, data);
+                    }
+                    // Otherwise the daemon is down, paused or busy. Dropping
+                    // the event is the correct outcome; the next copy will be
+                    // captured.
+                }
+            }
+        );
+    }
+
+    _isUnknownMethodError(error) {
+        if (error.matches?.(Gio.DBusError, Gio.DBusError.UNKNOWN_METHOD))
+            return true;
+        return Gio.DBusError.is_remote_error(error) &&
+            Gio.DBusError.get_remote_error(error) === 'org.freedesktop.DBus.Error.UnknownMethod';
     }
 
     _push(mimes, mime, data) {

@@ -1,5 +1,9 @@
 # Panora 1.2.0 — Lokal Kurulum Kiti
 
+## Zorin OS 18 / Ubuntu 24.04
+
+Panora, Zorin OS 18 (Ubuntu 24.04 tabanı, GNOME 46), Ubuntu 24.04+ ve Debian 13+ üzerinde test edilmek üzere hazırlandı; Zorin OS 17 (Ubuntu 22.04) libadwaita 1.1 ile geldiğinden desteklenmez ve `KUR.sh` bunu açıkça söyleyip durur. Zorin'in varsayılan Wayland oturumunda pano yakalama GNOME eklentisi üzerinden yapılır; kurulumdan sonra **oturumu kapatıp açın**, ardından `gnome-extensions enable panora@panora-clipboard.org` (KUR.sh zaten dener) ve `panora-doctor` ile durumu kontrol edin. Eklenti etkinleşince Super+V, GNOME'un bildirim listesi kısayolundan alınıp Panora'ya verilir (eklenti kapatılınca geri döner).
+
 ## En hızlı kurulum
 
 Bu klasörde terminalde şu komutları çalıştırın:
@@ -14,7 +18,9 @@ chmod +x KUR.sh TEST.sh KALDIR.sh
 Kurulumdan sonra test:
 
 ```bash
-./TEST.sh
+panora-doctor          # ortam/servis/eklenti teşhisi (OK / UYARI / HATA)
+./TEST.sh              # teşhis + hızlı pano testi + GUI
+panora/scripts/e2e-test.sh --safe   # tüm özellikler için PASS/FAIL raporu
 ```
 
 Test daemon durumunu, gerçek bir pano kopyasını (X11'de `xclip`, Wayland'de `wl-copy` veya GNOME eklentisi varsa onun üzerinden), listeleme/FTS5 aramayı ve geri çağırmayı doğrular, ardından GUI'yi açar. Yalnızca terminal testi için:

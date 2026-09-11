@@ -41,7 +41,7 @@ async fn run_app() -> anyhow::Result<()> {
 
     let config =
         Config::load().map_err(|e| anyhow::anyhow!("config {}: {e}", config_path().display()))?;
-    let backend = select_backend().map_err(|e| anyhow::anyhow!("{e}"))?;
+    let backend = select_backend().await.map_err(|e| anyhow::anyhow!("{e}"))?;
     info!(backend = backend.name(), "clipboard backend selected");
 
     let data_root = data_dir();
@@ -64,10 +64,23 @@ async fn run_app() -> anyhow::Result<()> {
         warn!(error = %e, "startup maintenance failed");
     }
 
+    // A capture loop that dies (display connection lost, compositor gone)
+    // must take the process down so systemd restarts it, instead of leaving
+    // an IPC server that silently records nothing. The same goes for the
+    // GNOME bridge service when capture depends on it.
+    let (fatal_tx, fatal_rx) = tokio::sync::mpsc::channel::<String>(2);
+
     let bridge_daemon = daemon.clone();
+    let bridge_fatal = fatal_tx.clone();
+    let bridge_required = daemon.backend().capabilities().needs_bridge;
     tokio::task::spawn_local(async move {
         if let Err(e) = run_gnome_bridge(bridge_daemon).await {
-            warn!(error = %e, "GNOME bridge unavailable; install/enable the extension for GNOME Wayland capture");
+            if bridge_required {
+                error!(error = %e, "GNOME bridge service failed and capture depends on it");
+                let _ = bridge_fatal.send(format!("GNOME bridge: {e}")).await;
+            } else {
+                warn!(error = %e, "GNOME bridge unavailable; install/enable the extension for GNOME Wayland capture");
+            }
         }
     });
 
@@ -82,17 +95,16 @@ async fn run_app() -> anyhow::Result<()> {
     info!(socket = %path.display(), uid = socket_uid, "panod IPC service ready");
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::mpsc::channel(1);
-    // A capture loop that dies (display connection lost, compositor gone)
-    // must take the process down so systemd restarts it, instead of leaving
-    // an IPC server that silently records nothing.
-    let (fatal_tx, fatal_rx) = tokio::sync::oneshot::channel::<String>();
     let capture = daemon.clone();
+    let capture_fatal = fatal_tx.clone();
     tokio::task::spawn_local(async move {
         if let Err(e) = capture.run(shutdown_rx).await {
             error!(error = %e, "capture loop stopped");
-            let _ = fatal_tx.send(e.to_string());
+            let _ = capture_fatal.send(e.to_string()).await;
         }
     });
+    drop(fatal_tx);
+    let mut fatal_rx = fatal_rx;
 
     let maintenance = daemon.clone();
     tokio::task::spawn_local(async move {
@@ -128,9 +140,9 @@ async fn run_app() -> anyhow::Result<()> {
             info!("panod stopped");
             Ok(())
         }
-        reason = fatal_rx => Err(anyhow::anyhow!(
+        reason = fatal_rx.recv() => Err(anyhow::anyhow!(
             "capture stopped: {}",
-            reason.unwrap_or_else(|_| "capture task ended".into())
+            reason.unwrap_or_else(|| "capture task ended".into())
         )),
     };
     let _ = tokio::fs::remove_file(&path).await;

@@ -51,6 +51,9 @@ const PREVIEW_LEN: usize = 500;
 /// the popup has time to close and focus returns to the target window.
 const PASTE_DELAY: std::time::Duration = std::time::Duration::from_millis(160);
 
+/// How long after a recall the GNOME bridge's echo of it is recognised.
+const RECALL_ECHO_WINDOW: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// Outcome of a recall request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RecallOutcome {
@@ -71,6 +74,11 @@ pub struct Daemon {
     /// Entry stored from the most recent change of each selection; the only
     /// content the persistence path may re-offer.
     last_stored: Mutex<HashMap<Selection, i64>>,
+    /// Entry most recently put on the clipboard by `recall`, with the time.
+    /// The GNOME bridge reports our own recall back as a change; matching
+    /// the pushed bytes against this entry's blobs keeps it from becoming a
+    /// second, single-format copy.
+    last_recall: Mutex<Option<(i64, std::time::Instant)>>,
 }
 
 impl Daemon {
@@ -95,6 +103,7 @@ impl Daemon {
             device_id,
             revision: AtomicU64::new(1),
             last_stored: Mutex::new(HashMap::new()),
+            last_recall: Mutex::new(None),
         }
     }
 
@@ -405,10 +414,32 @@ impl Daemon {
         if data.payloads.is_empty() {
             return;
         }
-
-        if let Err(e) = self.store(data).await {
-            warn!(error = %e, "failed to store GNOME bridge clipboard event");
+        if let Some(id) = self.is_echo_of_recall(&data) {
+            debug!(id, "GNOME bridge echoed our own recall; not stored again");
+            let _ = self.db.touch(id, unix_now());
+            return;
         }
+
+        match self.store(data).await {
+            Ok(entry) => self.remember_last_stored(Selection::Clipboard, entry.id),
+            Err(e) => warn!(error = %e, "failed to store GNOME bridge clipboard event"),
+        }
+    }
+
+    /// If `data` carries exactly the bytes of the entry recalled within the
+    /// last few seconds, return that entry's id. Blob references are BLAKE3
+    /// hashes of the plaintext, so no payload needs to be decrypted.
+    fn is_echo_of_recall(&self, data: &ClipboardData) -> Option<i64> {
+        let (id, at) = (*self.last_recall.lock().ok()?)?;
+        if at.elapsed() > RECALL_ECHO_WINDOW {
+            return None;
+        }
+        let refs = self.db.blobs_of(id).ok()?;
+        let echoed = data.payloads.iter().all(|p| {
+            let hash = panora_core::storage::content_hash(&p.data);
+            refs.iter().any(|(_, blob_ref)| *blob_ref == hash)
+        });
+        echoed.then_some(id)
     }
 
     /// Persist captured data: dedup by content hash, encrypt payloads
@@ -561,6 +592,9 @@ impl Daemon {
             return Err(Error::NotFound(entry_id));
         }
         self.offer_entry_as(&entry, mime).await?;
+        if let Ok(mut slot) = self.last_recall.lock() {
+            *slot = Some((entry_id, std::time::Instant::now()));
+        }
         self.db.touch(entry_id, unix_now())?;
         self.bump();
         if !paste {
@@ -1183,6 +1217,94 @@ mod tests {
         let status = daemon.status().unwrap();
         assert_eq!(status.entries, 1);
         assert_eq!(status.protocol, PROTOCOL_VERSION);
+    }
+
+    /// Mock that claims to depend on the GNOME bridge (GNOME <= 47 Wayland).
+    struct BridgeMock(MockBackend);
+
+    #[async_trait::async_trait]
+    impl ClipboardBackend for BridgeMock {
+        fn name(&self) -> &'static str {
+            "gnome-bridge"
+        }
+        fn capabilities(&self) -> panora_core::backend::Capabilities {
+            panora_core::backend::Capabilities {
+                needs_bridge: true,
+                ..self.0.capabilities()
+            }
+        }
+        async fn watch(&self, s: Selection) -> Result<mpsc::Receiver<ClipboardEvent>> {
+            self.0.watch(s).await
+        }
+        async fn read_targets(&self, s: Selection) -> Result<Vec<String>> {
+            self.0.read_targets(s).await
+        }
+        async fn read(&self, s: Selection, m: &str) -> Result<Vec<u8>> {
+            self.0.read(s, m).await
+        }
+        async fn offer(&self, s: Selection, d: ClipboardData) -> Result<()> {
+            self.0.offer(s, d).await
+        }
+    }
+
+    fn bridge_push(text: &str, app: Option<&str>) -> ClipboardData {
+        ClipboardData {
+            selection: Selection::Clipboard,
+            payloads: vec![MimePayload::new("text/plain;charset=utf-8", text)],
+            offered_mimes: vec!["text/plain;charset=utf-8".into(), "text/plain".into()],
+            source_app: app.map(str::to_string),
+        }
+    }
+
+    #[tokio::test]
+    async fn bridge_captures_and_ignores_the_echo_of_a_recall() {
+        let dir = tempfile::tempdir().unwrap();
+        let backend = Arc::new(BridgeMock(MockBackend::new()));
+        let daemon = Daemon::new(
+            backend.clone(),
+            Database::open(
+                dir.path().join("history.db"),
+                Cipher::new(&MasterKey::generate()),
+            )
+            .unwrap(),
+            BlobStore::open(
+                dir.path().join("blobs"),
+                Cipher::new(&MasterKey::generate()),
+            )
+            .unwrap(),
+            Config::default(),
+            Arc::new(NoopSync),
+            "test-device".into(),
+        );
+
+        daemon
+            .handle_gnome_data(bridge_push("first", Some("firefox.desktop")))
+            .await;
+        daemon
+            .handle_gnome_data(bridge_push("second", Some("firefox.desktop")))
+            .await;
+        assert_eq!(daemon.db().count().unwrap(), 2);
+        let first = daemon.query(&QueryFilter::recent(10)).unwrap()[1].id;
+
+        // Recall "first": the extension sees the clipboard change and pushes
+        // the very same bytes back. That must not create a third entry.
+        daemon.recall(first, false, None).await.unwrap();
+        daemon.handle_gnome_data(bridge_push("first", None)).await;
+        assert_eq!(daemon.db().count().unwrap(), 2);
+        assert_eq!(daemon.query(&QueryFilter::recent(1)).unwrap()[0].id, first);
+
+        // A genuinely new copy right after the recall is still recorded.
+        daemon.handle_gnome_data(bridge_push("third", None)).await;
+        assert_eq!(daemon.db().count().unwrap(), 3);
+
+        // Password managers are filtered by their desktop id too.
+        daemon
+            .handle_gnome_data(bridge_push(
+                "hunter2",
+                Some("org.keepassxc.KeePassXC.desktop"),
+            ))
+            .await;
+        assert_eq!(daemon.db().count().unwrap(), 3);
     }
 
     #[tokio::test]

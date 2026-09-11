@@ -4,5 +4,5 @@
   "description": "Binds Super+V to the Panora popup, forwards clipboard changes to the local Panora daemon on GNOME versions without a data-control protocol, and lets the daemon set the clipboard or paste. Session bus only; no network access.",
   "shell-version": ["45", "46", "47", "48", "49", "50", "51"],
   "settings-schema": "org.gnome.shell.extensions.panora",
-  "session-modes": ["user"]
+  "session-modes": ["user", "zorin"]
 }

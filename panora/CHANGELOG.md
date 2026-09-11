@@ -2,6 +2,12 @@
 
 ## 1.2.0
 
+### Zorin OS 18 / Ubuntu 24.04
+- `install.sh` refuses releases older than Ubuntu 24.04 / Debian 13 / Zorin 18 with a clear message, detects a too-old apt `cargo` (1.75) and installs rustup instead, picks the `libglib2.0-0t64` runtime name, installs `libglib2.0-bin` (where `glib-compile-schemas` really lives) and tolerates a broken third-party apt repo.
+- GNOME 46 Wayland bridge: `PushMany` carries text + HTML (or uri-list) per change so bridge entries have the same fidelity as native captures; the daemon recognises the echo of its own recall; a failed bridge service is fatal when capture depends on it; backend detection no longer calls the blocking zbus API inside the runtime (this crashed panod at startup on sessions without `XDG_CURRENT_DESKTOP`).
+- Extension: loads in Zorin's `zorin` session mode, takes `<Super>v` away from GNOME's notification list while enabled (restored on disable), waits for focus to leave the popup before pasting, uses evdev key codes so Ctrl+V works on any layout, activates the popup with a 25 s timeout and only falls back to spawning when no D-Bus service exists.
+- New `panora-doctor` (installed to /usr/bin) diagnoses the session, daemon, extension, D-Bus names, keyring and shortcut conflicts; `scripts/e2e-test.sh` runs a PASS/FAIL functional test of every feature on the real machine; `test-local.sh` runs the doctor first.
+
 ### Daemon
 - Native X11 backend (x11rb): XFIXES change events instead of 180 ms polling, `ConvertSelection` reads with INCR, panod becomes the selection owner on recall and serves every stored format (text + HTML, images) with INCR for large payloads, XTEST instant paste, re-offer of the last entry when the owning application exits. `xclip` is no longer required.
 - Native Wayland backend (wayland-client): `ext-data-control-v1` and `wlr-data-control-v1`, event-driven capture with the MIME list delivered before any payload, multi-format data sources on recall, primary selection support. `wl-clipboard` is no longer required. Consecutive copies of the same type are no longer missed.

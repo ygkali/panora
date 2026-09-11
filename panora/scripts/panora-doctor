@@ -1,0 +1,538 @@
+#!/usr/bin/env bash
+# Copyright (C) 2026 Panora contributors
+# SPDX-License-Identifier: GPL-3.0-only
+#
+# panora-doctor: read-only diagnostics for an installed Panora.
+#
+# Prints one line per check (OK / UYARI / HATA / BILGI) with a fix hint for
+# anything that is not OK. Exit status is 0 unless the daemon itself is
+# unusable (panod not running or `panora-cli status` failing); warnings never
+# change the exit status. `--json` prints the same checks as a JSON array.
+#
+# The script never modifies anything: no config writes, no service restarts,
+# no package installs. Every hint is a command the user can run by hand.
+set -Eeuo pipefail
+
+JSON=0
+for arg in "$@"; do
+  case "$arg" in
+    --json) JSON=1 ;;
+    -h|--help)
+      cat <<'USAGE'
+Kullanım: panora-doctor [--json]
+
+Kurulu Panora'nın durumunu denetler: işletim sistemi, oturum tipi, ikili
+dosyalar, panod.service, IPC soketi, backend, GNOME eklentisi, D-Bus
+adları, Secret Service, Super+V çakışması, veri dizini ve yapılandırma.
+
+Çıkış kodu yalnızca daemon kullanılamaz durumdaysa 1'dir; uyarılar çıkış
+kodunu değiştirmez.
+USAGE
+      exit 0 ;;
+    *) echo "panora-doctor: bilinmeyen seçenek: $arg" >&2; exit 2 ;;
+  esac
+done
+
+# ------------------------------------------------------------------ output
+
+# Set to 1 when the daemon cannot serve clients; drives the exit status.
+DAEMON_UNUSABLE=0
+COUNT_OK=0
+COUNT_WARN=0
+COUNT_ERR=0
+JSON_ITEMS=()
+
+# Escape a string for a JSON string literal.
+json_escape() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\n'/\\n}"
+  s="${s//$'\t'/\\t}"
+  s="${s//$'\r'/}"
+  printf '%s' "$s"
+}
+
+# check STATUS NAME RESULT [HINT]
+#   STATUS: OK | UYARI | HATA | BILGI
+check() {
+  local status="$1" name="$2" result="$3" hint="${4:-}"
+  case "$status" in
+    OK) COUNT_OK=$((COUNT_OK + 1)) ;;
+    UYARI) COUNT_WARN=$((COUNT_WARN + 1)) ;;
+    HATA) COUNT_ERR=$((COUNT_ERR + 1)) ;;
+  esac
+  if [[ "$JSON" -eq 1 ]]; then
+    JSON_ITEMS+=("{\"status\":\"$status\",\"check\":\"$(json_escape "$name")\",\"result\":\"$(json_escape "$result")\",\"hint\":\"$(json_escape "$hint")\"}")
+    return
+  fi
+  # bash's printf pads by bytes, so pad Turkish names by character count.
+  local pad=$((30 - ${#name}))
+  [[ "$pad" -lt 1 ]] && pad=1
+  printf '%-6s %s%*s%s\n' "$status" "$name" "$pad" "" "$result"
+  if [[ -n "$hint" && "$status" != "OK" ]]; then
+    # Multi-line hints (journal excerpts) are indented as a block.
+    while IFS= read -r line; do
+      printf '       -> %s\n' "$line"
+    done <<<"$hint"
+  fi
+}
+
+section() {
+  [[ "$JSON" -eq 1 ]] && return
+  printf '\n%s\n' "$1"
+}
+
+# Run a command with a time limit so a hung daemon or bus never hangs us.
+with_timeout() {
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 8 "$@"
+  else
+    "$@"
+  fi
+}
+
+has() { command -v "$1" >/dev/null 2>&1; }
+
+# ------------------------------------------------------------- bus helpers
+
+# bus_has_name NAME -> 0 when NAME currently has an owner on the session bus.
+bus_has_name() {
+  local name="$1" out
+  if has gdbus; then
+    out="$(with_timeout gdbus call --session --dest org.freedesktop.DBus \
+      --object-path /org/freedesktop/DBus \
+      --method org.freedesktop.DBus.NameHasOwner "$name" 2>/dev/null || true)"
+    [[ "$out" == *true* ]]
+    return
+  fi
+  if has busctl; then
+    with_timeout busctl --user list --acquired --no-legend 2>/dev/null |
+      awk '{print $1}' | grep -qx -- "$name"
+    return
+  fi
+  return 2
+}
+
+# bus_activatable NAME -> 0 when NAME has a D-Bus service file (starts on demand).
+bus_activatable() {
+  local name="$1" out
+  if has gdbus; then
+    out="$(with_timeout gdbus call --session --dest org.freedesktop.DBus \
+      --object-path /org/freedesktop/DBus \
+      --method org.freedesktop.DBus.ListActivatableNames 2>/dev/null || true)"
+    [[ "$out" == *"'$name'"* ]]
+    return
+  fi
+  if has busctl; then
+    with_timeout busctl --user list --activatable --no-legend 2>/dev/null |
+      awk '{print $1}' | grep -qx -- "$name"
+    return
+  fi
+  return 2
+}
+
+# --------------------------------------------------------------- 1. system
+
+section "Sistem"
+
+OS_NAME="bilinmiyor"
+OS_ID=""
+OS_LIKE=""
+if [[ -r /etc/os-release ]]; then
+  # shellcheck disable=SC1091
+  OS_NAME="$(. /etc/os-release && printf '%s' "${PRETTY_NAME:-$NAME}")"
+  OS_ID="$(. /etc/os-release && printf '%s' "${ID:-}")"
+  OS_LIKE="$(. /etc/os-release && printf '%s' "${ID_LIKE:-}")"
+fi
+if [[ "$OS_ID $OS_LIKE" == *debian* || "$OS_ID $OS_LIKE" == *ubuntu* ]]; then
+  check OK "İşletim sistemi" "$OS_NAME"
+else
+  check UYARI "İşletim sistemi" "$OS_NAME" \
+    "Paket Debian/Ubuntu tabanlı sistemler için test edildi; INSTALL-local.md 'Kaynak koddan derleme' bölümüne bakın."
+fi
+
+SESSION="${XDG_SESSION_TYPE:-}"
+case "$SESSION" in
+  x11|wayland) check OK "Oturum tipi" "$SESSION" ;;
+  "") check UYARI "Oturum tipi" "XDG_SESSION_TYPE tanımsız" \
+        "Bu script grafik oturum içindeki bir terminalden çalıştırılmalı (SSH değil)." ;;
+  *) check UYARI "Oturum tipi" "$SESSION" "Grafik oturum (x11/wayland) bekleniyordu." ;;
+esac
+
+DESKTOP="${XDG_CURRENT_DESKTOP:-}"
+IS_GNOME=0
+if [[ "${DESKTOP,,}" == *gnome* ]] || bus_has_name org.gnome.Shell 2>/dev/null; then
+  IS_GNOME=1
+fi
+DESKTOP_NOTE=""
+[[ "$IS_GNOME" -eq 1 ]] && DESKTOP_NOTE=" (GNOME Shell çalışıyor)"
+check BILGI "Masaüstü" "${DESKTOP:-bilinmiyor}$DESKTOP_NOTE"
+
+SHELL_MAJOR=0
+if has gnome-shell; then
+  SHELL_VER="$(with_timeout gnome-shell --version 2>/dev/null | sed 's/^GNOME Shell //' || true)"
+  SHELL_MAJOR="${SHELL_VER%%.*}"
+  [[ "$SHELL_MAJOR" =~ ^[0-9]+$ ]] || SHELL_MAJOR=0
+  if [[ "$SESSION" == "wayland" && "$SHELL_MAJOR" -gt 0 && "$SHELL_MAJOR" -lt 48 ]]; then
+    check BILGI "gnome-shell sürümü" "${SHELL_VER:-?} (Wayland'de pano yakalama Shell eklentisi üzerinden yapılır)"
+  else
+    check BILGI "gnome-shell sürümü" "${SHELL_VER:-?}"
+  fi
+else
+  check BILGI "gnome-shell sürümü" "gnome-shell yok (GNOME dışı masaüstü)"
+fi
+
+# -------------------------------------------------------------- 2. binaries
+
+section "Kurulum"
+
+PKG_VER="$(dpkg-query -W -f='${Version}' panora 2>/dev/null || true)"
+if [[ -n "$PKG_VER" ]]; then
+  check OK "panora paketi" "sürüm $PKG_VER (dpkg)"
+else
+  check UYARI "panora paketi" "dpkg kaydı yok" "Paket kurulu değil ya da kaynaktan çalıştırılıyor: ./install.sh"
+fi
+
+MISSING_BIN=()
+for bin in panod panora-gui panora-cli panora; do
+  if [[ -x "/usr/bin/$bin" ]]; then
+    :
+  elif has "$bin"; then
+    check UYARI "/usr/bin/$bin" "yok; PATH'te: $(command -v "$bin")" \
+      "Paket kurulumu yerine kaynak derlemesi kullanılıyor; Super+V ve D-Bus etkinleştirme /usr/bin yolunu bekler."
+  else
+    MISSING_BIN+=("$bin")
+  fi
+done
+if [[ ${#MISSING_BIN[@]} -eq 0 ]]; then
+  check OK "İkili dosyalar" "panod, panora-gui, panora-cli, panora hazır"
+else
+  check HATA "İkili dosyalar" "eksik: ${MISSING_BIN[*]}" "cd panora && ./install.sh   (veya sudo dpkg -i dist/panora_*.deb)"
+  if [[ " ${MISSING_BIN[*]} " == *" panora-cli "* || " ${MISSING_BIN[*]} " == *" panod "* ]]; then
+    DAEMON_UNUSABLE=1
+  fi
+fi
+
+for f in /usr/share/dbus-1/services/io.panora.Panora.service \
+         /usr/share/applications/io.panora.Panora.desktop \
+         /usr/lib/systemd/user/panod.service; do
+  if [[ -f "$f" ]]; then
+    check OK "$(basename "$f")" "$f"
+  else
+    case "$f" in
+      *dbus-1*) hint="Popup D-Bus ile etkinleştirilemez; Super+V ve 'panora-cli toggle' panora-gui'yi doğrudan başlatır. Paketi yeniden kurun." ;;
+      *applications*) hint="Uygulama menüsünde Panora görünmez. Paketi yeniden kurun." ;;
+      *) hint="systemd birimi yok: paketi yeniden kurun (./install.sh)." ;;
+    esac
+    check UYARI "$(basename "$f")" "yok" "$hint"
+  fi
+done
+
+# ---------------------------------------------------------------- 3. daemon
+
+section "Daemon"
+
+UNIT_ACTIVE="bilinmiyor"
+if has systemctl; then
+  UNIT_ENABLED="$(with_timeout systemctl --user is-enabled panod.service 2>/dev/null || true)"
+  UNIT_ACTIVE="$(with_timeout systemctl --user is-active panod.service 2>/dev/null || true)"
+  UNIT_ENABLED="${UNIT_ENABLED:-bilinmiyor}"
+  UNIT_ACTIVE="${UNIT_ACTIVE:-bilinmiyor}"
+  if [[ "$UNIT_ACTIVE" == "active" ]]; then
+    if [[ "$UNIT_ENABLED" == "enabled" ]]; then
+      check OK "panod.service" "active, enabled"
+    else
+      check UYARI "panod.service" "active, $UNIT_ENABLED" \
+        "Servis oturum açılışında başlamaz: systemctl --user enable panod.service"
+    fi
+  else
+    DAEMON_UNUSABLE=1
+    JOURNAL="$(with_timeout journalctl --user -u panod.service -n 20 --no-pager -o short 2>/dev/null || true)"
+    HINT="systemctl --user enable --now panod.service"
+    if [[ "$UNIT_ACTIVE" == "failed" ]]; then
+      HINT="systemctl --user reset-failed panod.service && systemctl --user restart panod.service"
+    fi
+    if [[ -n "$JOURNAL" ]]; then
+      HINT="$HINT"$'\n'"Son 20 günlük satırı (journalctl --user -u panod.service -n 20):"$'\n'"$JOURNAL"
+    fi
+    check HATA "panod.service" "$UNIT_ACTIVE, $UNIT_ENABLED" "$HINT"
+  fi
+else
+  check UYARI "panod.service" "systemctl yok" "panod'u elle başlatın: panod &"
+fi
+
+SOCK="${XDG_RUNTIME_DIR:-$HOME/.local/share/panora}/panora.sock"
+if [[ -S "$SOCK" ]]; then
+  MODE="$(stat -c '%a' "$SOCK" 2>/dev/null || true)"
+  OWNER="$(stat -c '%u' "$SOCK" 2>/dev/null || true)"
+  if [[ "$MODE" == "600" && "$OWNER" == "$(id -u)" ]]; then
+    check OK "IPC soketi" "$SOCK (0600, uid $OWNER)"
+  else
+    check UYARI "IPC soketi" "$SOCK izin=$MODE sahip=$OWNER" \
+      "Soket 0600 ve sizin kullanıcınıza ait olmalı; panod'u yeniden başlatın: systemctl --user restart panod.service"
+  fi
+else
+  if [[ "$UNIT_ACTIVE" == "active" ]]; then
+    check HATA "IPC soketi" "$SOCK yok" \
+      "Servis çalışıyor ama soket yok; XDG_RUNTIME_DIR farklı olabilir. journalctl --user -u panod.service -n 50"
+    DAEMON_UNUSABLE=1
+  else
+    check HATA "IPC soketi" "$SOCK yok" "Daemon çalışmıyor (yukarıya bakın)."
+  fi
+fi
+
+STATUS_LINE=""
+BACKEND=""
+PRIVATE=""
+if has panora-cli; then
+  if STATUS_LINE="$(with_timeout panora-cli status 2>&1)"; then
+    BACKEND="$(sed -n 's/.*backend=\([^ ]*\).*/\1/p' <<<"$STATUS_LINE")"
+    PRIVATE="$(sed -n 's/.*private=\([^ ]*\).*/\1/p' <<<"$STATUS_LINE")"
+    ENTRIES="$(sed -n 's/.*entries=\([^ ]*\).*/\1/p' <<<"$STATUS_LINE")"
+    DVER="$(sed -n 's/.*version=\([^ ]*\).*/\1/p' <<<"$STATUS_LINE")"
+    check OK "panora-cli status" "backend=${BACKEND:-?} entries=${ENTRIES:-?} version=${DVER:-?}"
+    case "$BACKEND" in
+      x11)
+        if [[ "$SESSION" == "wayland" ]]; then
+          check UYARI "Backend" "x11 (XWayland üzerinden yedek yol)" \
+            "Wayland'de kaynak uygulama adı bilinmez. GNOME'da eklentiyi etkinleştirin; diğer masaüstlerinde data-control protokolü gerekir."
+        else
+          check OK "Backend" "x11 (XFIXES + yerel selection owner)"
+        fi ;;
+      wayland) check OK "Backend" "wayland (ext/wlr data-control)" ;;
+      gnome-bridge) check OK "Backend" "gnome-bridge (yakalama Shell eklentisi üzerinden)" ;;
+      "") check UYARI "Backend" "status çıktısından okunamadı" "panora-cli --json status" ;;
+      *) check BILGI "Backend" "$BACKEND" ;;
+    esac
+    if [[ "$PRIVATE" == "true" ]]; then
+      check UYARI "Özel mod" "açık: yeni kopyalar kaydedilmiyor" "Kapatmak için: panora-cli private off"
+    else
+      check OK "Özel mod" "kapalı"
+    fi
+  else
+    DAEMON_UNUSABLE=1
+    check HATA "panora-cli status" "${STATUS_LINE:-yanıt yok}" \
+      "systemctl --user status panod.service && journalctl --user -u panod.service -n 50 --no-pager"
+  fi
+fi
+
+# --------------------------------------------------------------- 4. GNOME
+
+section "GNOME entegrasyonu"
+
+EXT_UUID="panora@panora-clipboard.org"
+EXT_STATE=""
+EXT_ENABLED=""
+EXT_DIR=""
+for d in "/usr/share/gnome-shell/extensions/$EXT_UUID" \
+         "${XDG_DATA_HOME:-$HOME/.local/share}/gnome-shell/extensions/$EXT_UUID"; do
+  [[ -d "$d" ]] && { EXT_DIR="$d"; break; }
+done
+
+if [[ "$IS_GNOME" -eq 1 ]]; then
+  if has gnome-extensions; then
+    EXT_INFO="$(with_timeout gnome-extensions info "$EXT_UUID" 2>/dev/null || true)"
+    EXT_STATE="$(sed -n 's/^ *State: *//p' <<<"$EXT_INFO" | head -n1)"
+    EXT_ENABLED="$(sed -n 's/^ *Enabled: *//p' <<<"$EXT_INFO" | head -n1)"
+    if [[ -z "$EXT_INFO" ]]; then
+      if [[ -n "$EXT_DIR" ]]; then
+        check HATA "GNOME eklentisi" "dosyalar var ($EXT_DIR) ama gnome-shell henüz görmüyor" \
+          "Oturumu kapatıp açın, sonra: gnome-extensions enable $EXT_UUID"
+      else
+        check HATA "GNOME eklentisi" "kurulu değil" "Paketi yeniden kurun (./install.sh); eklenti /usr/share/gnome-shell/extensions altına yazılır."
+      fi
+    elif [[ "$EXT_STATE" == "ACTIVE" ]]; then
+      check OK "GNOME eklentisi" "ACTIVE (${EXT_DIR:-?})"
+    elif [[ "$EXT_STATE" == "ERROR" ]]; then
+      check HATA "GNOME eklentisi" "ERROR" \
+        "journalctl --user -b -o cat /usr/bin/gnome-shell | grep -i panora"
+    elif [[ "$EXT_ENABLED" == "Yes" ]]; then
+      check UYARI "GNOME eklentisi" "etkin ama durum: ${EXT_STATE:-?}" \
+        "Oturumu kapatıp açın; ayrıntı: gnome-extensions info $EXT_UUID"
+    else
+      check UYARI "GNOME eklentisi" "kurulu, etkin değil (${EXT_STATE:-?})" \
+        "gnome-extensions enable $EXT_UUID"
+    fi
+    if [[ "$BACKEND" == "gnome-bridge" && "$EXT_STATE" != "ACTIVE" ]]; then
+      check HATA "Pano yakalama" "gnome-bridge backend'i eklenti olmadan hiçbir şey yakalayamaz" \
+        "gnome-extensions enable $EXT_UUID  (gerekirse oturumu yeniden açın)"
+    fi
+  else
+    check UYARI "GNOME eklentisi" "gnome-extensions aracı yok" "sudo apt install -y gnome-shell-extension-prefs"
+  fi
+else
+  check BILGI "GNOME eklentisi" "GNOME dışı masaüstü, atlandı" \
+    "Kısayol için masaüstünüzün ayarlarında 'panora-cli toggle' komutunu bir tuşa bağlayın."
+fi
+
+# D-Bus names.
+if bus_has_name io.panora.GnomeBridge1; then
+  check OK "io.panora.GnomeBridge1" "oturum veriyolunda (panod)"
+else
+  rc=$?
+  if [[ "$rc" -eq 2 ]]; then
+    check UYARI "io.panora.GnomeBridge1" "kontrol edilemedi (gdbus/busctl yok)" "sudo apt install -y libglib2.0-bin"
+  elif [[ "$BACKEND" == "gnome-bridge" ]]; then
+    check HATA "io.panora.GnomeBridge1" "veriyolunda değil" \
+      "panod D-Bus servisini kaydedemedi; journalctl --user -u panod.service -n 50"
+  else
+    check UYARI "io.panora.GnomeBridge1" "veriyolunda değil" \
+      "panod çalışmıyor ya da oturum veriyoluna bağlanamadı (DBUS_SESSION_BUS_ADDRESS)."
+  fi
+fi
+
+if bus_has_name io.panora.GnomeShell1; then
+  check OK "io.panora.GnomeShell1" "oturum veriyolunda (Shell eklentisi)"
+else
+  rc=$?
+  if [[ "$rc" -eq 2 ]]; then
+    check UYARI "io.panora.GnomeShell1" "kontrol edilemedi (gdbus/busctl yok)" "sudo apt install -y libglib2.0-bin"
+  elif [[ "$IS_GNOME" -eq 1 ]]; then
+    check UYARI "io.panora.GnomeShell1" "veriyolunda değil" \
+      "Eklenti etkin değil ya da gnome-shell yeniden başlatılmadı: gnome-extensions enable $EXT_UUID"
+  else
+    check BILGI "io.panora.GnomeShell1" "GNOME dışı masaüstünde beklenmez"
+  fi
+fi
+
+if bus_has_name io.panora.Panora; then
+  check BILGI "io.panora.Panora" "popup şu anda açık"
+elif bus_activatable io.panora.Panora; then
+  check OK "io.panora.Panora" "D-Bus ile etkinleştirilebilir"
+else
+  check UYARI "io.panora.Panora" "etkinleştirilebilir değil" \
+    "/usr/share/dbus-1/services/io.panora.Panora.service eksik; paketi yeniden kurun."
+fi
+
+# Super+V conflicts.
+if has gsettings && [[ "$IS_GNOME" -eq 1 ]]; then
+  TRAY="$(with_timeout gsettings get org.gnome.shell.keybindings toggle-message-tray 2>/dev/null || true)"
+  if [[ "${TRAY,,}" == *"<super>v"* ]]; then
+    check UYARI "Super+V çakışması" "toggle-message-tray = $TRAY" \
+      "GNOME bildirim listesi de Super+V kullanıyor. Çözüm: gsettings set org.gnome.shell.keybindings toggle-message-tray \"['<Super>m']\""
+  elif [[ -n "$TRAY" ]]; then
+    check OK "Super+V çakışması" "toggle-message-tray = $TRAY"
+  else
+    check BILGI "Super+V çakışması" "gsettings okunamadı"
+  fi
+  if [[ -n "$EXT_DIR" && -f "$EXT_DIR/schemas/gschemas.compiled" ]]; then
+    POPUP_KEY="$(with_timeout gsettings --schemadir "$EXT_DIR/schemas" get org.gnome.shell.extensions.panora toggle-popup 2>/dev/null || true)"
+    check BILGI "Panora kısayolu" "toggle-popup = ${POPUP_KEY:-okunamadı}"
+  elif [[ -n "$EXT_DIR" ]]; then
+    check UYARI "Panora kısayolu" "$EXT_DIR/schemas/gschemas.compiled yok" \
+      "Şema derlenmemiş; Super+V çalışmaz: sudo glib-compile-schemas $EXT_DIR/schemas"
+  fi
+fi
+
+# -------------------------------------------------------- 5. secret service
+
+section "Anahtar deposu ve yardımcılar"
+
+if bus_has_name org.freedesktop.secrets; then
+  check OK "Secret Service" "org.freedesktop.secrets çalışıyor (gnome-keyring)"
+else
+  rc=$?
+  if [[ "$rc" -eq 2 ]]; then
+    check UYARI "Secret Service" "kontrol edilemedi (gdbus/busctl yok)" "sudo apt install -y libglib2.0-bin"
+  elif bus_activatable org.freedesktop.secrets; then
+    check UYARI "Secret Service" "kurulu, şu an çalışmıyor (ilk istekte başlar)" \
+      "Keyring kilitliyse panod 60 sn sonra durur. Açtıktan sonra: systemctl --user restart panod.service"
+  else
+    check HATA "Secret Service" "org.freedesktop.secrets yok" \
+      "panod ana anahtarı buradan alır: sudo apt install -y gnome-keyring  (sonra oturumu yeniden açın)"
+  fi
+fi
+
+HELPERS=""
+for h in wtype ydotool; do
+  has "$h" && HELPERS="$HELPERS $h"
+done
+if [[ "$SESSION" == "wayland" && "$IS_GNOME" -eq 0 ]]; then
+  if [[ -n "$HELPERS" ]]; then
+    check OK "Anında yapıştır yardımcısı" "${HELPERS# }"
+  else
+    check UYARI "Anında yapıştır yardımcısı" "wtype/ydotool yok" \
+      "GNOME dışı Wayland'de anında yapıştır için: sudo apt install -y wtype  (veya ydotool)"
+  fi
+else
+  if [[ -n "$HELPERS" ]]; then
+    check BILGI "Anında yapıştır yardımcısı" "${HELPERS# } kurulu; bu oturumda gerekmiyor (X11: XTEST, GNOME: eklenti)"
+  else
+    check BILGI "Anında yapıştır yardımcısı" "wtype/ydotool yok; bu oturumda gerekmiyor (X11: XTEST, GNOME: eklenti)"
+  fi
+fi
+
+CLIP_TOOLS=""
+for t in xclip wl-copy wl-paste; do
+  has "$t" && CLIP_TOOLS="$CLIP_TOOLS $t"
+done
+check BILGI "Pano test araçları" "${CLIP_TOOLS:- yok} (yalnızca scripts/e2e-test.sh için; sudo apt install -y xclip wl-clipboard)"
+
+# ----------------------------------------------------------- 6. data/config
+
+section "Veri ve yapılandırma"
+
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/panora"
+if [[ -d "$DATA_DIR" ]]; then
+  DMODE="$(stat -c '%a' "$DATA_DIR" 2>/dev/null || true)"
+  DB_INFO=""
+  if [[ -f "$DATA_DIR/history.db" ]]; then
+    DB_INFO=", history.db $(du -h "$DATA_DIR/history.db" 2>/dev/null | cut -f1)"
+  fi
+  if [[ "$DMODE" == "700" ]]; then
+    check OK "Veri dizini" "$DATA_DIR (0700$DB_INFO)"
+  else
+    check UYARI "Veri dizini" "$DATA_DIR izin=$DMODE" "chmod 700 $DATA_DIR"
+  fi
+else
+  check UYARI "Veri dizini" "$DATA_DIR yok" \
+    "panod ilk başlangıçta oluşturur; servis hiç başlamadıysa: systemctl --user restart panod.service"
+fi
+
+CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/panora/config.toml"
+if [[ -f "$CONFIG" ]]; then
+  CMODE="$(stat -c '%a' "$CONFIG" 2>/dev/null || true)"
+  if [[ "$CMODE" == "600" || "$CMODE" == "644" || "$CMODE" == "640" ]]; then
+    check OK "config.toml" "$CONFIG ($CMODE)"
+  else
+    check UYARI "config.toml" "$CONFIG izin=$CMODE" "chmod 600 $CONFIG"
+  fi
+else
+  check BILGI "config.toml" "yok, varsayılanlar kullanılıyor ($CONFIG)"
+fi
+
+if [[ "$DAEMON_UNUSABLE" -eq 0 ]] && has panora-cli; then
+  if RELOAD_OUT="$(with_timeout panora-cli reload 2>&1)"; then
+    check OK "Yapılandırma geçerliliği" "panora-cli reload başarılı"
+  else
+    check HATA "Yapılandırma geçerliliği" "${RELOAD_OUT:-reload başarısız}" \
+      "$CONFIG dosyasını düzeltin (README 'Ayarlar' bölümü) ve tekrar: panora-cli reload"
+  fi
+else
+  check BILGI "Yapılandırma geçerliliği" "daemon yanıt vermediği için atlandı"
+fi
+
+# ----------------------------------------------------------------- summary
+
+if [[ "$JSON" -eq 1 ]]; then
+  printf '{"ok":%d,"warnings":%d,"errors":%d,"daemon_usable":%s,"checks":[' \
+    "$COUNT_OK" "$COUNT_WARN" "$COUNT_ERR" "$([[ "$DAEMON_UNUSABLE" -eq 0 ]] && printf true || printf false)"
+  first=1
+  for item in "${JSON_ITEMS[@]}"; do
+    [[ "$first" -eq 1 ]] || printf ','
+    first=0
+    printf '%s' "$item"
+  done
+  printf ']}\n'
+else
+  echo
+  echo "Özet: $COUNT_OK OK, $COUNT_WARN UYARI, $COUNT_ERR HATA"
+  if [[ "$DAEMON_UNUSABLE" -eq 1 ]]; then
+    echo "Sonuç: daemon kullanılamıyor. Yukarıdaki HATA satırlarındaki komutları uygulayın."
+  else
+    echo "Sonuç: daemon çalışıyor. Uçtan uca test için: scripts/e2e-test.sh"
+  fi
+fi
+
+[[ "$DAEMON_UNUSABLE" -eq 0 ]]

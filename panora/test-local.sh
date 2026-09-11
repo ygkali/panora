@@ -2,12 +2,40 @@
 # Copyright (C) 2026 Panora contributors
 # SPDX-License-Identifier: GPL-3.0-only
 #
-# Local smoke test for an installed Panora: daemon status, a real clipboard
-# copy, list + FTS search, recall, and (unless PANORA_NO_GUI=1) the popup.
+# Local smoke test for an installed Panora: panora-doctor diagnostics first,
+# then daemon status, a real clipboard copy, list + FTS search, recall, and
+# (unless PANORA_NO_GUI=1) the popup. PANORA_E2E=1 also runs the full
+# scripts/e2e-test.sh in its safe mode.
 set -Eeuo pipefail
+
+ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "Panora lokal smoke test"
 echo "========================"
+
+# Diagnostics first: the doctor explains a broken install far better than a
+# failing copy below. Packaged as /usr/bin/panora-doctor; the source tree
+# copy covers runs before the package is installed.
+DOCTOR=""
+if command -v panora-doctor >/dev/null 2>&1; then
+  DOCTOR="$(command -v panora-doctor)"
+elif [[ -x "$ROOT_DIR/scripts/panora-doctor" ]]; then
+  DOCTOR="$ROOT_DIR/scripts/panora-doctor"
+fi
+if [[ -n "$DOCTOR" ]]; then
+  echo
+  echo "[1/3] Tanı (panora-doctor)"
+  echo "--------------------------"
+  if ! "$DOCTOR"; then
+    echo
+    echo "Hata: panora-doctor daemon'un kullanılamaz olduğunu bildirdi; yukarıdaki HATA satırlarını düzeltip tekrar deneyin." >&2
+    exit 1
+  fi
+  echo
+fi
+
+echo "[2/3] Hızlı pano testi"
+echo "----------------------"
 
 if ! command -v panora-cli >/dev/null 2>&1; then
   echo "Hata: panora-cli bulunamadı. Önce ./install.sh çalıştırın." >&2
@@ -59,6 +87,19 @@ if [[ "$COPIED" -eq 1 ]]; then
     echo "Geri çağırma testi (id $ID):"
     panora-cli copy "$ID"
   fi
+fi
+
+echo
+echo "[3/3] Uçtan uca test (isteğe bağlı)"
+echo "-----------------------------------"
+echo "Tüm özellikleri (HTML/PNG/dosya/renk/bağlantı yakalama, sabitleme, geri"
+echo "çağırma, tekilleştirme, özel mod, clear, config reload, popup) sınamak için:"
+echo "  $ROOT_DIR/scripts/e2e-test.sh            # sorar: clear ve max_entries geçmişi siler"
+echo "  $ROOT_DIR/scripts/e2e-test.sh --safe     # geçmişi silen adımları atla"
+echo "  $ROOT_DIR/scripts/e2e-test.sh --install-helpers   # xclip / wl-clipboard eksikse kur"
+if [[ "${PANORA_E2E:-0}" == "1" ]]; then
+  echo
+  "$ROOT_DIR/scripts/e2e-test.sh" --safe --no-gui
 fi
 
 if [[ "${PANORA_NO_GUI:-0}" == "1" ]]; then
