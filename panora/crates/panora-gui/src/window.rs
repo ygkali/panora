@@ -619,10 +619,8 @@ pub fn refresh(ui: &Rc<Ui>) {
         }
     };
 
-    ui.title
-        .set_subtitle(&subtitle_for(ui.s, entries.len(), filter));
-
     if entries.is_empty() {
+        ui.title.set_subtitle(&subtitle_for(ui.s, 0, false, filter));
         if query.is_empty() {
             ui.empty.set_icon_name(Some("edit-paste-symbolic"));
             ui.empty.set_title(if filter == Filter::All {
@@ -646,7 +644,17 @@ pub fn refresh(ui: &Rc<Ui>) {
     }
 
     append_entries(ui, entries);
+    update_subtitle(ui);
     ui.stack.set_visible_child_name("list");
+}
+
+fn update_subtitle(ui: &Rc<Ui>) {
+    ui.title.set_subtitle(&subtitle_for(
+        ui.s,
+        ui.entries.borrow().len(),
+        !ui.exhausted.get(),
+        ui.filter.get(),
+    ));
 }
 
 /// Fetch the next page and append it to the grid.
@@ -658,15 +666,12 @@ fn load_next_page(ui: &Rc<Ui>) {
     match call(&current_query(ui, offset)) {
         Ok(ResponseData::Entries(entries)) if !entries.is_empty() => {
             append_entries(ui, entries);
-            ui.title.set_subtitle(&subtitle_for(
-                ui.s,
-                ui.entries.borrow().len(),
-                ui.filter.get(),
-            ));
+            update_subtitle(ui);
         }
         _ => {
             ui.exhausted.set(true);
             ui.load_more.set_visible(false);
+            update_subtitle(ui);
         }
     }
 }
@@ -682,9 +687,15 @@ fn append_entries(ui: &Rc<Ui>, entries: Vec<Entry>) {
     ui.load_more.set_visible(more);
 }
 
-/// Human-readable record count for the header subtitle.
-fn subtitle_for(s: &Strings, count: usize, filter: Filter) -> String {
-    let base = fill(s.subtitle_count, "n", &count.to_string());
+/// Human-readable record count for the header subtitle; `more` marks a
+/// partially loaded list ("60+").
+fn subtitle_for(s: &Strings, count: usize, more: bool, filter: Filter) -> String {
+    let shown = if more {
+        format!("{count}+")
+    } else {
+        count.to_string()
+    };
+    let base = fill(s.subtitle_count, "n", &shown);
     match filter {
         Filter::All => base,
         other => format!("{base} · {}", other.label(s).to_lowercase()),

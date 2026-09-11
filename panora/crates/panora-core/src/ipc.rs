@@ -157,6 +157,10 @@ pub struct CapabilityData {
     pub persist: bool,
     /// A paste keystroke can be synthesized after recall.
     pub synthetic_paste: bool,
+    /// Capture depends on the GNOME Shell extension (GNOME without
+    /// data-control).
+    #[serde(default)]
+    pub needs_bridge: bool,
 }
 
 /// Daemon status exposed to clients.

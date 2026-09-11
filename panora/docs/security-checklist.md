@@ -11,7 +11,10 @@
 | Özel mod | Geçti | Privacy engine + daemon senaryosu |
 | MIME boyut sınırı | Geçti | 10 MiB varsayılan, daemon testi |
 | IPC socket izinleri | Geçti | Unix socket ve device-id 0600 |
-| v1 ağ yüzeyi | Geçti | `panora-sync` transport disabled; core v1 ağ bağımlılığı içermez |
+| v1 ağ yüzeyi | Geçti | `SyncProvider` yalnızca `NoopSync`; workspace ağ bağımlılığı içermez (`scripts/security-check.sh` `cargo tree` ile doğrular) |
+| IPC istemci yanıt sınırı | Geçti | 64 MiB yanıt üst sınırı, base64 payload; GUI/CLI `panora_core::ipc::client` |
+| Yakalama yarışı | Geçti | Payload okunduktan sonra TARGETS yeniden okunur; sahip değiştiyse kayıt atılır |
+| Kalıcılık ve parola temizleme | Geçti | X11'de yalnızca son kaydedilen içerik yeniden sunulur; Wayland'de yeniden sunum yok |
 | Unsafe Rust | Geçti | Uygulama crate'leri `forbid(unsafe_code)`; bağımlılıklar kapsam dışı |
 | RustSec audit | Ortam engeli | `cargo-audit` kurulumu wasmparser indirme hız sınırına takıldı; CI workflow RustSec action içerir |
 | Lisans/bans | CI'da tanımlı | `deny.toml` + cargo-deny workflow; yerel cargo-deny kurulumu ayrıca yapılmalıdır |

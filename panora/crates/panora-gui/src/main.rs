@@ -11,6 +11,8 @@
 #![forbid(unsafe_code)]
 
 mod details;
+#[cfg(feature = "fixture")]
+mod fixture;
 mod settings;
 mod util;
 mod window;

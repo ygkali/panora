@@ -11,6 +11,11 @@ description = "Panora GTK4/libadwaita clipboard popup"
 name = "panora-gui"
 path = "src/main.rs"
 
+[features]
+# Canned in-process daemon for UI development without panod; never enabled
+# in release packages.
+fixture = []
+
 [dependencies]
 panora-core = { path = "../panora-core" }
 gtk4 = { version = "0.9", features = ["v4_12"] }

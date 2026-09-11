@@ -12,8 +12,23 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// One IPC round trip on the GTK thread. The daemon is local, so calls take
 /// milliseconds; only image previews are moved to a worker thread.
+#[cfg(not(feature = "fixture"))]
 pub fn call(request: &Request) -> Result<ResponseData> {
     panora_core::ipc::client::call(request)
+}
+
+/// Canned daemon for UI work without panod (see `fixture.rs`).
+#[cfg(feature = "fixture")]
+pub fn call(request: &Request) -> Result<ResponseData> {
+    crate::fixture::call(request)
+}
+
+/// Current Unix time in seconds.
+pub fn unix_now() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 /// Apply the configured colour scheme through libadwaita.
@@ -65,11 +80,7 @@ pub fn format_size(size: i64) -> String {
 
 /// Relative timestamp for the card header.
 pub fn relative_time(s: &Strings, timestamp: i64) -> String {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(timestamp);
-    relative_time_at(s, timestamp, now)
+    relative_time_at(s, timestamp, unix_now())
 }
 
 fn relative_time_at(s: &Strings, timestamp: i64, now: i64) -> String {

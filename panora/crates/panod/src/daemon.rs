@@ -184,6 +184,7 @@ impl Daemon {
                 images: caps.images,
                 persist: caps.persist,
                 synthetic_paste: caps.synthetic_paste,
+                needs_bridge: caps.needs_bridge,
             },
         })
     }
