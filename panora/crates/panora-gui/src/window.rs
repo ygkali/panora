@@ -861,19 +861,40 @@ fn preview_label(text: &str, lines: i32) -> gtk::Label {
 pub fn recall(ui: &Rc<Ui>, id: i64) {
     let paste = ui.app.config.borrow().ui.instant_paste;
     ui.window.set_visible(false);
-    match call(&Request::Recall { id, paste }) {
-        Ok(ResponseData::Recalled { pasted }) => {
-            if paste && !pasted {
-                notify(ui, ui.s.toast_paste_failed);
+    // Let the main loop process the unmap first, then talk to the daemon on
+    // a worker thread: focus must be back in the target application before
+    // panod sends Ctrl+V, and a blocking call here would delay the unmap.
+    let ui = ui.clone();
+    glib::timeout_add_local_once(Duration::from_millis(60), move || {
+        let (sender, receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = sender.send(call(&Request::Recall { id, paste }));
+        });
+        glib::timeout_add_local(Duration::from_millis(20), move || {
+            let result = match receiver.try_recv() {
+                Ok(result) => result,
+                Err(TryRecvError::Empty) => return glib::ControlFlow::Continue,
+                Err(TryRecvError::Disconnected) => {
+                    ui.window.close();
+                    return glib::ControlFlow::Break;
+                }
+            };
+            match result {
+                Ok(ResponseData::Recalled { pasted }) => {
+                    if paste && !pasted {
+                        notify(&ui, ui.s.toast_paste_failed);
+                    }
+                    ui.window.close();
+                }
+                Ok(_) => ui.window.close(),
+                Err(_) => {
+                    ui.window.set_visible(true);
+                    toast(&ui, ui.s.toast_recall_failed);
+                }
             }
-            ui.window.close();
-        }
-        Ok(_) => ui.window.close(),
-        Err(_) => {
-            ui.window.set_visible(true);
-            toast(ui, ui.s.toast_recall_failed);
-        }
-    }
+            glib::ControlFlow::Break
+        });
+    });
 }
 
 /// Desktop notification for outcomes the (already hidden) popup cannot show.

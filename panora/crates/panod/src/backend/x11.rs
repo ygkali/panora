@@ -27,8 +27,8 @@ use x11rb::connection::{Connection, RequestConnection as _};
 use x11rb::protocol::xfixes::{self, ConnectionExt as _, SelectionEventMask};
 use x11rb::protocol::xproto::{
     Atom, AtomEnum, ChangeWindowAttributesAux, ConnectionExt as _, CreateWindowAux, EventMask,
-    GetPropertyType, PropMode, Property, SelectionNotifyEvent, SelectionRequestEvent, Time,
-    Timestamp, Window, WindowClass, SELECTION_NOTIFY_EVENT,
+    GetPropertyType, PropMode, Property, SelectionNotifyEvent, SelectionRequestEvent, Timestamp,
+    Window, WindowClass, SELECTION_NOTIFY_EVENT,
 };
 use x11rb::protocol::xtest::ConnectionExt as _;
 use x11rb::protocol::Event;
@@ -266,8 +266,9 @@ impl Client {
             .map_err(x11err)?;
         self.conn.flush().map_err(x11err)?;
         let window = self.window;
+        let property = self.atoms._PANORA_XFER;
         self.wait_event(Instant::now() + CONVERT_TIMEOUT, |event| match event {
-            Event::PropertyNotify(e) if e.window == window => Some(e.time),
+            Event::PropertyNotify(e) if e.window == window && e.atom == property => Some(e.time),
             _ => None,
         })
     }
@@ -276,19 +277,28 @@ impl Client {
     /// property and return the property's type and bytes (INCR resolved).
     fn convert(&self, selection: Atom, target: Atom) -> Result<(Atom, u8, Vec<u8>)> {
         let property = self.atoms._PANORA_XFER;
-        // A stale value from an earlier transfer must not be mistaken for
-        // the answer.
+        // A real timestamp (ICCCM 2.6.2) doubles as the request id: a late
+        // reply to an earlier, timed-out conversion carries a different time
+        // and is not mistaken for this one. Deleting the property first keeps
+        // a stale value from being read as the answer.
+        let time = self.server_time()?;
         self.conn
             .delete_property(self.window, property)
             .map_err(x11err)?;
         self.conn
-            .convert_selection(self.window, selection, target, property, Time::CURRENT_TIME)
+            .convert_selection(self.window, selection, target, property, time)
             .map_err(x11err)?;
         self.conn.flush().map_err(x11err)?;
         let window = self.window;
         let deadline = Instant::now() + CONVERT_TIMEOUT;
         let notify: SelectionNotifyEvent = self.wait_event(deadline, |event| match event {
-            Event::SelectionNotify(e) if e.requestor == window && e.selection == selection => {
+            Event::SelectionNotify(e)
+                if e.requestor == window
+                    && e.selection == selection
+                    && e.target == target
+                    // Owners echo the request time; a few reply CurrentTime.
+                    && (e.time == time || e.time == x11rb::CURRENT_TIME) =>
+            {
                 Some(*e)
             }
             _ => None,
@@ -554,6 +564,21 @@ struct IncrTransfer {
     target: Atom,
     payload: usize,
     offset: usize,
+    /// Last activity; a requestor that stops deleting the property is
+    /// dropped after `INCR_TIMEOUT` instead of pinning the transfer forever.
+    last_activity: Instant,
+}
+
+/// A requestor that does not make progress for this long is abandoned.
+const INCR_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Latin-1 encoding for the legacy `STRING` target; characters outside the
+/// range become `?` like the reference toolkits do.
+fn latin1_bytes(text: &str) -> Vec<u8> {
+    text.chars()
+        .map(u32::from)
+        .map(|c| if c <= 0xff { c as u8 } else { b'?' })
+        .collect()
 }
 
 impl Owner {
@@ -582,7 +607,7 @@ impl Owner {
             .map_err(|_| Error::Backend("x11: owner thread did not start".into()))?
     }
 
-    fn new(selection: Selection, payloads: Vec<MimePayload>) -> Result<Self> {
+    fn new(selection: Selection, mut payloads: Vec<MimePayload>) -> Result<Self> {
         let client = Client::new()?;
         let sel = selection_atom(&client.atoms, selection);
         client
@@ -604,7 +629,8 @@ impl Owner {
             advertised.push(atom);
         }
         // Legacy text targets map to the best text payload so old
-        // toolkits and terminals can paste too.
+        // toolkits and terminals can paste too. STRING is Latin-1 by
+        // definition (ICCCM), so it gets a transcoded copy.
         if let Some(text_index) = payloads.iter().position(MimePayload::is_text) {
             let best = TEXT_MIMES
                 .iter()
@@ -615,12 +641,17 @@ impl Owner {
                 "text/plain;charset=utf-8",
                 "text/plain",
                 "TEXT",
-                "STRING",
             ] {
                 let atom = client.intern(alias)?;
                 if targets.insert(atom, best).is_none() {
                     advertised.push(atom);
                 }
+            }
+            let latin1 = latin1_bytes(&String::from_utf8_lossy(&payloads[best].data));
+            payloads.push(MimePayload::new("STRING", latin1));
+            let atom = client.atoms.STRING;
+            if targets.insert(atom, payloads.len() - 1).is_none() {
+                advertised.push(atom);
             }
         }
 
@@ -664,6 +695,9 @@ impl Owner {
                     return;
                 }
             };
+            if !self.incr.is_empty() {
+                self.expire_stalled_transfers();
+            }
             match event {
                 Event::SelectionClear(e) if e.selection == self.selection => {
                     debug!("x11: selection ownership taken by another client");
@@ -680,6 +714,7 @@ impl Owner {
                     if let Err(err) = self.continue_incr(e.window, e.atom) {
                         debug!(error = %err, "x11: INCR transfer failed");
                         self.incr.remove(&(e.window, e.atom));
+                        self.stop_watching_if_idle(e.window);
                     }
                 }
                 _ => {}
@@ -745,6 +780,7 @@ impl Owner {
                         target: req.target,
                         payload: index,
                         offset: 0,
+                        last_activity: Instant::now(),
                     },
                 );
             } else {
@@ -796,14 +832,41 @@ impl Owner {
         if chunk.is_empty() {
             // Zero-length chunk terminates the transfer.
             self.incr.remove(&(requestor, property));
-            let _ = self.client.conn.change_window_attributes(
-                requestor,
-                &ChangeWindowAttributesAux::new().event_mask(EventMask::NO_EVENT),
-            );
+            self.stop_watching_if_idle(requestor);
         } else {
             transfer.offset = end;
+            transfer.last_activity = Instant::now();
         }
         Ok(())
+    }
+
+    /// Stop receiving PropertyNotify from a requestor once none of its
+    /// transfers is in flight (a requestor may pull several targets at once).
+    fn stop_watching_if_idle(&self, requestor: Window) {
+        if self.incr.keys().any(|(window, _)| *window == requestor) {
+            return;
+        }
+        let _ = self.client.conn.change_window_attributes(
+            requestor,
+            &ChangeWindowAttributesAux::new().event_mask(EventMask::NO_EVENT),
+        );
+        let _ = self.client.conn.flush();
+    }
+
+    /// Drop transfers whose requestor stopped making progress.
+    fn expire_stalled_transfers(&mut self) {
+        let now = Instant::now();
+        let stalled: Vec<(Window, Atom)> = self
+            .incr
+            .iter()
+            .filter(|(_, t)| now.duration_since(t.last_activity) > INCR_TIMEOUT)
+            .map(|(key, _)| *key)
+            .collect();
+        for key in stalled {
+            debug!(requestor = key.0, "x11: abandoning stalled INCR transfer");
+            self.incr.remove(&key);
+            self.stop_watching_if_idle(key.0);
+        }
     }
 }
 

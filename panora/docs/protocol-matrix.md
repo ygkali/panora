@@ -5,7 +5,8 @@
 | X11 CLIPBOARD | Evet | XFIXES `SelectionNotify` olayları (poll yok); TARGETS `ConvertSelection` ile payload okunmadan alınır; INCR okuma/yazma; kaynak uygulama adı `_NET_ACTIVE_WINDOW`→`WM_CLASS` |
 | X11 PRIMARY | Evet (opt-in) | `history.record_primary = true`; aynı XFIXES yolu |
 | X11 geri çağırma | Evet | panod selection owner olur; TARGETS/TIMESTAMP + tüm biçimler + metin takma adları (`UTF8_STRING`, `STRING`, `TEXT`); 256 KiB üstü INCR |
-| X11 kalıcılık | Evet | `SelectionWindowDestroy`/`SelectionClientClose` → son kayıt yeniden sunulur |
+| X11 kalıcılık | Evet | `SelectionWindowDestroy`/`SelectionClientClose` → yalnızca son değişiklikten kaydedilen içerik yeniden sunulur; bilinçli temizleme (owner=None) yok sayılır |
+| Wayland kalıcılık | Bileşim yöneticisine bırakılır | `selection(null)` bilinçli temizlemeyle ayırt edilemez; Mutter/KWin içeriği kendileri korur |
 | X11 anında yapıştır | Evet | XTEST `Ctrl+V` |
 | Wayland regular clipboard | Evet | `ext-data-control-v1` (tercih) veya `zwlr-data-control-v1` (wayland-client, alt süreç yok); `selection` olayı MIME listesiyle gelir, payload `receive` ile pipe üzerinden yalnızca izin sonrası okunur |
 | Wayland primary | Evet (opt-in) | `ext` her sürümde, `wlr` v2+ |

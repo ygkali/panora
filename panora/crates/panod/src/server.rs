@@ -82,10 +82,15 @@ async fn run_app() -> anyhow::Result<()> {
     info!(socket = %path.display(), uid = socket_uid, "panod IPC service ready");
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::mpsc::channel(1);
+    // A capture loop that dies (display connection lost, compositor gone)
+    // must take the process down so systemd restarts it, instead of leaving
+    // an IPC server that silently records nothing.
+    let (fatal_tx, fatal_rx) = tokio::sync::oneshot::channel::<String>();
     let capture = daemon.clone();
     tokio::task::spawn_local(async move {
         if let Err(e) = capture.run(shutdown_rx).await {
             error!(error = %e, "capture loop stopped");
+            let _ = fatal_tx.send(e.to_string());
         }
     });
 
@@ -116,12 +121,20 @@ async fn run_app() -> anyhow::Result<()> {
         Ok::<(), anyhow::Error>(())
     };
 
-    tokio::select! {
-        result = accept_loop => { result?; }
-        _ = shutdown_signal() => { let _ = shutdown_tx.send(()).await; info!("panod stopped"); }
-    }
+    let outcome = tokio::select! {
+        result = accept_loop => result,
+        _ = shutdown_signal() => {
+            let _ = shutdown_tx.send(()).await;
+            info!("panod stopped");
+            Ok(())
+        }
+        reason = fatal_rx => Err(anyhow::anyhow!(
+            "capture stopped: {}",
+            reason.unwrap_or_else(|_| "capture task ended".into())
+        )),
+    };
     let _ = tokio::fs::remove_file(&path).await;
-    Ok(())
+    outcome
 }
 
 /// SIGINT (terminal) or SIGTERM (systemd stop).
@@ -142,7 +155,7 @@ async fn shutdown_signal() {
 }
 
 async fn run_gnome_bridge(daemon: Rc<Daemon>) -> anyhow::Result<()> {
-    let (bridge, mut rx) = GnomeBridge::new(64);
+    let (bridge, mut rx) = GnomeBridge::new(64, daemon.backend().capabilities().needs_bridge);
     let connection = zbus::connection::Builder::session()?
         .name(BUS_NAME)?
         .serve_at(OBJECT_PATH, bridge)?

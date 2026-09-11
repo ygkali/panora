@@ -76,6 +76,8 @@ export default class PanoraExtension extends Extension {
         this._debounceId = 0;
         this._helper = null;
         this._nameId = 0;
+        this._watchId = 0;
+        this._needsBridge = false;
         this._virtualKeyboard = null;
 
         this._settings = this.getSettings();
@@ -99,6 +101,19 @@ export default class PanoraExtension extends Extension {
         if (!Meta.is_wayland_compositor())
             return;
 
+        // Only forward clipboard changes while the daemon says it depends on
+        // them (GNOME without a data-control protocol). On newer GNOME the
+        // daemon captures natively and pushes would be discarded, so the
+        // clipboard is not read at all.
+        this._needsBridge = false;
+        this._watchId = Gio.bus_watch_name_on_connection(
+            this._bus,
+            BRIDGE_NAME,
+            Gio.BusNameWatcherFlags.NONE,
+            () => this._refreshNeedsBridge(),
+            () => { this._needsBridge = false; }
+        );
+
         this._selection = global.display.get_selection();
         this._ownerChangedId = this._selection.connect(
             'owner-changed',
@@ -119,6 +134,10 @@ export default class PanoraExtension extends Extension {
         if (this._selection && this._ownerChangedId) {
             this._selection.disconnect(this._ownerChangedId);
             this._ownerChangedId = 0;
+        }
+        if (this._watchId) {
+            Gio.bus_unwatch_name(this._watchId);
+            this._watchId = 0;
         }
         if (this._nameId) {
             Gio.bus_unown_name(this._nameId);
@@ -201,7 +220,7 @@ export default class PanoraExtension extends Extension {
     // Paste(): Ctrl+V into the focused window through a virtual keyboard.
     Paste() {
         if (!this._virtualKeyboard) {
-            const seat = Clutter.get_default_backend().get_default_seat();
+            const seat = global.backend.get_default_seat();
             this._virtualKeyboard = seat.create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
         }
         const keyboard = this._virtualKeyboard;
@@ -214,7 +233,34 @@ export default class PanoraExtension extends Extension {
 
     // ------------------------------------------------------------ capture
 
+    _refreshNeedsBridge() {
+        if (!this._bus)
+            return;
+        this._bus.call(
+            BRIDGE_NAME,
+            BRIDGE_PATH,
+            'org.freedesktop.DBus.Properties',
+            'Get',
+            new GLib.Variant('(ss)', [BRIDGE_NAME, 'NeedsBridge']),
+            new GLib.VariantType('(v)'),
+            Gio.DBusCallFlags.NO_AUTO_START,
+            CALL_TIMEOUT_MS,
+            null,
+            (connection, result) => {
+                try {
+                    const [value] = connection.call_finish(result).deep_unpack();
+                    this._needsBridge = value.deep_unpack() === true;
+                } catch (_error) {
+                    // Older daemon without the property: it relies on pushes.
+                    this._needsBridge = true;
+                }
+            }
+        );
+    }
+
     _scheduleCapture() {
+        if (!this._needsBridge)
+            return;
         if (this._debounceId)
             GLib.Source.remove(this._debounceId);
 

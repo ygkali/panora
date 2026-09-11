@@ -46,8 +46,11 @@ use wayland_protocols_wlr::data_control::v1::client::{
 /// Marker format added to our own offers so the watcher can tell a recall
 /// apart from a user copy. Other clipboard tools ignore unknown types.
 const RECALL_MARKER_MIME: &str = "application/x-panora-recall";
-/// Idle timeout while a source writes a payload into our pipe.
+/// Idle timeout while a source writes a payload into our pipe (and while a
+/// requestor drains ours).
 const RECEIVE_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long a fresh session waits for the compositor's selection announcement.
+const SETTLE_TIMEOUT: Duration = Duration::from_secs(2);
 /// Hard cap on one received payload (the daemon applies the configured
 /// limit afterwards; this only bounds memory against a hostile source).
 const RECEIVE_CAP: usize = 256 * 1024 * 1024;
@@ -85,9 +88,10 @@ impl ClipboardBackend for WaylandBackend {
         Capabilities {
             primary: self.primary,
             images: true,
-            // The daemon re-offers the last entry when the selection is
-            // cleared by an exiting client, so content outlives the source.
-            persist: true,
+            // Left to the compositor: Mutter and KWin keep clipboard content
+            // after the source exits; a null selection cannot be told apart
+            // from an intentional clear, so panod never re-offers here.
+            persist: false,
             synthetic_paste: true,
             needs_bridge: false,
         }
@@ -516,17 +520,19 @@ impl Session {
     }
 
     /// Dispatch until the compositor has announced the current selections.
+    /// Both protocols send `selection` right after `get_data_device`, so a
+    /// round trip normally suffices; the bounded loop guards against a
+    /// compositor that never answers.
     fn settle(&mut self) -> Result<()> {
-        // Two round trips: the first delivers data_offer + offer events, the
-        // second the selection events that reference them.
-        for _ in 0..2 {
-            self.queue.roundtrip(&mut self.state).map_err(wlerr)?;
-        }
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while !self.state.settled && Instant::now() < deadline {
-            self.queue
-                .blocking_dispatch(&mut self.state)
-                .map_err(wlerr)?;
+        self.queue.roundtrip(&mut self.state).map_err(wlerr)?;
+        let deadline = Instant::now() + SETTLE_TIMEOUT;
+        while !self.state.settled {
+            if Instant::now() >= deadline {
+                return Err(Error::Backend(
+                    "wayland: compositor did not announce the selection".into(),
+                ));
+            }
+            dispatch_with_timeout(&mut self.queue, &mut self.state, Duration::from_millis(200))?;
         }
         Ok(())
     }
@@ -562,7 +568,11 @@ fn read_pipe(fd: OwnedFd) -> Result<Vec<u8>> {
     loop {
         let ready = {
             let mut fds = [PollFd::new(&file, PollFlags::IN)];
-            poll(&mut fds, Some(&timeout)).map_err(wlerr)?
+            match poll(&mut fds, Some(&timeout)) {
+                Ok(n) => n,
+                Err(rustix::io::Errno::INTR) => continue,
+                Err(e) => return Err(wlerr(e)),
+            }
         };
         if ready == 0 {
             return Err(Error::Backend(
@@ -601,7 +611,11 @@ fn watch_loop(mut session: Session, selection: Selection, sender: mpsc::Sender<C
                 continue;
             }
             let event = match change.mimes {
-                None => ClipboardEvent::owner_gone(selection),
+                // A null selection is both "owner exited" and "explicitly
+                // cleared" (password managers do the latter on purpose), so
+                // nothing is re-offered here; compositors with clipboard
+                // persistence (Mutter, KWin) keep content on their own.
+                None => continue,
                 Some(mimes) => {
                     if mimes.iter().any(|m| m == RECALL_MARKER_MIME) {
                         debug!("wayland: ignoring our own recall offer");
@@ -678,28 +692,108 @@ fn offer_blocking(selection: Selection, payloads: Vec<MimePayload>) -> Result<()
 fn serve_source(mut session: Session, source: Source, payloads: Vec<MimePayload>) {
     let payloads = std::sync::Arc::new(payloads);
     loop {
-        if let Err(e) = session.queue.blocking_dispatch(&mut session.state) {
-            debug!(error = %e, "wayland owner connection closed");
-            return;
-        }
+        // Serve first: `send` requests that arrived during the set_selection
+        // round trip are already queued, and blocking now would leave the
+        // requestor waiting on our pipe.
         for (mime, fd) in session.state.sends.drain(..) {
             let payloads = payloads.clone();
             // Writing blocks until the receiver reads; keep the dispatch
             // loop responsive by writing on its own thread.
             std::thread::spawn(move || {
-                let mut file = std::fs::File::from(fd);
                 if let Some(payload) = payload_for(&payloads, &mime) {
-                    let _ = file.write_all(&payload.data);
+                    if let Err(e) = write_pipe(fd, &payload.data) {
+                        debug!(error = %e, mime, "wayland: send aborted");
+                    }
                 }
             });
         }
+        session.state.changes.clear();
         if session.state.cancelled {
             debug!("wayland: selection taken by another client");
             source.destroy();
             let _ = session.conn.flush();
             return;
         }
+        if let Err(e) = session.queue.blocking_dispatch(&mut session.state) {
+            debug!(error = %e, "wayland owner connection closed");
+            return;
+        }
     }
+}
+
+/// Write a payload into a requestor's pipe without blocking forever on a
+/// reader that stalls: the descriptor is switched to non-blocking mode and
+/// every write waits for writability with an idle timeout.
+fn write_pipe(fd: OwnedFd, data: &[u8]) -> Result<()> {
+    use rustix::event::{poll, PollFd, PollFlags, Timespec};
+    use rustix::fs::{fcntl_setfl, OFlags};
+    let timeout = Timespec {
+        tv_sec: RECEIVE_TIMEOUT.as_secs() as _,
+        tv_nsec: 0,
+    };
+    fcntl_setfl(&fd, OFlags::NONBLOCK).map_err(wlerr)?;
+    let mut file = std::fs::File::from(fd);
+    let mut offset = 0;
+    while offset < data.len() {
+        let ready = {
+            let mut fds = [PollFd::new(&file, PollFlags::OUT)];
+            match poll(&mut fds, Some(&timeout)) {
+                Ok(n) => n,
+                Err(rustix::io::Errno::INTR) => continue,
+                Err(e) => return Err(wlerr(e)),
+            }
+        };
+        if ready == 0 {
+            return Err(Error::Backend("wayland: requestor stopped reading".into()));
+        }
+        match file.write(&data[offset..]) {
+            Ok(0) => return Err(Error::Backend("wayland: requestor closed the pipe".into())),
+            Ok(n) => offset += n,
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Ok(())
+}
+
+/// Dispatch pending events, then wait up to `timeout` for more. Returns
+/// after at most one socket read so callers can check deadlines.
+fn dispatch_with_timeout(
+    queue: &mut EventQueue<State>,
+    state: &mut State,
+    timeout: Duration,
+) -> Result<()> {
+    use rustix::event::{poll, PollFd, PollFlags, Timespec};
+    queue.dispatch_pending(state).map_err(wlerr)?;
+    queue.flush().map_err(wlerr)?;
+    let Some(guard) = queue.prepare_read() else {
+        // Events are already queued; the next dispatch_pending handles them.
+        return Ok(());
+    };
+    let wait = Timespec {
+        tv_sec: timeout.as_secs() as _,
+        tv_nsec: timeout.subsec_nanos() as _,
+    };
+    let ready = {
+        let fd = guard.connection_fd();
+        let mut fds = [PollFd::new(&fd, PollFlags::IN)];
+        match poll(&mut fds, Some(&wait)) {
+            Ok(n) => n,
+            Err(rustix::io::Errno::INTR) => 0,
+            Err(e) => return Err(wlerr(e)),
+        }
+    };
+    if ready > 0 {
+        match guard.read() {
+            Ok(_) => {}
+            Err(wayland_client::backend::WaylandError::Io(e))
+                if e.kind() == std::io::ErrorKind::WouldBlock => {}
+            Err(e) => return Err(wlerr(e)),
+        }
+        queue.dispatch_pending(state).map_err(wlerr)?;
+    }
+    Ok(())
 }
 
 /// The payload to serve for a requested MIME, honouring text aliases.

@@ -34,7 +34,7 @@ oo7.workspace = true
 wayland-client.workspace = true
 wayland-protocols.workspace = true
 wayland-protocols-wlr.workspace = true
-rustix = { version = "1", features = ["event", "pipe"] }
+rustix = { version = "1", features = ["event", "fs", "pipe"] }
 
 [dev-dependencies]
 tempfile = "3"

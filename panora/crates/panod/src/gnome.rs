@@ -38,15 +38,17 @@ const CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 /// Small D-Bus endpoint used by the GNOME Shell extension.
 pub struct GnomeBridge {
     sender: Mutex<mpsc::Sender<ClipboardData>>,
+    needs_bridge: bool,
 }
 
 impl GnomeBridge {
     /// Create a bridge and bounded event receiver.
-    pub fn new(capacity: usize) -> (Self, mpsc::Receiver<ClipboardData>) {
+    pub fn new(capacity: usize, needs_bridge: bool) -> (Self, mpsc::Receiver<ClipboardData>) {
         let (sender, receiver) = mpsc::channel(capacity);
         (
             Self {
                 sender: Mutex::new(sender),
+                needs_bridge,
             },
             receiver,
         )
@@ -92,6 +94,14 @@ impl GnomeBridge {
     #[zbus(property)]
     fn version(&self) -> u32 {
         2
+    }
+
+    /// Whether capture depends on the extension forwarding clipboard
+    /// changes. False once the compositor offers a data-control protocol,
+    /// so the extension can skip reading the clipboard altogether.
+    #[zbus(property)]
+    fn needs_bridge(&self) -> bool {
+        self.needs_bridge
     }
 }
 

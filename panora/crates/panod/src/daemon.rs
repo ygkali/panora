@@ -12,8 +12,9 @@ use panora_core::model::{ClipboardData, ContentKind, Entry, MimePayload, Selecti
 use panora_core::privacy::PrivacyEngine;
 use panora_core::storage::{BlobStore, Database, QueryFilter};
 use panora_core::sync::{SyncEvent, SyncProvider};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
@@ -67,6 +68,9 @@ pub struct Daemon {
     config: RwLock<Config>,
     device_id: String,
     revision: AtomicU64,
+    /// Entry stored from the most recent change of each selection; the only
+    /// content the persistence path may re-offer.
+    last_stored: Mutex<HashMap<Selection, i64>>,
 }
 
 impl Daemon {
@@ -90,6 +94,7 @@ impl Daemon {
             config: RwLock::new(config),
             device_id,
             revision: AtomicU64::new(1),
+            last_stored: Mutex::new(HashMap::new()),
         }
     }
 
@@ -205,8 +210,9 @@ impl Daemon {
                     match ev {
                         Some(e) => self.handle_event(e).await,
                         None => {
-                            warn!("clipboard watch ended");
-                            return Ok(());
+                            return Err(Error::Backend(
+                                "clipboard watch ended (display connection lost)".into(),
+                            ));
                         }
                     }
                 }
@@ -232,6 +238,9 @@ impl Daemon {
             self.persist_after_owner_gone(event.selection).await;
             return;
         }
+        // Whatever happens below, a change that is not stored must not be
+        // "restored" later by the persistence path.
+        self.forget_last_stored(event.selection);
         if event.selection == Selection::Primary && !self.config().history.record_primary {
             return;
         }
@@ -282,27 +291,64 @@ impl Daemon {
             return;
         }
 
+        // The owner may have changed while payloads were being read, in
+        // which case the bytes above belong to a selection the privacy
+        // engine never evaluated. Re-read TARGETS and drop the capture on
+        // any difference; the new owner produces its own event.
+        if let Ok(current) = self.backend.read_targets(event.selection).await {
+            if !same_targets(&current, &event.offered_mimes) {
+                debug!("selection owner changed during read; discarding capture");
+                return;
+            }
+        }
+
         let data = ClipboardData {
             selection: event.selection,
             payloads,
             offered_mimes: event.offered_mimes.clone(),
             source_app: event.source_app.clone(),
         };
-        if let Err(e) = self.store(data).await {
-            warn!(error = %e, "failed to store clipboard event");
+        match self.store(data).await {
+            Ok(entry) => self.remember_last_stored(event.selection, entry.id),
+            Err(e) => warn!(error = %e, "failed to store clipboard event"),
         }
     }
 
-    /// The selection owner exited and took the content with it. Re-offer
-    /// the most recent entry so the clipboard keeps working like on desktops
-    /// with a clipboard manager (X11 has no persistence of its own).
+    fn remember_last_stored(&self, selection: Selection, id: i64) {
+        if let Ok(mut slot) = self.last_stored.lock() {
+            slot.insert(selection, id);
+        }
+    }
+
+    fn forget_last_stored(&self, selection: Selection) {
+        if let Ok(mut slot) = self.last_stored.lock() {
+            slot.remove(&selection);
+        }
+    }
+
+    /// The selection owner exited and took the content with it (X11 has no
+    /// persistence of its own). Re-offer that content -- and only that
+    /// content: the entry stored from the very last change. A change that
+    /// was rejected, cleared or never stored leaves nothing to restore, so a
+    /// password manager clearing the clipboard is never undone.
     async fn persist_after_owner_gone(&self, selection: Selection) {
         if selection != Selection::Clipboard {
             return;
         }
-        let Ok(Some(entry)) = self.db.latest(selection) else {
+        let id = self
+            .last_stored
+            .lock()
+            .ok()
+            .and_then(|mut slot| slot.remove(&selection));
+        let Some(id) = id else {
             return;
         };
+        let Ok(entry) = self.db.get(id) else {
+            return;
+        };
+        if entry.deleted {
+            return;
+        }
         match self.offer_entry(&entry).await {
             Ok(()) => debug!(id = entry.id, "re-offered last entry after owner exit"),
             Err(e) => debug!(error = %e, "could not re-offer last entry"),
@@ -646,16 +692,18 @@ fn uri_list_preview(data: &[u8]) -> String {
     out
 }
 
-/// Decode `%XX` escapes (file names in URIs) without a dependency.
+/// Decode `%XX` escapes (file names in URIs) without a dependency. Works on
+/// bytes only: slicing the `&str` could land inside a multibyte character.
 fn percent_decode(s: &str) -> String {
     let bytes = s.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len() {
-            let hex = &s[i + 1..i + 3];
-            if let Ok(v) = u8::from_str_radix(hex, 16) {
-                out.push(v);
+            let hi = (bytes[i + 1] as char).to_digit(16);
+            let lo = (bytes[i + 2] as char).to_digit(16);
+            if let (Some(hi), Some(lo)) = (hi, lo) {
+                out.push((hi * 16 + lo) as u8);
                 i += 3;
                 continue;
             }
@@ -664,6 +712,18 @@ fn percent_decode(s: &str) -> String {
         i += 1;
     }
     String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Two TARGETS lists describe the same owner when they hold the same set
+/// of names (order may differ between reads).
+fn same_targets(a: &[String], b: &[String]) -> bool {
+    let mut a: Vec<&str> = a.iter().map(String::as_str).collect();
+    let mut b: Vec<&str> = b.iter().map(String::as_str).collect();
+    a.sort_unstable();
+    a.dedup();
+    b.sort_unstable();
+    b.dedup();
+    a == b
 }
 
 /// Very small tag stripper for HTML-only clipboard content previews.
@@ -1106,5 +1166,66 @@ mod tests {
         };
         assert_eq!(make_preview("", &html), "Hello world again");
         assert_eq!(percent_decode("a%2Fb%zz"), "a/b%zz");
+        assert_eq!(percent_decode("50%aç.txt"), "50%aç.txt");
+        assert_eq!(percent_decode("%C3%A7ay%"), "çay%");
+        assert!(same_targets(
+            &["a".into(), "b".into()],
+            &["b".into(), "a".into(), "a".into()]
+        ));
+        assert!(!same_targets(&["a".into()], &["a".into(), "b".into()]));
+    }
+
+    #[tokio::test]
+    async fn owner_gone_never_restores_a_rejected_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let (daemon, backend) = test_daemon(&dir);
+        offer_text(&backend, "public").await;
+        daemon.handle_event(text_event()).await;
+        // A later change that the privacy engine rejects (password manager)
+        // clears the restore candidate: an exit or clear afterwards must not
+        // put "public" back on the clipboard.
+        daemon
+            .handle_event(ClipboardEvent::changed(
+                Selection::Clipboard,
+                vec!["x-kde-passwordManagerHint".into(), "text/plain".into()],
+                Some("keepassxc".into()),
+            ))
+            .await;
+        backend
+            .offer(
+                Selection::Clipboard,
+                ClipboardData {
+                    selection: Selection::Clipboard,
+                    payloads: vec![],
+                    offered_mimes: vec![],
+                    source_app: None,
+                },
+            )
+            .await
+            .unwrap();
+        daemon
+            .handle_event(ClipboardEvent::owner_gone(Selection::Clipboard))
+            .await;
+        assert!(backend
+            .read(Selection::Clipboard, "text/plain")
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn capture_discarded_when_owner_changes_during_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let (daemon, backend) = test_daemon(&dir);
+        // The mock serves whatever was offered last; the event claims a
+        // different TARGETS list than what the backend now reports.
+        offer_text(&backend, "second owner").await;
+        daemon
+            .handle_event(ClipboardEvent::changed(
+                Selection::Clipboard,
+                vec!["text/plain".into(), "text/html".into()],
+                None,
+            ))
+            .await;
+        assert_eq!(daemon.db().count().unwrap(), 0);
     }
 }
