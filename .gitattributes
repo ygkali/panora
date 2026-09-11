@@ -1,0 +1,6 @@
+# Scripts and sources must stay LF even on Windows checkouts: the kit is
+# often copied to the Linux machine as-is, and CRLF breaks every shebang.
+* text=auto eol=lf
+*.png binary
+*.pdf binary
+*.deb binary
