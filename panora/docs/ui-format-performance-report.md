@@ -3,7 +3,7 @@
 **Rapor tarihi:** 19 Ağustos 2026  
 **Ürün sürümü:** Panora 1.1.0 UI/MIME sürümü  
 **Platform:** Ubuntu 24.04.4 LTS, amd64, X11/Xvfb  
-**Hazırlayan:** Manus AI
+**Hazırlayan:** ygkali
 
 ## Yönetici özeti
 

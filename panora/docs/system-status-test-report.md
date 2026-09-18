@@ -1,7 +1,7 @@
 # Panora sistem durumunu yeniden test ve uyumluluk raporu
 
 **Rapor tarihi:** 19 Ağustos 2026  
-**Hazırlayan:** Manus AI  
+**Hazırlayan:** ygkali
 **Sürüm hedefi:** Panora 1.0.0  
 **Rapor kapsamı:** Kaynak ağacı, kurulu Debian paketi, daemon/CLI/GUI runtime, X11 entegrasyonu, IPC sınırları, GNOME extension statik güvenliği, systemd unit'i, kaynak kullanımı ve platform uyumluluğu
 

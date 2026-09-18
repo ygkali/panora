@@ -1,6 +1,6 @@
 # Panora güvenlik standardı entegrasyon raporu
 
-**Yazar:** Manus AI  
+**Yazar:** ygkali
 **Proje:** Panora v1.0.0  
 **Tarih:** 19 Ağustos 2026  
 **Kapsam:** Debian tabanlı Linux, GNOME, X11/Wayland, yerel şifreli clipboard geçmişi

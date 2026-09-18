@@ -3,7 +3,7 @@
 **Rapor tarihi:** 19 Ağustos 2026  
 **Test ortamı:** Ubuntu tabanlı Linux sandbox, x86_64, Xvfb sanal X11 ekranı, D-Bus session bus ve GNOME Keyring Secret Service  
 **Test edilen sürüm:** Panora 1.0.0 release binary ve `panora_1.0.0_amd64.deb`  
-**Hazırlayan:** Manus AI
+**Hazırlayan:** ygkali
 
 ## 1. Kapsam ve değerlendirme yöntemi
 
@@ -41,25 +41,21 @@ GNOME Wayland'de Mutter'ın normal arka plan istemcilerine verdiği clipboard er
 
 ### 4.1 Başlangıç ve daemon yok durumu
 
-![Panora daemon yokken başlangıç ekranı](https://private-us-east-1.manuscdn.com/sessionFile/AXm232dzFv7wsP4vv1cXLC/sandbox/30wci795ognSXUbJtu2lMr-images_1787101067975_na1fn_L2hvbWUvdWJ1bnR1L3Bhbm9yYS90ZXN0LWFydGlmYWN0cy9zY3JlZW5zaG90cy8wMS1ndWktc3RhcnR1cA.png?Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly9wcml2YXRlLXVzLWVhc3QtMS5tYW51c2Nkbi5jb20vc2Vzc2lvbkZpbGUvQVhtMjMyZHpGdjd3c1A0dnYxY1hMQy9zYW5kYm94LzMwd2NpNzk1b2duU1hVYkp0dTJsTXItaW1hZ2VzXzE3ODcxMDEwNjc5NzVfbmExZm5fTDJodmJXVXZkV0oxYm5SMUwzQmhibTl5WVM5MFpYTjBMV0Z5ZEdsbVlXTjBjeTl6WTNKbFpXNXphRzkwY3k4d01TMW5kV2t0YzNSaGNuUjFjQS5wbmciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODk0MzA0MDB9fX1dfQ__&Key-Pair-Id=K2QY5QTL8JSY6C&Signature=MEUCIFu6NLcjslGyztOSOUPfigs41FZxX0XXnPKWuvdMODoRAiEAyanEK4v5jLZolSbfn9sPDiDRgenSkLef~6xmlw12b1A_)
 
 Bu negatif testte GUI tek başına açılmış ve daemon socket'i bulunamadığı için kırmızı hata satırı gösterilmiştir. Bu davranış, GUI'nin çökmek yerine kullanıcıya daemon durumunu bildirdiğini gösterir. Normal kurulumda `panod.service` başlatıldıktan sonra bu satır görünmez.
 
 ### 4.2 Geçmiş listesi
 
-![Panora geçmiş listesi](https://private-us-east-1.manuscdn.com/sessionFile/AXm232dzFv7wsP4vv1cXLC/sandbox/30wci795ognSXUbJtu2lMr-images_1787101067975_na1fn_L2hvbWUvdWJ1bnR1L3Bhbm9yYS90ZXN0LWFydGlmYWN0cy9zY3JlZW5zaG90cy8wMi1ndWktaGlzdG9yeQ.png?Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly9wcml2YXRlLXVzLWVhc3QtMS5tYW51c2Nkbi5jb20vc2Vzc2lvbkZpbGUvQVhtMjMyZHpGdjd3c1A0dnYxY1hMQy9zYW5kYm94LzMwd2NpNzk1b2duU1hVYkp0dTJsTXItaW1hZ2VzXzE3ODcxMDEwNjc5NzVfbmExZm5fTDJodmJXVXZkV0oxYm5SMUwzQmhibTl5WVM5MFpYTjBMV0Z5ZEdsbVlXTjBjeTl6WTNKbFpXNXphRzkwY3k4d01pMW5kV2t0YUdsemRHOXllUS5wbmciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODk0MzA0MDB9fX1dfQ__&Key-Pair-Id=K2QY5QTL8JSY6C&Signature=MEUCIQC6ybDls7phR7oIFj78o~vEuu5FKNATOPcWY432O9vO~AIgMbEy7DlFq~O8o~yF0JIpWTFVkm8VlcaIdiAqcWoCNhc_)
 
 Daemon çalışırken iki pano içeriği X11 CLIPBOARD'dan yakalandı. GUI başlığında `Ayarlar` ve `Özel` kontrolleri, arama alanı ve iki text kaydı görünmektedir. Alt bilgi satırı klavye kullanımını açıklar.
 
 ### 4.3 FTS5 arama
 
-![Panora arama](https://private-us-east-1.manuscdn.com/sessionFile/AXm232dzFv7wsP4vv1cXLC/sandbox/30wci795ognSXUbJtu2lMr-images_1787101067975_na1fn_L2hvbWUvdWJ1bnR1L3Bhbm9yYS90ZXN0LWFydGlmYWN0cy9zY3JlZW5zaG90cy8wMy1ndWktc2VhcmNo.png?Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly9wcml2YXRlLXVzLWVhc3QtMS5tYW51c2Nkbi5jb20vc2Vzc2lvbkZpbGUvQVhtMjMyZHpGdjd3c1A0dnYxY1hMQy9zYW5kYm94LzMwd2NpNzk1b2duU1hVYkp0dTJsTXItaW1hZ2VzXzE3ODcxMDEwNjc5NzVfbmExZm5fTDJodmJXVXZkV0oxYm5SMUwzQmhibTl5WVM5MFpYTjBMV0Z5ZEdsbVlXTjBjeTl6WTNKbFpXNXphRzkwY3k4d015MW5kV2t0YzJWaGNtTm8ucG5nIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg5NDMwNDAwfX19XX0_&Key-Pair-Id=K2QY5QTL8JSY6C&Signature=MEUCIBVCGZ1HS9en9REqNRSvHINTa3dmLWozPajfsBeKB--wAiEAnSnuM4xk8D4nl1UzsTaW6qqcR74VmomrdYuougDHeeM_)
 
 Arama alanına `Merhaba` yazıldığında sonuç listesi tek kayda düşmüştür. Bu görüntü GUI'nin arama alanı → Unix socket → daemon → SQLite/FTS5 → GUI liste akışını doğrular.
 
 ### 4.4 Ayarlar
 
-![Panora ayarlar penceresi](https://private-us-east-1.manuscdn.com/sessionFile/AXm232dzFv7wsP4vv1cXLC/sandbox/30wci795ognSXUbJtu2lMr-images_1787101067975_na1fn_L2hvbWUvdWJ1bnR1L3Bhbm9yYS90ZXN0LWFydGlmYWN0cy9zY3JlZW5zaG90cy8wNC1ndWktc2V0dGluZ3M.png?Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly9wcml2YXRlLXVzLWVhc3QtMS5tYW51c2Nkbi5jb20vc2Vzc2lvbkZpbGUvQVhtMjMyZHpGdjd3c1A0dnYxY1hMQy9zYW5kYm94LzMwd2NpNzk1b2duU1hVYkp0dTJsTXItaW1hZ2VzXzE3ODcxMDEwNjc5NzVfbmExZm5fTDJodmJXVXZkV0oxYm5SMUwzQmhibTl5WVM5MFpYTjBMV0Z5ZEdsbVlXTjBjeTl6WTNKbFpXNXphRzkwY3k4d05DMW5kV2t0YzJWMGRHbHVaM00ucG5nIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg5NDMwNDAwfX19XX0_&Key-Pair-Id=K2QY5QTL8JSY6C&Signature=MEUCIHSO2hAy--SlDZ-8yPqfmCowHyND1QJjEKti3l02PI5PAiEAniiUbWZubj0571jELTLVIE2cV0TeNbjkw31kICT9hmY_)
 
 Ayarlar penceresinde sistem dili, maksimum kayıt sayısı, saklama süresi, MIME başına boyut limiti, özel mod, anında yapıştır ve hariç tutulan uygulamalar kontrolleri görünmektedir. Xvfb'de gerçek window manager bulunmadığı için pencere konumu gerçek GNOME Shell görünümünden farklıdır; içerik ve kontroller doğru şekilde render edilmiştir.
 

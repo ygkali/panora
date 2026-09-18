@@ -1,7 +1,7 @@
 # Panora MP4 ekran kaydı ve özellik turu test raporu
 
 **Rapor tarihi:** 19 Ağustos 2026  
-**Hazırlayan:** Manus AI  
+**Hazırlayan:** ygkali
 **Test edilen sürüm:** Panora 1.0.0  
 **Kayıt ortamı:** Ubuntu tabanlı Debian uyumlu Linux sandbox, Xvfb üzerinde 1280×800 sanal X11 ekranı, D-Bus session bus, GNOME Keyring Secret Service ve `panod` X11 backend'i
 
