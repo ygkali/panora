@@ -12,6 +12,10 @@ version = "1.2.0"
 edition = "2021"
 rust-version = "1.85"
 license = "GPL-3.0-only"
+# Panora ships as a .deb built from this tree, never as crates.io packages.
+# Saying so stops an accidental `cargo publish` and lets the members depend on
+# each other by path alone (see `allow-wildcard-paths` in deny.toml).
+publish = false
 repository = "https://github.com/ygkali/panora"
 homepage = "https://github.com/ygkali/panora"
 description = "Secure, lightweight, extensible clipboard manager for Debian-based desktops (GNOME-first)"

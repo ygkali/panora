@@ -46,6 +46,11 @@ confidence-threshold = 0.8
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# The four workspace members depend on each other by path, with no version
+# requirement -- that is a wildcard, and denying it flagged every one of them.
+# This exemption covers exactly that case and only for unpublished crates, so
+# a genuine `foo = "*"` from crates.io still fails.
+allow-wildcard-paths = true
 highlight = "all"
 
 [sources]
