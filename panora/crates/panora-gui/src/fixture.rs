@@ -169,6 +169,7 @@ pub fn call(request: &Request) -> Result<ResponseData> {
                     images: true,
                     persist: true,
                     synthetic_paste: false,
+                    source_app: true,
                     needs_bridge: false,
                 },
             }),

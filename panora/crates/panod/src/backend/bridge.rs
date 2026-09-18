@@ -44,6 +44,8 @@ impl ClipboardBackend for GnomeBridgeBackend {
             // Mutter keeps clipboard content after the source exits.
             persist: true,
             synthetic_paste: true,
+            // The Shell extension reports the focused window's app id.
+            source_app: true,
             needs_bridge: true,
         }
     }

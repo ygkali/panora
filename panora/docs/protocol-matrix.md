@@ -24,7 +24,8 @@
 | `image/png`, JPEG, WebP, BMP, TIFF, GIF, SVG, AVIF, HEIC | Tam | Kart küçük resmi ve tam boy ayrıntı görünümü; `panora-cli preview --out` ile dışa aktarma |
 | Renk kodları | Evet | `#rrggbb`, `rgb()` → `ContentKind::Color`, renk örneği çizilir |
 | Parola bayrakları | Güvenlik kapısı | `x-kde-passwordManagerHint`, `ConcealedType`, `Clipboard Viewer Ignore` varyantları payload okunmadan reddedilir |
-| Hariç tutulan uygulamalar | X11 ve GNOME'da evet, düz Wayland'de **hayır** | Filtre `source_app`'e dayanır. Düz Wayland data-control protokolü istemci kimliği sunmadığı için bu liste orada devreye giremez; MIME bayrağı kapısı çalışmaya devam eder |
+| Hariç tutulan uygulamalar | X11 ve GNOME'da evet, düz Wayland'de **hayır** | Filtre `source_app`'e dayanır. Düz Wayland data-control protokolü istemci kimliği sunmadığı için bu liste orada devreye giremez; MIME bayrağı kapısı çalışmaya devam eder. Backend bunu `Capabilities::source_app` ile bildirir, `Status` üzerinden `panora-cli status` (`source_app=`) ve ayarlar penceresi bunu gösterir — liste boşuna güvenilmesin diye |
+| GNOME köprüsü çağıran kimliği | Doğrulanır | `io.panora.GnomeBridge1` oturum veriyolundadır, yani her kullanıcı süreci erişebilir. `Push`/`PushMany` gönderenin unique adını `org.gnome.Shell` sahibiyle karşılaştırır (eklenti gnome-shell'in paylaşılan oturum bağlantısını kullanır); eşleşmezse `AccessDenied`. Kötü amaçlı bir Shell eklentisi ADR 0003 tehdit modelinin dışındadır |
 | IPC | Unix socket | `0600`, JSON-lines, protokol sürümü 2, base64 payload'lar, 64 KiB istek / 64 MiB yanıt sınırı, peer UID kontrolü |
 | GUI etkinleştirme | D-Bus | `io.panora.Panora` `org.freedesktop.Application.Activate`; ikinci etkinleştirme popup'ı kapatır |
 | Sync/network | Hayır | `SyncProvider` trait + `NoopSync`; uygulama ağ açmaz |

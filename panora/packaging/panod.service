@@ -1,6 +1,6 @@
 [Unit]
 Description=Panora clipboard daemon
-Documentation=https://github.com/panora-clipboard/panora
+Documentation=https://github.com/ygkali/panora
 # The daemon needs a display server, so it follows the graphical session and
 # stops with it. Without this the unit would start too early on login.
 After=graphical-session.target

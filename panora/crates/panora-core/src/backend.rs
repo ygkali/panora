@@ -77,6 +77,11 @@ pub struct Capabilities {
     pub persist: bool,
     /// Can synthesize paste keystrokes (instant paste).
     pub synthetic_paste: bool,
+    /// Can name the application a copy came from. The privacy engine's
+    /// `excluded_apps` list matches on that name, so where this is false the
+    /// list cannot fire and only the secret-flag MIME gate protects the user.
+    /// The plain Wayland data-control protocols expose no client identity.
+    pub source_app: bool,
     /// Capture depends on the GNOME Shell bridge extension pushing data
     /// (compositor without a data-control protocol). Native backends set
     /// this to false so bridge pushes are ignored instead of duplicated.
@@ -158,6 +163,7 @@ impl ClipboardBackend for MockBackend {
             images: true,
             persist: true,
             synthetic_paste: false,
+            source_app: true,
             needs_bridge: false,
         }
     }

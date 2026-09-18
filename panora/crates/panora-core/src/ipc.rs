@@ -161,6 +161,10 @@ pub struct CapabilityData {
     pub persist: bool,
     /// A paste keystroke can be synthesized after recall.
     pub synthetic_paste: bool,
+    /// The source application of a copy can be named, which is what the
+    /// `excluded_apps` privacy list matches on. False on plain Wayland.
+    #[serde(default)]
+    pub source_app: bool,
     /// Capture depends on the GNOME Shell extension (GNOME without
     /// data-control).
     #[serde(default)]

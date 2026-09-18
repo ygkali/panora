@@ -168,7 +168,7 @@ fn print_response(s: &Strings, invocation: &Invocation, data: ResponseData) -> R
             let caps = &status.capabilities;
             println!(
                 "backend={} entries={} private={} version={} protocol={} revision={} \
-                 primary={} persist={} paste={}",
+                 primary={} persist={} paste={} source_app={}",
                 status.backend,
                 status.entries,
                 status.private_mode,
@@ -177,7 +177,8 @@ fn print_response(s: &Strings, invocation: &Invocation, data: ResponseData) -> R
                 status.revision,
                 caps.primary,
                 caps.persist,
-                caps.synthetic_paste
+                caps.synthetic_paste,
+                caps.source_app
             );
         }
         ResponseData::Count(count) => println!("{}", fill(s.cli_count, "n", &count.to_string())),

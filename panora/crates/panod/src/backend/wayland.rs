@@ -93,6 +93,9 @@ impl ClipboardBackend for WaylandBackend {
             // from an intentional clear, so panod never re-offers here.
             persist: false,
             synthetic_paste: true,
+            // The data-control protocols expose no client identity, so the
+            // `excluded_apps` list cannot fire on this backend.
+            source_app: false,
             needs_bridge: false,
         }
     }

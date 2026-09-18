@@ -10,7 +10,7 @@ use gtk4 as gtk;
 use libadwaita as adw;
 use libadwaita::prelude::*;
 use panora_core::config::Config;
-use panora_core::ipc::Request;
+use panora_core::ipc::{Request, ResponseData};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -96,6 +96,23 @@ pub fn show(ui: &Rc<Ui>) {
     }
     excluded_group.add(&add_row);
     excluded_group.add(&list);
+    // The list matches on the source application name, which the plain
+    // Wayland data-control protocols never expose. Say so here rather than
+    // letting the user trust a filter that cannot fire on this session. An
+    // unreachable daemon is not evidence of anything, so it warns nothing.
+    let source_app_known = match call(&Request::Status) {
+        Ok(ResponseData::Status(status)) => status.capabilities.source_app,
+        _ => true,
+    };
+    if !source_app_known {
+        let warning = gtk::Label::new(Some(s.settings_excluded_unsupported));
+        warning.add_css_class("caption");
+        warning.add_css_class("warning");
+        warning.set_wrap(true);
+        warning.set_xalign(0.0);
+        warning.set_margin_top(6);
+        excluded_group.add(&warning);
+    }
     page.add(&excluded_group);
 
     // --- interface ---------------------------------------------------

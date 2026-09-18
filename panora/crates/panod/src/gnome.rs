@@ -31,6 +31,10 @@ pub const SHELL_OBJECT_PATH: &str = "/io/panora/GnomeShell1";
 pub const GUI_APP_ID: &str = "io.panora.Panora";
 /// D-Bus object path GApplication derives from the id.
 pub const GUI_OBJECT_PATH: &str = "/io/panora/Panora";
+/// Well-known name GNOME Shell owns on the session bus. The extension runs
+/// inside gnome-shell and pushes over that process's shared session
+/// connection, so a legitimate push always arrives from this name's owner.
+pub const SHELL_WELL_KNOWN_NAME: &str = "org.gnome.Shell";
 
 /// How long one call into the Shell may take.
 const CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
@@ -41,6 +45,9 @@ const ACTIVATE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(25)
 pub struct GnomeBridge {
     sender: Mutex<mpsc::Sender<ClipboardData>>,
     needs_bridge: bool,
+    /// Unique bus name of the GNOME Shell connection, from the last
+    /// successful owner lookup. See `ensure_from_shell`.
+    shell_sender: Mutex<Option<String>>,
 }
 
 impl GnomeBridge {
@@ -51,6 +58,7 @@ impl GnomeBridge {
             Self {
                 sender: Mutex::new(sender),
                 needs_bridge,
+                shell_sender: Mutex::new(None),
             },
             receiver,
         )
@@ -58,6 +66,68 @@ impl GnomeBridge {
 }
 
 impl GnomeBridge {
+    /// Whether `sender` is the GNOME Shell connection seen last.
+    fn sender_is_cached_shell(&self, sender: &str) -> bool {
+        self.shell_sender
+            .lock()
+            .ok()
+            .and_then(|slot| slot.clone())
+            .is_some_and(|cached| cached == sender)
+    }
+
+    /// Remember the GNOME Shell connection so the next push needs no lookup.
+    fn remember_shell_sender(&self, sender: &str) {
+        if let Ok(mut slot) = self.shell_sender.lock() {
+            *slot = Some(sender.to_string());
+        }
+    }
+
+    /// Reject clipboard pushes that did not come from GNOME Shell.
+    ///
+    /// The bridge is exported on the session bus, which every process in the
+    /// user's session can reach -- including a sandboxed application holding
+    /// only `--socket=session-bus`, which has no access to Panora's data
+    /// directory or its 0600 IPC socket. Without this check any of them could
+    /// fabricate history entries, and by choosing `offered_mimes` also decide
+    /// which privacy gate those entries are judged by. A malicious *Shell
+    /// extension* is already outside the threat model (ADR 0003), so tying
+    /// pushes to gnome-shell's own connection is the boundary that matters.
+    ///
+    /// Fail-closed is cheap here: the extension pushes again on the next copy.
+    async fn ensure_from_shell(
+        &self,
+        connection: &zbus::Connection,
+        header: &zbus::message::Header<'_>,
+    ) -> zbus::fdo::Result<()> {
+        let denied = || {
+            zbus::fdo::Error::AccessDenied(
+                "only GNOME Shell may push clipboard content to Panora".into(),
+            )
+        };
+        let Some(sender) = header.sender() else {
+            return Err(denied());
+        };
+        if self.sender_is_cached_shell(sender.as_str()) {
+            return Ok(());
+        }
+        let name = zbus::names::BusName::try_from(SHELL_WELL_KNOWN_NAME)
+            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
+        // Property caching would add a GetAll round trip per proxy; this one
+        // is built only on a cache miss and needs a single method call.
+        let owner = zbus::fdo::DBusProxy::builder(connection)
+            .cache_properties(zbus::proxy::CacheProperties::No)
+            .build()
+            .await?
+            .get_name_owner(name)
+            .await?;
+        if owner.as_str() != sender.as_str() {
+            debug!(%sender, %owner, "rejected a clipboard push from a foreign bus peer");
+            return Err(denied());
+        }
+        self.remember_shell_sender(sender.as_str());
+        Ok(())
+    }
+
     async fn forward(&self, data: ClipboardData) -> zbus::fdo::Result<()> {
         let sender = self
             .sender
@@ -83,7 +153,10 @@ impl GnomeBridge {
         mime: String,
         bytes: Vec<u8>,
         source_app: String,
+        #[zbus(connection)] connection: &zbus::Connection,
+        #[zbus(header)] message: zbus::message::Header<'_>,
     ) -> zbus::fdo::Result<()> {
+        self.ensure_from_shell(connection, &message).await?;
         let data = ClipboardData {
             selection: Selection::Clipboard,
             offered_mimes: if mimes.is_empty() {
@@ -109,7 +182,10 @@ impl GnomeBridge {
         mimes: Vec<String>,
         payloads: Vec<(String, Vec<u8>)>,
         source_app: String,
+        #[zbus(connection)] connection: &zbus::Connection,
+        #[zbus(header)] message: zbus::message::Header<'_>,
     ) -> zbus::fdo::Result<()> {
+        self.ensure_from_shell(connection, &message).await?;
         if payloads.is_empty() || payloads.len() > MAX_BRIDGE_PAYLOADS {
             return Err(zbus::fdo::Error::InvalidArgs(format!(
                 "between 1 and {MAX_BRIDGE_PAYLOADS} payloads expected"
@@ -279,4 +355,39 @@ async fn spawn_gui() -> Result<()> {
         .spawn()
         .map(|_| ())
         .map_err(|e| Error::Backend(format!("cannot start panora-gui: {e}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn bridge() -> GnomeBridge {
+        GnomeBridge::new(1, true).0
+    }
+
+    #[test]
+    fn shell_sender_cache_starts_empty() {
+        let bridge = bridge();
+        assert!(!bridge.sender_is_cached_shell(":1.42"));
+    }
+
+    #[test]
+    fn shell_sender_cache_matches_only_the_remembered_peer() {
+        let bridge = bridge();
+        bridge.remember_shell_sender(":1.42");
+        assert!(bridge.sender_is_cached_shell(":1.42"));
+        // A different peer on the same bus must still be looked up (and, not
+        // owning org.gnome.Shell, rejected) instead of riding the cache.
+        assert!(!bridge.sender_is_cached_shell(":1.43"));
+        assert!(!bridge.sender_is_cached_shell(""));
+    }
+
+    #[test]
+    fn shell_sender_cache_follows_a_restarted_shell() {
+        let bridge = bridge();
+        bridge.remember_shell_sender(":1.42");
+        bridge.remember_shell_sender(":1.77");
+        assert!(!bridge.sender_is_cached_shell(":1.42"));
+        assert!(bridge.sender_is_cached_shell(":1.77"));
+    }
 }

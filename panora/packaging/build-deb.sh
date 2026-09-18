@@ -112,7 +112,7 @@ Recommends: gnome-keyring
 Suggests: wtype, ydotool
 Installed-Size: $INSTALLED_KB
 Maintainer: Panora contributors <panora@panora-clipboard.org>
-Homepage: https://github.com/panora-clipboard/panora
+Homepage: https://github.com/ygkali/panora
 Description: Secure, lightweight clipboard manager for Debian desktops
  Panora keeps an encrypted clipboard history with a GTK4/libadwaita popup,
  FTS5 search, pinning and a private mode. Payloads are stored as

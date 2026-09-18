@@ -97,6 +97,8 @@ impl ClipboardBackend for X11Backend {
             images: true,
             persist: true,
             synthetic_paste: true,
+            // `_NET_ACTIVE_WINDOW` → `WM_CLASS`; see `focused_app`.
+            source_app: true,
             needs_bridge: false,
         }
     }

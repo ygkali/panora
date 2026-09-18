@@ -146,7 +146,6 @@ fn text_view(text: &str) -> gtk::ScrolledWindow {
     view.set_right_margin(8);
     view.set_top_margin(8);
     view.set_bottom_margin(8);
-    view.add_css_class("details-text");
     view.buffer().set_text(text);
     gtk::ScrolledWindow::builder()
         .vexpand(true)

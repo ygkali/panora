@@ -85,6 +85,9 @@ pub struct Strings {
     pub subtitle_count: &'static str,
     pub search_placeholder: &'static str,
     pub private_tooltip: &'static str,
+    /// Short name for the private-mode toggle, announced by screen
+    /// readers; `private_tooltip` is its longer description.
+    pub private_label: &'static str,
     pub menu_tooltip: &'static str,
     pub filter_all: &'static str,
     pub filter_pinned: &'static str,
@@ -177,6 +180,9 @@ pub struct Strings {
     pub settings_excluded_add_placeholder: &'static str,
     pub settings_excluded_add: &'static str,
     pub settings_excluded_remove: &'static str,
+    /// Shown when the active backend cannot name the source application, so
+    /// the exclusion list above has nothing to match against.
+    pub settings_excluded_unsupported: &'static str,
     pub settings_interface: &'static str,
     pub settings_language: &'static str,
     pub settings_language_system: &'static str,
@@ -205,6 +211,7 @@ static TR: Strings = Strings {
     subtitle_count: "{n} kayıt",
     search_placeholder: "Panoda ara…",
     private_tooltip: "Özel mod: yeni kopyalar kaydedilmez (Ctrl+Shift+P)",
+    private_label: "Özel mod",
     menu_tooltip: "Menü",
     filter_all: "Tümü",
     filter_pinned: "Sabitli",
@@ -224,7 +231,7 @@ static TR: Strings = Strings {
     error_connect_description: "panod çalışmıyor olabilir. Başlatmak için:\nsystemctl --user start panod.service",
     error_daemon_title: "Daemon hata döndürdü",
     retry: "Yeniden dene",
-    hint_line: "↑ ↓ gez  ·  Enter panoya koy  ·  Space ayrıntı  ·  Ctrl+D sabitle  ·  Delete sil  ·  Esc kapat",
+    hint_line: "Enter panoya koy  ·  Space ayrıntı  ·  Esc kapat",
     menu_shortcuts: "Klavye kısayolları",
     menu_settings: "Ayarlar",
     menu_clear: "Geçmişi temizle",
@@ -291,6 +298,10 @@ static TR: Strings = Strings {
     settings_excluded_add_placeholder: "uygulama adı (örn. keepassxc)",
     settings_excluded_add: "Ekle",
     settings_excluded_remove: "Kaldır",
+    settings_excluded_unsupported: "Bu oturumda çalışmaz: Wayland data-control protokolü \
+                                    kopyalayan uygulamanın kimliğini bildirmiyor. Parola \
+                                    yöneticilerinin gizli içerik işaretleri yine de \
+                                    engellenir.",
     settings_interface: "Arayüz",
     settings_language: "Dil",
     settings_language_system: "Sistem",
@@ -318,6 +329,7 @@ static EN: Strings = Strings {
     subtitle_count: "{n} items",
     search_placeholder: "Search clipboard…",
     private_tooltip: "Private mode: new copies are not recorded (Ctrl+Shift+P)",
+    private_label: "Private mode",
     menu_tooltip: "Menu",
     filter_all: "All",
     filter_pinned: "Pinned",
@@ -337,7 +349,7 @@ static EN: Strings = Strings {
     error_connect_description: "panod may not be running. Start it with:\nsystemctl --user start panod.service",
     error_daemon_title: "The daemon returned an error",
     retry: "Retry",
-    hint_line: "↑ ↓ navigate  ·  Enter copy  ·  Space details  ·  Ctrl+D pin  ·  Delete remove  ·  Esc close",
+    hint_line: "Enter copy  ·  Space details  ·  Esc close",
     menu_shortcuts: "Keyboard shortcuts",
     menu_settings: "Settings",
     menu_clear: "Clear history",
@@ -404,6 +416,10 @@ static EN: Strings = Strings {
     settings_excluded_add_placeholder: "application name (e.g. keepassxc)",
     settings_excluded_add: "Add",
     settings_excluded_remove: "Remove",
+    settings_excluded_unsupported: "Inactive in this session: the Wayland data-control \
+                                    protocol does not report which application made the \
+                                    copy. Content a password manager flags as secret is \
+                                    still blocked.",
     settings_interface: "Interface",
     settings_language: "Language",
     settings_language_system: "System",

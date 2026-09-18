@@ -33,6 +33,7 @@
 | Atomic private blob write | Geçti | `create_new`, 0600 temporary file, `sync_all`, atomic rename |
 | Local data permissions | Geçti | data root/blob shard 0700, DB/blob/device/socket 0600 |
 | IPC peer identity | Geçti | Unix `SO_PEERCRED` UID socket sahibiyle karşılaştırılır |
+| GNOME köprüsü çağıran kimliği | Geçti | `Push`/`PushMany` yalnızca `org.gnome.Shell` adının o anki sahibinden kabul edilir; oturum veriyolundaki diğer süreçler (ör. yalnızca `--socket=session-bus` izinli bir Flatpak) `AccessDenied` alır. Sahip adı önbelleklenir, gnome-shell yeniden başlarsa tekrar sorulur |
 | IPC resource limits | Geçti | 64 KiB frame, bağlantı başına 256 istek, query limit 500 |
 | Untrusted metadata limits | Geçti | 128 MIME, MIME başına 256 byte, source app 256 Unicode scalar sınırı |
 | GNOME extension network surface | Geçti | Static metadata, network primitive/URL yasağı, session D-Bus sınırı |

@@ -107,13 +107,16 @@ pub struct Ui {
 /// Build and present the popup.
 pub fn build(app: &adw::Application, state: &Rc<App>) {
     let s = state.strings;
+    // A clipboard picker is a panel, not a document window: one column of
+    // full-width rows, sized like the Windows Win+V flyout so the eye travels
+    // straight down the history instead of scanning a grid.
     let window = adw::ApplicationWindow::builder()
         .application(app)
         .title(s.app_name)
-        .default_width(620)
-        .default_height(720)
-        .width_request(380)
-        .height_request(360)
+        .default_width(420)
+        .default_height(660)
+        .width_request(340)
+        .height_request(420)
         .build();
 
     let title = adw::WindowTitle::new(s.app_name, s.subtitle_history);
@@ -124,6 +127,7 @@ pub fn build(app: &adw::Application, state: &Rc<App>) {
         .tooltip_text(s.private_tooltip)
         .build();
     private.add_css_class("flat");
+    name_for_a11y(&private, s.private_label);
     header.pack_start(&private);
 
     let menu_button = gtk::MenuButton::builder()
@@ -131,7 +135,18 @@ pub fn build(app: &adw::Application, state: &Rc<App>) {
         .tooltip_text(s.menu_tooltip)
         .build();
     menu_button.add_css_class("flat");
+    name_for_a11y(&menu_button, s.menu_tooltip);
     header.pack_end(&menu_button);
+
+    // "Clear all" is one of the two things anyone opens a clipboard history
+    // for; it belongs in reach, not three clicks down a menu.
+    let clear = gtk::Button::builder()
+        .icon_name("user-trash-symbolic")
+        .tooltip_text(s.menu_clear)
+        .build();
+    clear.add_css_class("flat");
+    name_for_a11y(&clear, s.menu_clear);
+    header.pack_end(&clear);
 
     let search = gtk::SearchEntry::new();
     search.set_placeholder_text(Some(s.search_placeholder));
@@ -140,16 +155,23 @@ pub fn build(app: &adw::Application, state: &Rc<App>) {
     search.set_margin_end(14);
     search.add_css_class("panora-search");
 
-    let chips = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    chips.set_halign(gtk::Align::Center);
+    // A FlowBox, not a Box in a scroller: eight chips do not fit a panel this
+    // narrow, and the row used to clip the last two with nothing to say they
+    // were there. Wrapping also survives translation -- the same eight labels
+    // are markedly longer in Turkish or German than in English.
+    let chips = gtk::FlowBox::new();
+    chips.set_selection_mode(gtk::SelectionMode::None);
+    chips.set_homogeneous(false);
+    chips.set_row_spacing(6);
+    chips.set_column_spacing(6);
+    chips.set_min_children_per_line(1);
+    chips.set_max_children_per_line(Filter::ALL.len() as u32);
+    // Start, not Center: a filter bar reads as a row you scan from the edge
+    // the text starts at, and Start is the one that mirrors under RTL.
+    chips.set_halign(gtk::Align::Start);
     chips.set_margin_top(10);
     chips.set_margin_start(14);
     chips.set_margin_end(14);
-    let chip_scroller = gtk::ScrolledWindow::builder()
-        .vscrollbar_policy(gtk::PolicyType::Never)
-        .hscrollbar_policy(gtk::PolicyType::External)
-        .child(&chips)
-        .build();
 
     let banner = adw::Banner::new(s.banner_private);
     banner.set_revealed(false);
@@ -161,13 +183,16 @@ pub fn build(app: &adw::Application, state: &Rc<App>) {
     // card to its height. Cards size to their content instead.
     flow.set_homogeneous(false);
     flow.set_valign(gtk::Align::Start);
-    flow.set_row_spacing(10);
-    flow.set_column_spacing(10);
-    flow.set_margin_top(12);
-    flow.set_margin_start(14);
-    flow.set_margin_end(14);
+    flow.set_row_spacing(6);
+    flow.set_column_spacing(0);
+    flow.set_margin_top(10);
+    flow.set_margin_start(12);
+    flow.set_margin_end(12);
+    flow.set_margin_bottom(6);
+    // Exactly one column. A grid makes "most recent" a corner instead of the
+    // top of a list, and Up/Down then skip past entries a row at a time.
     flow.set_min_children_per_line(1);
-    flow.set_max_children_per_line(3);
+    flow.set_max_children_per_line(1);
 
     let load_more = gtk::Button::with_label(s.load_more);
     load_more.add_css_class("pill");
@@ -209,9 +234,12 @@ pub fn build(app: &adw::Application, state: &Rc<App>) {
     stack.add_named(&error, Some("error"));
     stack.set_vexpand(true);
 
+    // libadwaita's own type classes instead of a hand-set pixel size, so the
+    // line follows the user's text-scaling factor like every other label.
     let hint = gtk::Label::new(Some(s.hint_line));
-    hint.add_css_class("panora-hint");
-    hint.set_margin_top(2);
+    hint.add_css_class("caption");
+    hint.add_css_class("dim-label");
+    hint.set_margin_top(4);
     hint.set_margin_bottom(8);
     hint.set_wrap(true);
     hint.set_justify(gtk::Justification::Center);
@@ -219,7 +247,7 @@ pub fn build(app: &adw::Application, state: &Rc<App>) {
     let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
     content.append(&banner);
     content.append(&search);
-    content.append(&chip_scroller);
+    content.append(&chips);
     content.append(&stack);
     content.append(&hint);
 
@@ -275,6 +303,10 @@ pub fn build(app: &adw::Application, state: &Rc<App>) {
     }
     {
         let ui = ui.clone();
+        clear.connect_clicked(move |_| confirm_clear(&ui));
+    }
+    {
+        let ui = ui.clone();
         scroller.connect_edge_reached(move |_, position| {
             if position == gtk::PositionType::Bottom {
                 load_next_page(&ui);
@@ -320,7 +352,7 @@ pub fn build(app: &adw::Application, state: &Rc<App>) {
 }
 
 /// Build the content-kind chip row as a single-choice group.
-fn build_chips(ui: &Rc<Ui>, container: &gtk::Box) {
+fn build_chips(ui: &Rc<Ui>, container: &gtk::FlowBox) {
     let mut group: Option<gtk::ToggleButton> = None;
     for filter in Filter::ALL {
         let chip = gtk::ToggleButton::with_label(filter.label(ui.s));
@@ -339,7 +371,7 @@ fn build_chips(ui: &Rc<Ui>, container: &gtk::Box) {
             ui.filter.set(filter);
             refresh(&ui);
         });
-        container.append(&chip);
+        container.insert(&chip, -1);
     }
 }
 
@@ -385,11 +417,6 @@ fn build_menu(ui: &Rc<Ui>, button: &gtk::MenuButton) {
             Box::new(move || settings::show(&ui)),
         );
     }
-    {
-        let ui = ui.clone();
-        add_item(ui.s.menu_clear, true, Box::new(move || confirm_clear(&ui)));
-    }
-
     popover.set_child(Some(&list));
     button.set_popover(Some(&popover));
 }
@@ -725,35 +752,33 @@ fn subtitle_for(s: &Strings, count: usize, more: bool, filter: Filter) -> String
     }
 }
 
+/// Give an icon-only control a name assistive technology can announce.
+///
+/// A tooltip is not one: AT-SPI exposes it as the *description*, which a
+/// screen reader reads after the name -- and an unnamed button has no name to
+/// read, so it is announced as just "button". Every icon-only control here
+/// therefore carries both.
+fn name_for_a11y(widget: &impl IsA<gtk::Widget>, label: &str) {
+    widget
+        .as_ref()
+        .update_property(&[gtk::accessible::Property::Label(label)]);
+}
+
+/// One row of the history: the content first, then a quiet metadata line
+/// whose actions surface on hover, focus or selection.
+///
+/// Actions stay in the layout at `opacity: 0` rather than being added and
+/// removed, so nothing shifts under the pointer when a row lights up, and a
+/// keyboard user can still Tab into them (`:focus-within` reveals them).
 fn build_card(ui: &Rc<Ui>, entry: &Entry) -> gtk::FlowBoxChild {
     let s = ui.s;
     let card = gtk::Box::new(gtk::Orientation::Vertical, 8);
     card.add_css_class("history-card");
 
-    let top = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    let icon = gtk::Image::from_icon_name(kind_icon(entry.kind));
-    icon.add_css_class("kind-icon");
-    icon.set_pixel_size(14);
-    top.append(&icon);
-
-    let badge = gtk::Label::new(Some(kind_label(s, entry.kind)));
-    badge.add_css_class("kind-badge");
-    top.append(&badge);
-
-    let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    spacer.set_hexpand(true);
-    top.append(&spacer);
-
-    let time = gtk::Label::new(Some(&relative_time(s, entry.last_seen_at)));
-    time.add_css_class("card-meta");
-    time.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    top.append(&time);
-    card.append(&top);
-
     match entry.kind {
         ContentKind::Image => {
             let picture = gtk::Picture::new();
-            picture.set_size_request(-1, 116);
+            picture.set_size_request(-1, 132);
             picture.set_can_shrink(true);
             picture.set_content_fit(gtk::ContentFit::Cover);
             picture.add_css_class("image-preview");
@@ -764,43 +789,48 @@ fn build_card(ui: &Rc<Ui>, entry: &Entry) -> gtk::FlowBoxChild {
             card.append(&color_swatch(&entry.preview));
             card.append(&preview_label(&entry.preview, 1));
         }
-        _ => card.append(&preview_label(&entry.preview, 4)),
+        _ => card.append(&preview_label(&entry.preview, 3)),
     }
 
     let bottom = gtk::Box::new(gtk::Orientation::Horizontal, 4);
     bottom.set_valign(gtk::Align::End);
-    bottom.set_vexpand(true);
 
-    let meta = gtk::Label::new(Some(&card_meta(entry)));
+    // The kind is an icon here, not a shouted badge: the preview already
+    // shows what the entry is, and the badge only repeated it in 9px caps.
+    // Screen readers get the kind from the row's accessible label instead.
+    let icon = gtk::Image::from_icon_name(kind_icon(entry.kind));
+    icon.add_css_class("kind-icon");
+    icon.set_pixel_size(14);
+    bottom.append(&icon);
+
+    let meta = gtk::Label::new(Some(&card_meta(s, entry)));
     meta.add_css_class("card-meta");
-    meta.set_xalign(0.0);
+    meta.set_halign(gtk::Align::Start);
     meta.set_ellipsize(gtk::pango::EllipsizeMode::End);
     meta.set_hexpand(true);
     bottom.append(&meta);
 
-    let info = gtk::Button::from_icon_name("view-more-symbolic");
-    info.add_css_class("flat");
-    info.add_css_class("card-action");
-    info.set_tooltip_text(Some(s.tooltip_details));
-    {
-        let ui = ui.clone();
-        let entry = entry.clone();
-        info.connect_clicked(move |_| details::show(&ui, &entry));
+    let actions = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+    actions.add_css_class("card-actions");
+    // A pinned row must read as pinned without being hovered first.
+    if entry.pinned {
+        actions.add_css_class("always-visible");
     }
-    bottom.append(&info);
 
     let pin = gtk::Button::from_icon_name(if entry.pinned {
         "starred-symbolic"
     } else {
         "non-starred-symbolic"
     });
-    pin.add_css_class("flat");
-    pin.add_css_class("card-action");
-    pin.set_tooltip_text(Some(if entry.pinned {
+    let pin_label = if entry.pinned {
         s.tooltip_unpin
     } else {
         s.tooltip_pin
-    }));
+    };
+    pin.add_css_class("flat");
+    pin.add_css_class("card-action");
+    pin.set_tooltip_text(Some(pin_label));
+    name_for_a11y(&pin, pin_label);
     if entry.pinned {
         pin.add_css_class("pinned");
     }
@@ -810,18 +840,32 @@ fn build_card(ui: &Rc<Ui>, entry: &Entry) -> gtk::FlowBoxChild {
         let pinned = entry.pinned;
         pin.connect_clicked(move |_| toggle_pin(&ui, id, pinned));
     }
-    bottom.append(&pin);
+    actions.append(&pin);
+
+    let info = gtk::Button::from_icon_name("view-more-symbolic");
+    info.add_css_class("flat");
+    info.add_css_class("card-action");
+    info.set_tooltip_text(Some(s.tooltip_details));
+    name_for_a11y(&info, s.tooltip_details);
+    {
+        let ui = ui.clone();
+        let entry = entry.clone();
+        info.connect_clicked(move |_| details::show(&ui, &entry));
+    }
+    actions.append(&info);
 
     let delete = gtk::Button::from_icon_name("user-trash-symbolic");
     delete.add_css_class("flat");
     delete.add_css_class("card-action");
     delete.set_tooltip_text(Some(s.tooltip_delete));
+    name_for_a11y(&delete, s.tooltip_delete);
     {
         let ui = ui.clone();
         let id = entry.id;
         delete.connect_clicked(move |_| delete_entry(&ui, id));
     }
-    bottom.append(&delete);
+    actions.append(&delete);
+    bottom.append(&actions);
     card.append(&bottom);
 
     let child = gtk::FlowBoxChild::new();
@@ -830,15 +874,31 @@ fn build_card(ui: &Rc<Ui>, entry: &Entry) -> gtk::FlowBoxChild {
         "{}\n{}",
         entry.primary_mime, s.tooltip_click_to_copy
     )));
+    // Kind, then content, then age: what a sighted user takes in from the
+    // row at a glance, in the order they take it in.
+    name_for_a11y(
+        &child,
+        &format!(
+            "{}: {} — {}",
+            kind_label(s, entry.kind),
+            entry.preview.trim(),
+            relative_time(s, entry.last_seen_at)
+        ),
+    );
     child
 }
 
-/// Bottom-left metadata line: size, and source app when the daemon knows it.
-fn card_meta(entry: &Entry) -> String {
-    match &entry.source_app {
-        Some(app) if !app.is_empty() => format!("{} · {}", format_size(entry.size_bytes), app),
-        _ => format_size(entry.size_bytes),
+/// Quiet metadata line under the content: age, size, and the source
+/// application when the backend could name it.
+fn card_meta(s: &Strings, entry: &Entry) -> String {
+    let mut parts = vec![
+        relative_time(s, entry.last_seen_at),
+        format_size(entry.size_bytes),
+    ];
+    if let Some(app) = entry.source_app.as_deref().filter(|app| !app.is_empty()) {
+        parts.push(app.to_string());
     }
+    parts.join(" · ")
 }
 
 /// Draw the parsed color instead of a fixed placeholder swatch.
@@ -1101,15 +1161,21 @@ pub fn install_css() {
              color: @accent_fg_color;
          }
 
-         flowboxchild { padding: 0; border-radius: 16px; }
+         flowboxchild { padding: 0; border-radius: 12px; }
          flowboxchild:selected { background: none; }
+         /* Keyboard focus must be visible on its own, not only through the
+            selection tint: WCAG 2.4.7, and the grid can hold the cursor
+            without a selection. */
+         flowboxchild:focus-visible .history-card {
+             outline: 2px solid @accent_color;
+             outline-offset: -2px;
+         }
 
          .history-card {
              background: @card_bg_color;
              border: 1px solid alpha(@card_fg_color, 0.11);
-             border-radius: 16px;
-             padding: 12px;
-             min-height: 84px;
+             border-radius: 12px;
+             padding: 10px 12px;
              transition: border-color 120ms ease, background 120ms ease;
          }
          .history-card:hover {
@@ -1122,32 +1188,46 @@ pub fn install_css() {
              box-shadow: 0 0 0 1px @accent_bg_color;
          }
 
-         .kind-badge {
-             font-size: 9px;
-             font-weight: 800;
-             letter-spacing: 0.6px;
-             color: alpha(@card_fg_color, 0.62);
+         /* 0.7 alpha keeps these above the 3:1 non-text contrast floor
+            (WCAG 1.4.11) in both light and dark. */
+         .kind-icon { color: alpha(@card_fg_color, 0.7); }
+
+         .preview-text { color: @card_fg_color; }
+         /* No px font-size: .caption-heading tracks the user's text scale. */
+         .card-meta {
+             font-size: 0.8em;
+             color: alpha(@card_fg_color, 0.7);
          }
-         .kind-icon { color: alpha(@card_fg_color, 0.55); }
 
-         .preview-text { font-size: 13px; color: @card_fg_color; }
-         .card-meta { font-size: 10px; color: alpha(@card_fg_color, 0.5); }
+         /* Revealed by the row, so a resting list is content and nothing
+            else. Opacity rather than visibility: the buttons keep their
+            space (no shift under the pointer) and stay reachable by Tab.
+            The row is reached three ways and all three must reveal it --
+            pointer, keyboard cursor and keyboard selection. GtkFlowBox puts
+            focus and selection on the flowboxchild *around* the card, so
+            `.history-card:focus-within` alone would never match while
+            arrowing down the list. */
+         .card-actions { opacity: 0; transition: opacity 120ms ease; }
+         .history-card:hover .card-actions,
+         flowboxchild:selected .card-actions,
+         flowboxchild:focus-within .card-actions,
+         .card-actions.always-visible { opacity: 1; }
 
+         /* 28px: WCAG 2.2 target size (2.5.8) asks for at least 24x24, and
+            these sit 2px apart, so the extra keeps neighbours apart too. */
          .card-action {
-             min-width: 24px;
-             min-height: 24px;
+             min-width: 28px;
+             min-height: 28px;
              padding: 2px;
-             opacity: 0.55;
+             opacity: 0.8;
          }
          .card-action:hover { opacity: 1; }
          .card-action.pinned { color: @accent_color; opacity: 1; }
 
-         .image-preview { border-radius: 10px; background: alpha(@card_fg_color, 0.06); }
-         .color-swatch { border-radius: 10px; }
-         .details-text { font-size: 13px; }
+         .image-preview { border-radius: 8px; background: alpha(@card_fg_color, 0.06); }
+         .color-swatch { border-radius: 8px; }
          .details-image { border-radius: 12px; }
 
-         .panora-hint { font-size: 10px; color: alpha(@window_fg_color, 0.45); }
          .panora-destructive { color: @error_color; }",
     );
     if let Some(display) = gdk::Display::default() {

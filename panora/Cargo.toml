@@ -12,8 +12,8 @@ version = "1.2.0"
 edition = "2021"
 rust-version = "1.85"
 license = "GPL-3.0-only"
-repository = "https://github.com/panora-clipboard/panora"
-homepage = "https://github.com/panora-clipboard/panora"
+repository = "https://github.com/ygkali/panora"
+homepage = "https://github.com/ygkali/panora"
 description = "Secure, lightweight, extensible clipboard manager for Debian-based desktops (GNOME-first)"
 
 [workspace.dependencies]

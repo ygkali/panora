@@ -11,7 +11,7 @@
 - **Tüm biçimler korunur.** Metin, HTML/RTF, URI/dosya listeleri, PNG/JPEG/WebP/BMP/TIFF/GIF/SVG görselleri ve renk kodları birlikte saklanır; geri çağırma tüm biçimleri aynı anda sunar (metin + HTML, görsel), büyük payload'lar X11'de INCR ile aktarılır.
 - **Pano kalıcılığı (X11).** Kaynak uygulama kapanınca pano boşalırsa daemon yalnızca o an kaydettiği son içeriği yeniden sunar (CLIPBOARD_MANAGER davranışı); bilinçli temizlemeler (parola yöneticileri) geri alınmaz. Wayland'de kalıcılık bileşim yöneticisine (Mutter, KWin) bırakılır.
 - **Şifreli depolama.** Payload'lar XChaCha20-Poly1305 ile içerik adresli BLOB olarak, önizlemeler AEAD ile bağlanmış şekilde SQLite'ta saklanır; FTS5 önek araması yazdıkça daralır. Ana anahtar Secret Service'ten şifreli D-Bus oturumuyla alınır.
-- **GTK4/libadwaita popup.** Arama, tür filtreleri (metin, bağlantı, görsel, dosya, biçimli, renk, sabitli), sabitleme, silme, ayrıntı görünümü, sayfalı liste, canlı yenileme, açık/koyu tema, Türkçe/İngilizce arayüz ve ayarlar penceresi. Super+V ile aç/kapat (tek örnek uygulama, D-Bus etkinleştirme).
+- **GTK4/libadwaita popup.** Windows Win+V gibi tek kolonlu dar bir panel: içerik önde, satır eylemleri (sabitle, ayrıntı, sil) yalnızca fare üzerine gelince veya klavye o satıra geçince açılır. Arama, tür filtreleri (metin, bağlantı, görsel, dosya, biçimli, renk, sabitli), sayfalı liste, canlı yenileme, açık/koyu tema, Türkçe/İngilizce arayüz ve ayarlar penceresi. Super+V ile aç/kapat (tek örnek uygulama, D-Bus etkinleştirme). Simge düğmelerinin hepsi ekran okuyucu adı taşır, dokunma hedefleri 28 piksel, yazı boyutları kullanıcının metin ölçeğini izler ve arayüz RTL dillerde aynalanır.
 - **Anında yapıştır.** İsteğe bağlı: bir kayıt seçilince odaktaki pencereye Ctrl+V gönderilir (X11'de XTEST, GNOME'da Shell eklentisi, diğer Wayland masaüstlerinde `wtype`/`ydotool`).
 - **`panora-cli`.** Aynı 0600 Unix socket protokolü üzerinden liste, arama, kopyalama, yapıştırma, önizleme dışa aktarma, sabitleme, özel mod, durum ve `--json` çıktısı.
 
@@ -67,7 +67,7 @@ gnome-extensions enable panora@panora-clipboard.org
 
 ### Ayarlar
 
-Menü → **Ayarlar** (veya `Ctrl+,`). Değerler `~/.config/panora/config.toml` dosyasına yazılır ve daemon'a anında yüklenir:
+Başlık çubuğunda soldan sağa: özel mod anahtarı, **geçmişi temizle** ve menü. Menü → **Ayarlar** (veya `Ctrl+,`). Değerler `~/.config/panora/config.toml` dosyasına yazılır ve daemon'a anında yüklenir:
 
 ```toml
 [history]
@@ -134,9 +134,9 @@ X11 backend'inin uçtan uca testleri `DISPLAY` varsa çalışır (CI'da Xvfb): `
 
 ## Güvenlik standardı ve gizlilik davranışı
 
-Parola yöneticilerinin gizli pano işaretleri ve varsayılan hariç listesi payload okunmadan, sunulan MIME/TARGETS listesi üzerinden uygulanır. Kullanıcı özel modu açarak kayıt almayı tamamen durdurabilir; özel mod ayarlar yeniden yüklense de korunur.
+Parola yöneticilerinin gizli pano işaretleri ve varsayılan hariç listesi payload okunmadan, sunulan MIME/TARGETS listesi üzerinden uygulanır. Kullanıcı özel modu açarak kayıt almayı tamamen durdurabilir; özel mod ayarlar yeniden yüklense de korunur. Hariç listesi kopyalayan uygulamanın adına dayandığı için düz Wayland oturumlarında (protokol istemci kimliği sunmaz) devreye giremez; daemon bunu `panora-cli status` çıktısında `source_app=false` ile bildirir ve ayarlar penceresi listenin yanında bunu yazar.
 
-Yerel geçmiş, Secret Service anahtar deposundan alınan anahtarla XChaCha20-Poly1305 kullanılarak şifrelenir. Şifreli zarf formatı sürümlüdür ve BLOB/preview verisi için AEAD associated data kullanır. Veri dizinleri 0700, dosyalar 0600 izinlidir; IPC Unix socket'i bağlantı başına frame ve istek limitlerine ve Linux peer UID kontrolüne sahiptir. Ana anahtar Secret Service oturumuna `dh-ietf1024-sha256-aes128-cbc-pkcs7` ile bağlanır; servis şifreli oturum açamazsa daemon başlamayı reddeder.
+Yerel geçmiş, Secret Service anahtar deposundan alınan anahtarla XChaCha20-Poly1305 kullanılarak şifrelenir. Şifreli zarf formatı sürümlüdür ve BLOB/preview verisi için AEAD associated data kullanır. Veri dizinleri 0700, dosyalar 0600 izinlidir; IPC Unix socket'i bağlantı başına frame ve istek limitlerine ve Linux peer UID kontrolüne sahiptir. GNOME köprüsünün oturum veriyolundaki `Push`/`PushMany` çağrıları yalnızca `org.gnome.Shell` adının sahibinden kabul edilir, böylece veriyoluna erişen başka bir süreç geçmişe uydurma kayıt yazamaz. Ana anahtar Secret Service oturumuna `dh-ietf1024-sha256-aes128-cbc-pkcs7` ile bağlanır; servis şifreli oturum açamazsa daemon başlamayı reddeder.
 
 Silinen kayıtların BLOB'ları yalnızca başka bir kayıt tarafından paylaşılmıyorsa diskten kaldırılır; saklama sınırı veya süresi aşılan kayıtlar hem veritabanından hem diskten temizlenir (her kayıtta ve saatte bir). Geçmişi temizlemek sabitlenmiş kayıtları silmez.
 

@@ -1,5 +1,21 @@
 # Changelog
 
+## Yayınlanmadı
+
+### Arayüz
+- Popup artık Windows Win+V gibi **tek kolonlu dar bir panel** (420×660, en az 340×420). Kart ızgarası kalktı: en yeni kayıt bir köşe değil listenin başı, Yukarı/Aşağı satır satır ilerliyor.
+- **İçerik önde.** 9 piksel büyük harfli tür etiketi kaldırıldı (önizleme zaten ne olduğunu gösteriyor, tür ekran okuyucuya satırın erişilebilir adıyla gidiyor); yerine içeriğin altında tür simgesi + yaş + boyut + kaynak uygulama satırı geldi.
+- **Satır eylemleri artık hep görünmüyor.** Sabitle / ayrıntı / sil, fare satıra geldiğinde, klavye o satıra geçtiğinde veya satır seçildiğinde açılıyor; sabitli satırlar yıldızını her zaman gösteriyor. Düğmeler yerlerini koruduğu için imlecin altında kayma olmuyor ve Tab ile hâlâ erişilebiliyorlar.
+- **Geçmişi temizle** menüden başlık çubuğuna taşındı.
+- Filtre çipleri artık satır sonunda alt satıra kayıyor. Önceki kaydırmalı satır dar panelde son iki çipi (`Biçimli`, `Renk`) hiçbir ipucu vermeden kırpıyordu; çeviriler İngilizceden uzun olduğu için bu her dilde farklı yerde oluyordu.
+- **Erişilebilirlik:** her simge düğmesi ve her geçmiş satırı ekran okuyucu adı taşıyor (tooltip AT-SPI'de *açıklama*, ad değil — adsız düğme yalnızca "button" olarak okunuyordu); satır eylemleri 24 değil 28 piksel (WCAG 2.2 SC 2.5.8); sabit piksel yazı boyutları kaldırıldı, tipografi libadwaita sınıflarıyla kullanıcının metin ölçeğini izliyor; ikincil metin kontrastı 0.5'ten 0.7 alfaya çıktı (SC 1.4.11); klavye odağı seçim renginden bağımsız kendi çerçevesini çiziyor (SC 2.4.7).
+- **RTL:** hizalamalar mutlak `xalign` yerine `halign: Start` kullanıyor, böylece arayüz sağdan sola dillerde aynalanıyor.
+
+### Daemon ve paketleme
+- GNOME köprüsü artık çağıranı doğruluyor: `io.panora.GnomeBridge1.Push`/`PushMany` yalnızca `org.gnome.Shell` adının sahibinden kabul ediliyor. Servis oturum veriyolunda olduğu için daha önce her kullanıcı süreci (ör. yalnızca `--socket=session-bus` izinli bir Flatpak) uydurma kayıt enjekte edebiliyordu. Veriyolundaki imza değişmedi, eklenti güncellemesi gerekmiyor.
+- Yeni backend yeteneği `source_app`: kopyalayan uygulamanın adı bilinebiliyor mu? `panora-cli status` bunu `source_app=` olarak yazıyor ve ayarlar penceresi düz Wayland oturumlarında hariç tutma listesinin o oturumda çalışmadığını söylüyor (liste `source_app`'e dayanıyor, data-control protokolü istemci kimliği sunmuyor).
+- `Cargo.toml`, `panod.service` ve paket `Homepage` alanı gerçek depo adresini gösteriyor.
+
 ## 1.2.0
 
 ### Zorin OS 18 / Ubuntu 24.04
