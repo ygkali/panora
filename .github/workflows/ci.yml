@@ -15,6 +15,14 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
 
+# The Cargo workspace, the GNOME extension and the packaging scripts all live
+# one level down; only this file has to sit at the repository root for GitHub
+# to see it at all. Steps that are `uses:` ignore this and carry their own
+# path input (see the audit and deny jobs).
+defaults:
+  run:
+    working-directory: panora
+
 jobs:
   fmt-clippy:
     name: Format & Clippy
@@ -77,6 +85,7 @@ jobs:
       - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          working-directory: panora
 
   deny:
     name: cargo-deny (licenses, bans & advisories)
@@ -84,6 +93,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: ./panora/Cargo.toml
 
   package:
     name: Release Build & Debian Package (x86_64)
@@ -107,4 +118,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: panora-deb
-          path: dist/panora_*.deb
+          path: panora/dist/panora_*.deb
