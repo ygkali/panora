@@ -1772,11 +1772,7 @@ mod tests {
         config.privacy.sensitive_policy = "drop".into();
         daemon.apply_config(config).unwrap();
         let before = daemon.query(&QueryFilter::recent(10)).unwrap().len();
-        offer_text(
-            &backend,
-            "xoxb-000000000000-not-a-real-token-at-all-000",
-        )
-        .await;
+        offer_text(&backend, "xoxb-000000000000-not-a-real-token-at-all-000").await;
         daemon.handle_event(text_event()).await;
         assert_eq!(
             daemon.query(&QueryFilter::recent(10)).unwrap().len(),

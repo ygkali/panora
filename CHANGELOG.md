@@ -65,6 +65,12 @@ real-machine verification in `docs/RELEASING.md` is done.
   are still recallable, and are removed after `sensitive_ttl_minutes`
   (10; pinned entries stay). `panora-cli list` marks them with `!` and
   `--format` gets `{sensitive}`. The database moves to schema 4.
+- A welcome on first run: three pages on the shortcut, the privacy model
+  and what this session can do (from the daemon's capabilities). A
+  `first-run` file next to `config.toml` records that it was seen.
+- Settings: a **System** group with a switch for starting panod with the
+  session (`systemctl --user enable/disable panod.service`) and the space
+  the history takes on disk.
 - Recording pauses while the session is locked (`org.gnome.ScreenSaver` /
   `org.freedesktop.ScreenSaver` `ActiveChanged`); `panora-cli status` shows
   `locked`.

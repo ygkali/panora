@@ -14,6 +14,7 @@ connection, and never reads what a password manager copied.
 <p align="center">
   <img src="docs/screenshots/popup-light.png" width="300" alt="Panora popup, light style">
   <img src="docs/screenshots/popup-dark.png" width="300" alt="Panora popup, dark style">
+  <img src="docs/screenshots/welcome-light.png" width="300" alt="First-run welcome">
 </p>
 
 > Not to be confused with [Pano](https://github.com/oae/gnome-shell-pano), a

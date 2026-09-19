@@ -13,6 +13,7 @@ use libadwaita::prelude::*;
 use panora_core::config::config_path;
 use panora_core::i18n::Strings;
 use panora_core::ipc::{CapabilityData, Request, ResponseData};
+use std::cell::Cell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -37,6 +38,38 @@ pub fn show_if_first_run(ui: &Rc<Ui>) {
     });
 }
 
+/// The pager: a stack of pages, one dot per page, one button that moves
+/// on and finally closes.
+struct Pager {
+    stack: gtk::Stack,
+    dots: Vec<gtk::Label>,
+    next: gtk::Button,
+    current: Cell<usize>,
+    next_label: &'static str,
+    done_label: &'static str,
+}
+
+impl Pager {
+    fn go_to(&self, index: usize) {
+        self.current.set(index);
+        self.stack.set_visible_child_name(&index.to_string());
+        for (i, dot) in self.dots.iter().enumerate() {
+            if i == index {
+                dot.remove_css_class("dim-label");
+                dot.add_css_class("accent");
+            } else {
+                dot.add_css_class("dim-label");
+                dot.remove_css_class("accent");
+            }
+        }
+        self.next.set_label(if index + 1 >= self.dots.len() {
+            self.done_label
+        } else {
+            self.next_label
+        });
+    }
+}
+
 fn present(ui: &Rc<Ui>, capabilities: Option<&CapabilityData>) {
     let s = ui.s;
     let dialog = adw::Dialog::builder()
@@ -45,27 +78,41 @@ fn present(ui: &Rc<Ui>, capabilities: Option<&CapabilityData>) {
         .content_height(520)
         .build();
 
-    let carousel = adw::Carousel::new();
-    carousel.set_vexpand(true);
-    carousel.set_hexpand(true);
-    carousel.append(&page(
-        "input-keyboard-symbolic",
-        s.welcome_shortcut_title,
-        s.welcome_shortcut_body,
-    ));
-    carousel.append(&page(
-        "security-high-symbolic",
-        s.welcome_privacy_title,
-        s.welcome_privacy_body,
-    ));
-    carousel.append(&page(
-        "computer-symbolic",
-        s.welcome_session_title,
-        &session_notes(s, capabilities),
-    ));
+    let pages = [
+        (
+            "input-keyboard-symbolic",
+            s.welcome_shortcut_title,
+            s.welcome_shortcut_body.to_string(),
+        ),
+        (
+            "security-high-symbolic",
+            s.welcome_privacy_title,
+            s.welcome_privacy_body.to_string(),
+        ),
+        (
+            "computer-symbolic",
+            s.welcome_session_title,
+            session_notes(s, capabilities),
+        ),
+    ];
 
-    let dots = adw::CarouselIndicatorDots::new();
-    dots.set_carousel(Some(&carousel));
+    // A stack, not a carousel: every page gets the dialog's full width,
+    // whatever the popup's width happens to be.
+    let stack = gtk::Stack::new();
+    stack.set_transition_type(gtk::StackTransitionType::SlideLeftRight);
+    stack.set_vexpand(true);
+    stack.set_hhomogeneous(true);
+    stack.set_vhomogeneous(true);
+    let dots_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    dots_row.set_halign(gtk::Align::Center);
+    let mut dots = Vec::new();
+    for (index, (icon, title, body)) in pages.iter().enumerate() {
+        stack.add_named(&page(icon, title, body), Some(&index.to_string()));
+        let dot = gtk::Label::new(Some("●"));
+        dot.add_css_class("dim-label");
+        dots_row.append(&dot);
+        dots.push(dot);
+    }
 
     let next = gtk::Button::with_label(s.welcome_next);
     next.add_css_class("pill");
@@ -73,33 +120,32 @@ fn present(ui: &Rc<Ui>, capabilities: Option<&CapabilityData>) {
     next.set_halign(gtk::Align::Center);
     next.set_margin_top(6);
     next.set_margin_bottom(18);
+
+    let pager = Rc::new(Pager {
+        stack: stack.clone(),
+        dots,
+        next: next.clone(),
+        current: Cell::new(0),
+        next_label: s.welcome_next,
+        done_label: s.welcome_done,
+    });
+    pager.go_to(0);
     {
-        let carousel = carousel.clone();
+        let pager = pager.clone();
         let dialog = dialog.clone();
         next.connect_clicked(move |_| {
-            let position = carousel.position().round() as u32;
-            if position + 1 >= carousel.n_pages() {
+            let index = pager.current.get();
+            if index + 1 >= pager.dots.len() {
                 dialog.close();
             } else {
-                carousel.scroll_to(&carousel.nth_page(position + 1), true);
+                pager.go_to(index + 1);
             }
-        });
-    }
-    {
-        let next = next.clone();
-        let (next_label, done_label) = (s.welcome_next, s.welcome_done);
-        carousel.connect_page_changed(move |carousel, index| {
-            next.set_label(if index + 1 >= carousel.n_pages() {
-                done_label
-            } else {
-                next_label
-            });
         });
     }
 
     let body = gtk::Box::new(gtk::Orientation::Vertical, 6);
-    body.append(&carousel);
-    body.append(&dots);
+    body.append(&stack);
+    body.append(&dots_row);
     body.append(&next);
 
     let toolbar = adw::ToolbarView::new();
@@ -111,14 +157,34 @@ fn present(ui: &Rc<Ui>, capabilities: Option<&CapabilityData>) {
     dialog.present(Some(&ui.window));
 }
 
-fn page(icon: &str, title: &str, body: &str) -> adw::StatusPage {
-    adw::StatusPage::builder()
-        .icon_name(icon)
-        .title(title)
-        // The description is Pango markup; the texts are this crate's own,
-        // but an ampersand in a translation must not break the page.
-        .description(glib::markup_escape_text(body).as_str())
-        .build()
+/// One page: a large symbolic icon, a title and a paragraph, centred.
+fn page(icon: &str, title: &str, body: &str) -> gtk::Box {
+    let column = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    column.set_valign(gtk::Align::Center);
+    column.set_margin_top(24);
+    column.set_margin_bottom(12);
+    column.set_margin_start(28);
+    column.set_margin_end(28);
+
+    let image = gtk::Image::from_icon_name(icon);
+    image.set_pixel_size(72);
+    image.add_css_class("dim-label");
+    image.set_margin_bottom(8);
+    column.append(&image);
+
+    let heading = gtk::Label::new(Some(title));
+    heading.add_css_class("title-1");
+    heading.set_wrap(true);
+    heading.set_justify(gtk::Justification::Center);
+    column.append(&heading);
+
+    let text = gtk::Label::new(Some(body));
+    text.add_css_class("body");
+    text.set_wrap(true);
+    text.set_justify(gtk::Justification::Center);
+    text.set_max_width_chars(40);
+    column.append(&text);
+    column
 }
 
 /// What this session cannot do, from the daemon's capabilities; one line

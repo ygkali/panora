@@ -11,6 +11,7 @@ lisanslıdır.
 <p align="center">
   <img src="docs/screenshots/popup-light-tr.png" width="300" alt="Panora popup, açık tema">
   <img src="docs/screenshots/popup-dark.png" width="300" alt="Panora popup, koyu tema">
+  <img src="docs/screenshots/welcome-light.png" width="300" alt="İlk açılış karşılaması">
 </p>
 
 > GNOME Shell eklentisi olan [Pano](https://github.com/oae/gnome-shell-pano)

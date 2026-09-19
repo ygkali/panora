@@ -4,17 +4,18 @@
 //! Preferences dialog. Writes `config.toml` and asks the daemon to reload it
 //! so history limits and application exclusions apply immediately.
 
-use crate::util::{apply_theme, call, kind_label};
+use crate::util::{apply_theme, call, format_size, kind_label, spawn};
 use crate::window::{toast, Ui};
 use gtk4 as gtk;
 use libadwaita as adw;
 use libadwaita::prelude::*;
 use panora_core::config::{
-    compile_ignore_pattern, Config, MAX_IGNORE_PATTERNS, SENSITIVE_POLICIES,
+    compile_ignore_pattern, data_dir, Config, MAX_IGNORE_PATTERNS, SENSITIVE_POLICIES,
 };
+use panora_core::i18n::fill;
 use panora_core::ipc::{Request, ResponseData};
 use panora_core::model::ContentKind;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 const LANGUAGES: [&str; 3] = ["system", "tr", "en"];
@@ -295,6 +296,48 @@ pub fn show(ui: &Rc<Ui>) {
     interface.add(&hint);
     page.add(&interface);
 
+    // --- system ------------------------------------------------------
+    let system = adw::PreferencesGroup::builder()
+        .title(s.settings_system)
+        .build();
+    let autostart = adw::SwitchRow::builder()
+        .title(s.settings_autostart)
+        .subtitle(s.settings_autostart_sub)
+        .sensitive(false)
+        .build();
+    system.add(&autostart);
+    let storage = adw::ActionRow::builder()
+        .title(s.settings_storage)
+        .subtitle(s.settings_storage_sub)
+        .build();
+    let storage_value = gtk::Label::new(Some("…"));
+    storage_value.add_css_class("dim-label");
+    storage.add_suffix(&storage_value);
+    system.add(&storage);
+    page.add(&system);
+
+    // Both answers come from outside the process; neither may stall the
+    // dialog, so they arrive when they arrive.
+    {
+        let autostart = autostart.clone();
+        let ui = ui.clone();
+        spawn(unit_enabled, move |enabled| {
+            let Some(enabled) = enabled else {
+                return;
+            };
+            autostart.set_active(enabled);
+            autostart.set_sensitive(true);
+            connect_autostart(&ui, &autostart);
+        });
+    }
+    {
+        let storage_value = storage_value.clone();
+        spawn(
+            || dir_size(&data_dir()),
+            move |bytes| storage_value.set_text(&format_size(bytes)),
+        );
+    }
+
     dialog.add(&page);
 
     // Save on close: every row above is live state, so there is no separate
@@ -353,6 +396,90 @@ fn same_config(a: &Config, b: &Config) -> bool {
 
 fn index_of(options: &[&str], value: &str) -> u32 {
     options.iter().position(|o| *o == value).unwrap_or(0) as u32
+}
+
+/// Flipping the switch enables or disables the unit; a failure is shown
+/// and the switch goes back to what the system has.
+fn connect_autostart(ui: &Rc<Ui>, row: &adw::SwitchRow) {
+    let reverting = Rc::new(Cell::new(false));
+    let ui = ui.clone();
+    row.connect_active_notify(move |row| {
+        if reverting.get() {
+            return;
+        }
+        let wanted = row.is_active();
+        row.set_sensitive(false);
+        let row = row.clone();
+        let ui = ui.clone();
+        let reverting = reverting.clone();
+        spawn(
+            move || set_unit_enabled(wanted),
+            move |result| {
+                row.set_sensitive(true);
+                if let Err(e) = result {
+                    toast(&ui, &fill(ui.s.settings_autostart_failed, "e", &e));
+                    reverting.set(true);
+                    row.set_active(!wanted);
+                    reverting.set(false);
+                }
+            },
+        );
+    });
+}
+
+/// `systemctl --user is-enabled panod.service`; `None` when systemd has no
+/// answer (no user bus, no unit), in which case the switch stays disabled.
+fn unit_enabled() -> Option<bool> {
+    let output = std::process::Command::new("systemctl")
+        .args(["--user", "is-enabled", "panod.service"])
+        .output()
+        .ok()?;
+    let state = String::from_utf8_lossy(&output.stdout);
+    let state = state.trim();
+    if state.is_empty() {
+        return None;
+    }
+    Some(matches!(
+        state,
+        "enabled" | "enabled-runtime" | "static" | "alias" | "linked"
+    ))
+}
+
+/// Enable or disable the unit for the next login; the running daemon is
+/// left alone either way.
+fn set_unit_enabled(on: bool) -> Result<(), String> {
+    let verb = if on { "enable" } else { "disable" };
+    let output = std::process::Command::new("systemctl")
+        .args(["--user", verb, "panod.service"])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
+/// Bytes of the regular files under `dir`, symlinks not followed.
+fn dir_size(dir: &std::path::Path) -> i64 {
+    let mut total = 0i64;
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(meta) = entry.metadata() else {
+                continue;
+            };
+            if meta.is_dir() {
+                pending.push(entry.path());
+            } else if meta.is_file() {
+                total = total.saturating_add(i64::try_from(meta.len()).unwrap_or(i64::MAX));
+            }
+        }
+    }
+    total
 }
 
 /// The `capture_kinds` value the switches describe: empty (everything) when

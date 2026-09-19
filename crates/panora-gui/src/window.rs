@@ -4,7 +4,7 @@
 //! The history popup: search, filter chips, card grid, keyboard handling.
 
 use crate::util::{call, call_async, format_size, kind_icon, kind_label, relative_time, spawn};
-use crate::{details, settings, App};
+use crate::{details, settings, welcome, App};
 use gdk_pixbuf::PixbufLoader;
 use gtk::gdk;
 use gtk4 as gtk;
@@ -401,6 +401,7 @@ pub fn build(app: &adw::Application, state: &Rc<App>) {
 
     window.present();
     search.grab_focus();
+    welcome::show_if_first_run(&ui);
 }
 
 /// Build the content-kind chip row as a single-choice group.

@@ -15,6 +15,7 @@ mod details;
 mod fixture;
 mod settings;
 mod util;
+mod welcome;
 mod window;
 
 use gtk4 as gtk;
