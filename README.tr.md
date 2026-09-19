@@ -150,6 +150,8 @@ min_text_length = 1           # daha kısa metin kaydedilmez (karakter)
 ignore_whitespace_only = true
 ignore_patterns = []          # regex; eşleşen metin kaydedilmez, örn. "^\d{16}$"
 capture_kinds = []            # [] = hepsi; ya da text, richtext, link, image, files, color listesi
+sensitive_policy = "mask"     # mask | drop | store: anahtar, jeton, kart ya da IBAN'a benzeyen metin
+sensitive_ttl_minutes = 10    # işaretli kayıtlar bu kadar dakika sonra silinir (0 = tutulur)
 
 [ui]
 language = "system"      # system | tr | en

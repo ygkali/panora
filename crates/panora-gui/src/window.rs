@@ -1025,7 +1025,15 @@ fn build_card(ui: &Rc<Ui>, entry: &Entry, index: usize) -> gtk::FlowBoxChild {
     // The kind is an icon here, not a shouted badge: the preview already
     // shows what the entry is, and the badge only repeated it in 9px caps.
     // Screen readers get the kind from the row's accessible label instead.
-    let icon = gtk::Image::from_icon_name(kind_icon(entry.kind));
+    // A flagged entry shows a lock in place of its kind: what it is matters
+    // less than that it will not stay.
+    let icon = if entry.sensitive {
+        let lock = gtk::Image::from_icon_name("channel-secure-symbolic");
+        lock.set_tooltip_text(Some(s.sensitive_label));
+        lock
+    } else {
+        gtk::Image::from_icon_name(kind_icon(entry.kind))
+    };
     icon.add_css_class("kind-icon");
     icon.set_pixel_size(14);
     bottom.append(&icon);

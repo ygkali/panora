@@ -147,7 +147,7 @@ enum Command {
     ///
     /// Example: panora-cli pick | fuzzel --dmenu | cut -f1 | xargs panora-cli copy --paste
     Pick {
-        /// Line template: {id} {kind} {preview} {app} {age} {size} {pinned}; \t and \n are escapes
+        /// Line template: {id} {kind} {preview} {app} {age} {size} {pinned} {sensitive}; \t and \n are escapes
         #[arg(
             long,
             default_value = "{id}\\t{kind}\\t{preview}",
@@ -436,6 +436,7 @@ fn format_entry(template: &str, entry: &Entry, now: i64) -> String {
         .replace("{age}", &age)
         .replace("{size}", &entry.size_bytes.to_string())
         .replace("{pinned}", if entry.pinned { "*" } else { "" })
+        .replace("{sensitive}", if entry.sensitive { "!" } else { "" })
 }
 
 fn query_request(search: Option<String>, filter: FilterArgs) -> QueryRequest {
@@ -487,7 +488,13 @@ fn print_response(
                     println!("{}", format_entry(template, &entry, now));
                     continue;
                 }
-                let pin = if entry.pinned { "*" } else { " " };
+                let pin = if entry.pinned {
+                    "*"
+                } else if entry.sensitive {
+                    "!"
+                } else {
+                    " "
+                };
                 let preview = entry.preview.replace('\n', " ⏎ ");
                 println!(
                     "{pin} {:>5} [{}] {}",
@@ -691,6 +698,7 @@ mod tests {
             created_at: 0,
             last_seen_at: 1_000,
             pinned: true,
+            sensitive: false,
             selection: panora_core::model::Selection::Clipboard,
             device_id: String::new(),
             lamport: 1,

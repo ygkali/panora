@@ -66,6 +66,9 @@ pub enum Verdict {
     /// The content itself fails a user filter (kind, length, whitespace or
     /// an ignore pattern). Only ever returned by `evaluate_content`.
     RejectFilter,
+    /// The text looks like a secret and `sensitive_policy` is `drop`. Only
+    /// ever returned by `evaluate_content`.
+    RejectSensitive,
 }
 
 impl Verdict {
@@ -88,6 +91,8 @@ pub struct ContentFilters {
     pub patterns: Vec<regex::Regex>,
     /// Kinds to record; `None` means every kind.
     pub kinds: Option<Vec<ContentKind>>,
+    /// `sensitive_policy = "drop"`: text `crate::sensitive` flags is refused.
+    pub drop_sensitive: bool,
 }
 
 impl ContentFilters {
@@ -111,6 +116,7 @@ impl ContentFilters {
             )
         };
         Ok(Self {
+            drop_sensitive: config.sensitive_policy == "drop",
             min_text_length: config.min_text_length,
             ignore_whitespace_only: config.ignore_whitespace_only,
             patterns,
@@ -181,6 +187,9 @@ impl PrivacyEngine {
         }
         if self.filters.patterns.iter().any(|p| p.is_match(trimmed)) {
             return Verdict::RejectFilter;
+        }
+        if self.filters.drop_sensitive && crate::sensitive::detect(trimmed).is_some() {
+            return Verdict::RejectSensitive;
         }
         Verdict::Allow
     }
@@ -460,5 +469,29 @@ mod tests {
         };
         let eng = PrivacyEngine::new(&[]).with_filters(ContentFilters::from_config(&lax).unwrap());
         assert_eq!(eng.evaluate_content(&text_data("   ")), Verdict::Allow);
+    }
+
+    #[test]
+    fn drop_policy_refuses_secrets_at_the_filter_gate() {
+        let eng = PrivacyEngine::new(&[]);
+        assert_eq!(
+            eng.evaluate_content(&text_data("AKIAIOSFODNN7EXAMPLE")),
+            Verdict::Allow,
+            "mask (the default) records the entry and masks it later"
+        );
+        let config = PrivacyConfig {
+            sensitive_policy: "drop".into(),
+            ..PrivacyConfig::default()
+        };
+        let eng =
+            PrivacyEngine::new(&[]).with_filters(ContentFilters::from_config(&config).unwrap());
+        assert_eq!(
+            eng.evaluate_content(&text_data("AKIAIOSFODNN7EXAMPLE")),
+            Verdict::RejectSensitive
+        );
+        assert_eq!(
+            eng.evaluate_content(&text_data("just a note")),
+            Verdict::Allow
+        );
     }
 }

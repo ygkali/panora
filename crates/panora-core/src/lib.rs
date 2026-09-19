@@ -31,6 +31,8 @@ pub mod ipc;
 pub mod model;
 /// Privacy engine: secret flags, exclusion lists, private mode.
 pub mod privacy;
+/// Heuristics for secrets, keys and card numbers (`privacy.sensitive_policy`).
+pub mod sensitive;
 /// Encrypted storage: SQLite + FTS5 index + content-addressed blob store.
 pub mod storage;
 /// Sync extension point (ADR 0002): trait + no-op stub. Real sync ships later.

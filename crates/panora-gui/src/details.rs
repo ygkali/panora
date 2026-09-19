@@ -67,6 +67,15 @@ fn present(ui: &Rc<Ui>, entry: &Entry, payloads: Vec<MimePayload>, image: Option
     body.set_margin_start(16);
     body.set_margin_end(16);
 
+    if entry.sensitive {
+        let note = gtk::Label::new(Some(s.details_sensitive_note));
+        note.add_css_class("caption");
+        note.add_css_class("warning");
+        note.set_wrap(true);
+        note.set_xalign(0.0);
+        body.append(&note);
+    }
+
     match entry.kind {
         ContentKind::Image => {
             let picture = gtk::Picture::new();

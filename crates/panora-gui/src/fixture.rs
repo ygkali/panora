@@ -72,6 +72,7 @@ fn entry(id: i64, kind: ContentKind, preview: &str, mime: &str, size: i64, age: 
         created_at: now - age,
         last_seen_at: now - age,
         pinned: id == 2,
+        sensitive: id == 4,
         selection: Selection::Clipboard,
         device_id: "fixture".into(),
         lamport: id,

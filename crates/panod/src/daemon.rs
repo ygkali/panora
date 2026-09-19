@@ -46,6 +46,8 @@ pub const WANTED_MIMES: &[&str] = &[
 
 /// Maximum preview length stored in the database.
 const PREVIEW_LEN: usize = 500;
+/// What a masked preview starts with (`privacy.sensitive_policy = "mask"`).
+pub const SENSITIVE_MASK: &str = "••••••••";
 
 /// Delay between putting data on the clipboard and synthesizing Ctrl+V, so
 /// the popup has time to close and focus returns to the target window.
@@ -627,6 +629,17 @@ impl Daemon {
         let kind = data.classify();
         let text = data.text().unwrap_or_default();
         let preview = make_preview(&text, &data);
+        // Secrets: `mask` records them behind a masked preview and keeps
+        // them out of the full-text index, `store` records them as they are
+        // but flagged; `drop` was applied by the content filters already.
+        let sensitive = matches!(kind, ContentKind::Text | ContentKind::RichText)
+            .then(|| panora_core::sensitive::detect(&text))
+            .flatten();
+        let masked = sensitive.is_some() && self.config().privacy.sensitive_policy == "mask";
+        let preview = match sensitive {
+            Some(found) if masked => format!("{SENSITIVE_MASK} {}", found.label()),
+            _ => preview,
+        };
         let primary_mime = data
             .payloads
             .first()
@@ -657,9 +670,13 @@ impl Daemon {
             lamport,
         )?;
 
+        if sensitive.is_some() {
+            self.db.mark_sensitive(id)?;
+        }
+
         // Search beyond the 500-character preview: the text itself goes
         // into the FTS table (same 0600 file as the previews) when enabled.
-        if self.config().history.index_full_text {
+        if self.config().history.index_full_text && !masked {
             if let Some(content) = index_text(&text, kind) {
                 self.db.index_content(id, &content)?;
             }
@@ -702,6 +719,10 @@ impl Daemon {
         if config.history.max_age_days > 0 {
             let cutoff = now - (i64::from(config.history.max_age_days) * 86_400);
             evicted.extend(self.db.enforce_age(cutoff)?);
+        }
+        if config.privacy.sensitive_ttl_minutes > 0 {
+            let cutoff = now - i64::from(config.privacy.sensitive_ttl_minutes) * 60;
+            evicted.extend(self.db.expire_sensitive(cutoff)?);
         }
         // There is no sync peer to replay tombstones to yet; user deletions
         // live just long enough for an undo, evictions go right away.
@@ -1707,6 +1728,67 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[tokio::test]
+    async fn secrets_are_masked_flagged_and_still_recallable() {
+        let dir = tempfile::tempdir().unwrap();
+        let (daemon, backend) = test_daemon(&dir);
+        offer_text(&backend, "AKIAIOSFODNN7EXAMPLE").await;
+        daemon.handle_event(text_event()).await;
+        let entry = daemon.query(&QueryFilter::recent(1)).unwrap().remove(0);
+        assert!(entry.sensitive);
+        assert!(
+            entry.preview.starts_with(SENSITIVE_MASK),
+            "{}",
+            entry.preview
+        );
+        assert!(entry.preview.contains("API token"));
+        assert!(
+            daemon
+                .query(&QueryFilter {
+                    search: Some("EXAMPLE".into()),
+                    ..QueryFilter::recent(10)
+                })
+                .unwrap()
+                .is_empty(),
+            "the secret itself is not searchable"
+        );
+        let payloads = daemon.load_payloads(entry.id).unwrap();
+        assert_eq!(payloads[0].data, b"AKIAIOSFODNN7EXAMPLE");
+
+        // `store` keeps the text visible but flags it.
+        let mut config = Config::default();
+        config.privacy.sensitive_policy = "store".into();
+        daemon.apply_config(config).unwrap();
+        offer_text(&backend, "ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8").await;
+        daemon.handle_event(text_event()).await;
+        let entry = daemon.query(&QueryFilter::recent(1)).unwrap().remove(0);
+        assert!(entry.sensitive);
+        assert!(entry.preview.starts_with("ghp_"));
+
+        // `drop` records nothing.
+        let mut config = Config::default();
+        config.privacy.sensitive_policy = "drop".into();
+        daemon.apply_config(config).unwrap();
+        let before = daemon.query(&QueryFilter::recent(10)).unwrap().len();
+        offer_text(
+            &backend,
+            "xoxb-000000000000-not-a-real-token-at-all-000",
+        )
+        .await;
+        daemon.handle_event(text_event()).await;
+        assert_eq!(
+            daemon.query(&QueryFilter::recent(10)).unwrap().len(),
+            before
+        );
+
+        // Ordinary text is untouched by any of this.
+        offer_text(&backend, "a shopping list").await;
+        daemon.handle_event(text_event()).await;
+        let entry = daemon.query(&QueryFilter::recent(1)).unwrap().remove(0);
+        assert!(!entry.sensitive);
+        assert_eq!(entry.preview, "a shopping list");
     }
 
     #[tokio::test]

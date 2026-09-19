@@ -72,6 +72,15 @@ pub struct PrivacyConfig {
     /// Content kinds to record (`text`, `richtext`, `link`, `image`,
     /// `files`, `color`, `binary`). Empty means all of them.
     pub capture_kinds: Vec<String>,
+    /// What happens to text that looks like a secret, a key or a card or
+    /// account number: `mask` records it with a masked preview and no
+    /// full-text index, `drop` never records it, `store` records it like
+    /// anything else. Flagged entries expire after `sensitive_ttl_minutes`
+    /// under `mask` and `store` alike.
+    pub sensitive_policy: String,
+    /// Minutes after which a flagged entry is removed; 0 leaves it to the
+    /// normal retention rules. Pinned entries stay either way.
+    pub sensitive_ttl_minutes: u32,
 }
 
 impl Default for PrivacyConfig {
@@ -88,9 +97,14 @@ impl Default for PrivacyConfig {
             ignore_whitespace_only: true,
             ignore_patterns: Vec::new(),
             capture_kinds: Vec::new(),
+            sensitive_policy: "mask".into(),
+            sensitive_ttl_minutes: 10,
         }
     }
 }
+
+/// Values `privacy.sensitive_policy` accepts.
+pub const SENSITIVE_POLICIES: &[&str] = &["mask", "drop", "store"];
 
 /// Upper bounds for the user-defined filters.
 pub const MAX_IGNORE_PATTERNS: usize = 32;
@@ -216,6 +230,17 @@ impl Config {
                 "capture_kinds: unknown kind '{unknown}' (expected one of {})",
                 CONTENT_KIND_NAMES.join(", ")
             )));
+        }
+        if !SENSITIVE_POLICIES.contains(&self.privacy.sensitive_policy.as_str()) {
+            return Err(Error::Config(format!(
+                "sensitive_policy must be one of {}",
+                SENSITIVE_POLICIES.join(", ")
+            )));
+        }
+        if self.privacy.sensitive_ttl_minutes > 525_600 {
+            return Err(Error::Config(
+                "sensitive_ttl_minutes must be at most 525600 (a year)".into(),
+            ));
         }
         if self.privacy.excluded_apps.len() > 256 {
             return Err(Error::Config("too many excluded applications".into()));

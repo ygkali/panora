@@ -22,7 +22,7 @@ use rusqlite::{params, Connection};
 use std::path::Path;
 
 /// Schema version written to `meta`. Bump it together with `MIGRATIONS`.
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 4;
 
 /// One schema step: SQL run inside a transaction, or Rust for what SQL alone
 /// cannot do (rebuilding the FTS table from the encrypted previews).
@@ -47,6 +47,12 @@ const MIGRATIONS: &[(i64, Migration)] = &[
     // 500-character preview) and a tokenizer that folds diacritics, which
     // means recreating the FTS table and re-adding every live preview.
     (3, Migration::Code(rebuild_search_index)),
+    // 1.3.0: entries that look like secrets are flagged so they can be
+    // masked and expired (`crate::sensitive`).
+    (
+        4,
+        Migration::Sql("ALTER TABLE entries ADD COLUMN sensitive INTEGER NOT NULL DEFAULT 0"),
+    ),
 ];
 
 /// FTS5 table definition shared by `init` and the version 3 migration.
@@ -371,6 +377,8 @@ impl Database {
                 created_at    INTEGER NOT NULL,
                 last_seen_at  INTEGER NOT NULL,
                 pinned        INTEGER NOT NULL DEFAULT 0,
+                -- looks like a secret (crate::sensitive): masked, expiring
+                sensitive     INTEGER NOT NULL DEFAULT 0,
                 -- sync-ready columns (ADR 0002) --
                 device_id     TEXT NOT NULL DEFAULT '',
                 lamport       INTEGER NOT NULL DEFAULT 0,
@@ -456,7 +464,7 @@ impl Database {
                 "UPDATE entries SET preview = ?1, kind = ?2, primary_mime = ?3,
                         size_bytes = ?4, source_app = ?5, created_at = ?6,
                         last_seen_at = ?6, pinned = 0, device_id = ?7,
-                        lamport = ?8, deleted = 0
+                        lamport = ?8, deleted = 0, sensitive = 0
                  WHERE id = ?9",
                 params![
                     sealed_preview,
@@ -518,6 +526,31 @@ impl Database {
         Ok(())
     }
 
+    /// Flag an entry as sensitive (see `crate::sensitive`).
+    pub fn mark_sensitive(&self, id: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE entries SET sensitive = 1 WHERE id = ?1",
+            params![id],
+        )?;
+        Ok(())
+    }
+
+    /// Evict unpinned sensitive entries last seen before `before`; no undo
+    /// window, like the other retention rules. Returns the evicted ids.
+    pub fn expire_sensitive(&self, before: i64) -> Result<Vec<i64>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id FROM entries
+             WHERE deleted = 0 AND pinned = 0 AND sensitive = 1 AND last_seen_at < ?1",
+        )?;
+        let ids: Vec<i64> = stmt
+            .query_map(params![before], |row| row.get(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        for &id in &ids {
+            self.tombstone(id, 0)?;
+        }
+        Ok(ids)
+    }
+
     /// Drop one blob reference of an entry (the blob itself is the caller's
     /// to remove once nothing else references it).
     pub fn detach_blob(&self, entry_id: i64, mime: &str) -> Result<()> {
@@ -545,7 +578,8 @@ impl Database {
         let mut sql = String::from(
             "SELECT e.id, e.content_hash, e.preview, e.kind, e.primary_mime,
                     e.size_bytes, e.source_app, e.selection, e.created_at,
-                    e.last_seen_at, e.pinned, e.device_id, e.lamport, e.deleted
+                    e.last_seen_at, e.pinned, e.device_id, e.lamport, e.deleted,
+                    e.sensitive
              FROM entries e",
         );
         let mut conditions = vec!["e.deleted = 0".to_string()];
@@ -585,7 +619,7 @@ impl Database {
             .query_row(
                 "SELECT id, content_hash, preview, kind, primary_mime, size_bytes,
                         source_app, selection, created_at, last_seen_at, pinned,
-                        device_id, lamport, deleted
+                        device_id, lamport, deleted, sensitive
                  FROM entries WHERE id = ?1",
                 params![id],
                 |row| self.row_to_entry(row),
@@ -636,6 +670,7 @@ impl Database {
             created_at: row.get(8)?,
             last_seen_at: row.get(9)?,
             pinned: row.get::<_, i64>(10)? != 0,
+            sensitive: row.get::<_, i64>(14)? != 0,
             device_id: row.get(11)?,
             lamport: row.get(12)?,
             deleted: row.get::<_, i64>(13)? != 0,
@@ -647,7 +682,7 @@ impl Database {
         let mut stmt = self.conn.prepare(
             "SELECT id, content_hash, preview, kind, primary_mime, size_bytes,
                     source_app, selection, created_at, last_seen_at, pinned,
-                    device_id, lamport, deleted
+                    device_id, lamport, deleted, sensitive
              FROM entries WHERE deleted = 0 AND selection = ?1
              ORDER BY last_seen_at DESC LIMIT 1",
         )?;
@@ -1378,7 +1413,10 @@ mod lifecycle_tests {
             let db = open_with(&path, &key).unwrap();
             insert_one(&db, "from the old release");
             db.conn
-                .execute("ALTER TABLE entries DROP COLUMN deleted_at", [])
+                .execute_batch(
+                    "ALTER TABLE entries DROP COLUMN deleted_at;
+                     ALTER TABLE entries DROP COLUMN sensitive;",
+                )
                 .unwrap();
             db.set_schema_version(1).unwrap();
         }
@@ -1483,6 +1521,54 @@ mod lifecycle_tests {
     }
 
     #[test]
+    fn sensitive_entries_expire_unless_pinned() {
+        let db = Database::open_in_memory(Cipher::new(&MasterKey::generate())).unwrap();
+        insert_one(&db, "AKIAIOSFODNN7EXAMPLE");
+        insert_one(&db, "plain text");
+        let entries = db.query(&QueryFilter::recent(10)).unwrap();
+        let (plain, secret) = (entries[0].id, entries[1].id);
+        db.mark_sensitive(secret).unwrap();
+        assert!(db.get(secret).unwrap().sensitive);
+        assert!(!db.get(plain).unwrap().sensitive);
+        assert!(
+            db.expire_sensitive(0).unwrap().is_empty(),
+            "not before their time"
+        );
+        let far_future = i64::MAX / 2;
+        assert_eq!(db.expire_sensitive(far_future).unwrap(), vec![secret]);
+        assert!(db.get(secret).unwrap().deleted);
+        assert!(!db.get(plain).unwrap().deleted);
+        // A pinned secret is the user's decision.
+        insert_one(&db, "ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8");
+        let id = db.query(&QueryFilter::recent(1)).unwrap()[0].id;
+        db.mark_sensitive(id).unwrap();
+        db.set_pinned(id, true).unwrap();
+        assert!(db.expire_sensitive(far_future).unwrap().is_empty());
+    }
+
+    #[test]
+    fn version_3_file_gains_the_sensitive_column() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history.db");
+        let key = MasterKey::generate();
+        {
+            let db = open_with(&path, &key).unwrap();
+            insert_one(&db, "kept across the column add");
+            db.conn
+                .execute_batch("ALTER TABLE entries DROP COLUMN sensitive")
+                .unwrap();
+            db.set_schema_version(3).unwrap();
+        }
+        let db = open_with(&path, &key).unwrap();
+        assert_eq!(db.schema_version().unwrap(), SCHEMA_VERSION);
+        assert!(path.with_extension("db.bak-v3").exists());
+        let entry = db.query(&QueryFilter::recent(1)).unwrap().remove(0);
+        assert!(!entry.sensitive);
+        db.mark_sensitive(entry.id).unwrap();
+        assert!(db.get(entry.id).unwrap().sensitive);
+    }
+
+    #[test]
     fn version_2_index_is_rebuilt_with_the_content_column() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("history.db");
@@ -1504,6 +1590,9 @@ mod lifecycle_tests {
                     "INSERT INTO entries_fts(rowid, preview) VALUES (?1, ?2)",
                     params![id, "kept across the rebuild"],
                 )
+                .unwrap();
+            db.conn
+                .execute_batch("ALTER TABLE entries DROP COLUMN sensitive")
                 .unwrap();
             db.set_schema_version(2).unwrap();
         }

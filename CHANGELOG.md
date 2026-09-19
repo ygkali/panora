@@ -56,6 +56,15 @@ real-machine verification in `docs/RELEASING.md` is done.
   extension and it is not on the bus: the popup shows a banner with an
   **Enable** button that runs `gnome-extensions enable`, and
   `panora-cli status` prints the finding.
+- Secrets are recognised and kept short-lived: private key blocks, JWTs,
+  tokens with vendor prefixes (GitHub, AWS, Slack, Stripe, Google, ...),
+  card numbers (Luhn), IBANs (mod 97) and single high-entropy tokens.
+  `privacy.sensitive_policy` decides: `mask` (default) records the entry
+  behind a masked preview and outside the search index, `drop` never
+  records it, `store` records it as it is. Flagged entries show a lock,
+  are still recallable, and are removed after `sensitive_ttl_minutes`
+  (10; pinned entries stay). `panora-cli list` marks them with `!` and
+  `--format` gets `{sensitive}`. The database moves to schema 4.
 - Recording pauses while the session is locked (`org.gnome.ScreenSaver` /
   `org.freedesktop.ScreenSaver` `ActiveChanged`); `panora-cli status` shows
   `locked`.

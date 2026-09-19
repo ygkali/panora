@@ -151,6 +151,8 @@ min_text_length = 1           # shorter text is not recorded (characters)
 ignore_whitespace_only = true
 ignore_patterns = []          # regexes; matching text is not recorded, e.g. "^\d{16}$"
 capture_kinds = []            # [] = all; or a list of text, richtext, link, image, files, color
+sensitive_policy = "mask"     # mask | drop | store: text that looks like a key, token, card or IBAN
+sensitive_ttl_minutes = 10    # flagged entries are removed after this long (0 = keep)
 
 [ui]
 language = "system"      # system | tr | en

@@ -216,6 +216,11 @@ pub struct Entry {
     pub last_seen_at: i64,
     /// Whether the entry is pinned (survives cleanup, sorts first).
     pub pinned: bool,
+    /// Looks like a secret, key or card number (`crate::sensitive`): the
+    /// preview may be masked and the entry expires after
+    /// `privacy.sensitive_ttl_minutes`.
+    #[serde(default)]
+    pub sensitive: bool,
     /// Which selection it came from.
     pub selection: Selection,
     // --- sync-ready fields (ADR 0002); unused by v1.0 logic ---

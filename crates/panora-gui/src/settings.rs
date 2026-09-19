@@ -9,7 +9,9 @@ use crate::window::{toast, Ui};
 use gtk4 as gtk;
 use libadwaita as adw;
 use libadwaita::prelude::*;
-use panora_core::config::{compile_ignore_pattern, Config, MAX_IGNORE_PATTERNS};
+use panora_core::config::{
+    compile_ignore_pattern, Config, MAX_IGNORE_PATTERNS, SENSITIVE_POLICIES,
+};
 use panora_core::ipc::{Request, ResponseData};
 use panora_core::model::ContentKind;
 use std::cell::RefCell;
@@ -152,6 +154,27 @@ pub fn show(ui: &Rc<Ui>) {
         .build();
     filters.add(&index_full_text);
 
+    let sensitive_policy = adw::ComboRow::builder()
+        .title(s.settings_sensitive_policy)
+        .subtitle(s.settings_sensitive_policy_sub)
+        .build();
+    sensitive_policy.set_model(Some(&gtk::StringList::new(&[
+        s.settings_sensitive_mask,
+        s.settings_sensitive_drop,
+        s.settings_sensitive_store,
+    ])));
+    sensitive_policy.set_selected(index_of(
+        SENSITIVE_POLICIES,
+        &config.privacy.sensitive_policy,
+    ));
+    filters.add(&sensitive_policy);
+
+    let sensitive_ttl = adw::SpinRow::with_range(0.0, 525_600.0, 5.0);
+    sensitive_ttl.set_title(s.settings_sensitive_ttl);
+    sensitive_ttl.set_subtitle(s.settings_sensitive_ttl_sub);
+    sensitive_ttl.set_value(f64::from(config.privacy.sensitive_ttl_minutes));
+    filters.add(&sensitive_ttl);
+
     // One switch per kind; every switch on means "no restriction".
     let kinds_row = adw::ExpanderRow::builder()
         .title(s.settings_capture_kinds)
@@ -289,6 +312,10 @@ pub fn show(ui: &Rc<Ui>) {
         next.privacy.ignore_whitespace_only = ignore_whitespace.is_active();
         next.privacy.ignore_patterns = patterns.borrow().clone();
         next.privacy.capture_kinds = selected_kinds(&kind_switches);
+        next.privacy.sensitive_policy = SENSITIVE_POLICIES
+            [sensitive_policy.selected() as usize % SENSITIVE_POLICIES.len()]
+        .into();
+        next.privacy.sensitive_ttl_minutes = sensitive_ttl.value().round() as u32;
         next.history.index_full_text = index_full_text.is_active();
         next.ui.language = LANGUAGES[language.selected() as usize % LANGUAGES.len()].into();
         next.ui.theme = THEMES[theme.selected() as usize % THEMES.len()].into();
