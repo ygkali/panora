@@ -1,152 +1,329 @@
 // Copyright (C) 2026 Panora contributors
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Low-overhead Panora CLI client.
+//! Command-line client for the Panora clipboard daemon.
+//!
+//! Every command is one request over the daemon's private Unix socket
+//! (`panora_core::ipc`), so encryption, retention and the privacy gates apply
+//! exactly as they do for the popup. The parser is `clap`, which also renders
+//! the man pages and shell completions the Debian package ships.
 
 #![forbid(unsafe_code)]
 
+use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
+use clap_complete::Shell;
 use panora_core::config::Config;
+use panora_core::error::Error;
 use panora_core::i18n::{fill, Language, Strings};
 use panora_core::ipc::{client, QueryRequest, Request, ResponseData};
 use std::io::Write;
+use std::path::PathBuf;
+use std::process::ExitCode;
 
-/// Parsed command line.
+/// Exit statuses, documented in `--help` and the man page. `2` is clap's
+/// usage error and is not listed here.
+mod exit {
+    pub const FAILURE: u8 = 1;
+    pub const NO_DAEMON: u8 = 3;
+    pub const NOT_FOUND: u8 = 4;
+}
+
+#[derive(Parser, Debug)]
+#[command(
+    name = "panora-cli",
+    version,
+    about = "Command-line client for the Panora clipboard daemon",
+    long_about = "Talks to the local panod daemon over its private Unix socket. Every command \
+                  that changes the history goes through the daemon, so encryption, retention \
+                  and the privacy rules apply exactly as they do for the popup.",
+    after_help = "Exit status:\n  0  success\n  1  the daemon reported an error\n  2  usage \
+                  error\n  3  the daemon is not running\n  4  no entry with that id",
+    propagate_version = true
+)]
+struct Cli {
+    /// Print machine-readable JSON instead of text
+    #[arg(long, global = true)]
+    json: bool,
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand, Debug)]
+enum Command {
+    /// List recent entries, newest first (pinned entries come first)
+    List {
+        /// Full-text search phrase; every word is a prefix
+        query: Option<String>,
+        #[command(flatten)]
+        filter: FilterArgs,
+    },
+    /// Full-text search of the history
+    Search {
+        /// Search phrase; every word is a prefix ("mer" finds "merhaba")
+        text: String,
+        #[command(flatten)]
+        filter: FilterArgs,
+    },
+    /// Put an entry back on the clipboard
+    #[command(alias = "recall")]
+    Copy {
+        /// Entry id as shown by `list`
+        id: i64,
+        /// Also send a paste keystroke to the focused window
+        #[arg(long)]
+        paste: bool,
+        /// Offer only this format (e.g. text/plain to drop the HTML of a rich-text entry)
+        #[arg(long, value_name = "TYPE")]
+        mime: Option<String>,
+    },
+    /// Print or export the decrypted payloads of an entry
+    #[command(alias = "show")]
+    Preview {
+        /// Entry id
+        id: i64,
+        /// Write only this format
+        #[arg(long, value_name = "TYPE")]
+        mime: Option<String>,
+        /// Write the payload to this file instead of standard output
+        #[arg(long, value_name = "FILE")]
+        out: Option<PathBuf>,
+    },
+    /// Pin an entry so retention and `clear` keep it
+    Pin {
+        /// Entry id
+        id: i64,
+    },
+    /// Remove the pin from an entry
+    Unpin {
+        /// Entry id
+        id: i64,
+    },
+    /// Delete one entry and its payloads
+    #[command(alias = "rm")]
+    Delete {
+        /// Entry id
+        id: i64,
+    },
+    /// Delete every unpinned entry
+    Clear,
+    /// Pause or resume recording (private mode)
+    Private {
+        /// on to pause recording, off to resume
+        state: OnOff,
+    },
+    /// Show daemon health, backend capabilities and history size
+    Status,
+    /// Show or hide the popup
+    Toggle,
+    /// Re-read config.toml and apply it without restarting the daemon
+    Reload,
+    /// Print a shell completion script to standard output
+    Completions {
+        /// Shell to generate for
+        shell: Shell,
+    },
+    /// Write the man pages into a directory (used by the package build)
+    #[command(hide = true)]
+    Man {
+        /// Output directory
+        dir: PathBuf,
+    },
+}
+
+/// Filters shared by `list` and `search`.
+#[derive(Args, Debug, Default)]
+struct FilterArgs {
+    /// Only entries of this kind
+    #[arg(long, value_enum)]
+    kind: Option<Kind>,
+    /// Only pinned entries
+    #[arg(long)]
+    pinned: bool,
+    /// Page size (at most 500)
+    #[arg(long, default_value_t = 50, value_name = "N")]
+    limit: usize,
+    /// Skip this many entries
+    #[arg(long, default_value_t = 0, value_name = "N")]
+    offset: usize,
+}
+
+/// Content kinds accepted by `--kind`; the names match `ContentKind::as_str`.
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+enum Kind {
+    Text,
+    Richtext,
+    Link,
+    Image,
+    Files,
+    Color,
+    Binary,
+}
+
+impl Kind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Kind::Text => "text",
+            Kind::Richtext => "richtext",
+            Kind::Link => "link",
+            Kind::Image => "image",
+            Kind::Files => "files",
+            Kind::Color => "color",
+            Kind::Binary => "binary",
+        }
+    }
+}
+
+/// `private on|off`, also accepting the usual boolean spellings.
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+enum OnOff {
+    #[value(aliases = ["1", "true", "yes"])]
+    On,
+    #[value(aliases = ["0", "false", "no"])]
+    Off,
+}
+
+/// What a command needs from the daemon and how its reply is shown.
 struct Invocation {
     request: Request,
-    json: bool,
     /// `preview --mime`: write only this payload.
     mime: Option<String>,
     /// `preview --out`: write the payload to a file instead of stdout.
-    out: Option<String>,
+    out: Option<PathBuf>,
 }
 
-fn main() {
+/// A failure with the exit status it maps to.
+struct Failure {
+    code: u8,
+    message: String,
+}
+
+impl From<Error> for Failure {
+    fn from(error: Error) -> Self {
+        let message = error.to_string();
+        let code = match &error {
+            Error::Ipc(m) if m.starts_with("daemon unavailable") => exit::NO_DAEMON,
+            Error::Ipc(m) if m.starts_with("entry not found") => exit::NOT_FOUND,
+            Error::NotFound(_) => exit::NOT_FOUND,
+            _ => exit::FAILURE,
+        };
+        Self { code, message }
+    }
+}
+
+impl From<String> for Failure {
+    fn from(message: String) -> Self {
+        Self {
+            code: exit::FAILURE,
+            message,
+        }
+    }
+}
+
+impl From<&str> for Failure {
+    fn from(message: &str) -> Self {
+        Self::from(message.to_string())
+    }
+}
+
+fn main() -> ExitCode {
+    let cli = Cli::parse();
     let language = Config::load()
         .map(|c| Language::from_config(&c.ui.language))
         .unwrap_or_else(|_| Language::from_environment());
     let s = language.strings();
-    if let Err(error) = run(s) {
-        eprintln!("panora-cli: {error}");
-        std::process::exit(1);
-    }
-}
-
-fn run(s: &Strings) -> Result<(), String> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let Some(invocation) = parse(&args, s)? else {
-        println!("{}", s.cli_help);
-        return Ok(());
-    };
-    let data = client::call(&invocation.request).map_err(|e| e.to_string())?;
-    print_response(s, &invocation, data)
-}
-
-fn parse(args: &[String], s: &Strings) -> Result<Option<Invocation>, String> {
-    let mut json = false;
-    let mut positional: Vec<&str> = Vec::new();
-    let mut kind = None;
-    let mut pinned = false;
-    let mut limit = 50usize;
-    let mut offset = 0usize;
-    let mut paste = false;
-    let mut mime = None;
-    let mut out = None;
-
-    let mut iter = args.iter();
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--help" | "-h" => return Ok(None),
-            "--json" => json = true,
-            "--pinned" => pinned = true,
-            "--paste" => paste = true,
-            "--kind" => kind = Some(next_value(&mut iter, "--kind")?),
-            "--limit" => {
-                limit = next_value(&mut iter, "--limit")?
-                    .parse()
-                    .map_err(|_| "--limit must be a number")?
-            }
-            "--offset" => {
-                offset = next_value(&mut iter, "--offset")?
-                    .parse()
-                    .map_err(|_| "--offset must be a number")?
-            }
-            "--mime" => mime = Some(next_value(&mut iter, "--mime")?),
-            "--out" => out = Some(next_value(&mut iter, "--out")?),
-            other => positional.push(other),
+    match run(cli, s) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(failure) => {
+            eprintln!("panora-cli: {}", failure.message);
+            ExitCode::from(failure.code)
         }
     }
+}
 
-    let request = match positional.first().copied() {
-        None | Some("help") | Some("--help") | Some("-h") => return Ok(None),
-        Some("list") => Request::List(QueryRequest {
-            search: positional.get(1).map(|q| q.to_string()),
-            kind,
-            pinned_only: pinned,
-            limit,
-            offset,
-        }),
-        Some("search") => Request::List(QueryRequest {
-            search: Some(positional.get(1).ok_or("search requires text")?.to_string()),
-            kind,
-            pinned_only: pinned,
-            limit,
-            offset,
-        }),
-        Some("copy") | Some("recall") => Request::Recall {
-            id: parse_id(&positional)?,
-            paste,
-            mime: mime.take(),
-        },
-        Some("pin") => Request::Pin {
-            id: parse_id(&positional)?,
-            pinned: true,
-        },
-        Some("unpin") => Request::Pin {
-            id: parse_id(&positional)?,
-            pinned: false,
-        },
-        Some("delete") | Some("rm") => Request::Delete {
-            id: parse_id(&positional)?,
-        },
-        Some("clear") => Request::Clear,
-        Some("private") => Request::SetPrivate {
-            enabled: match positional.get(1).copied() {
-                Some("on") | Some("1") | Some("true") => true,
-                Some("off") | Some("0") | Some("false") => false,
-                _ => return Err("private requires on or off".into()),
-            },
-        },
-        Some("status") => Request::Status,
-        Some("preview") | Some("show") => Request::Preview {
-            id: parse_id(&positional)?,
-        },
-        Some("toggle") => Request::Toggle,
-        Some("reload") => Request::ReloadConfig,
-        Some(other) => return Err(format!("{}: {other}", s.cli_unknown_command)),
+fn run(cli: Cli, s: &Strings) -> Result<(), Failure> {
+    let json = cli.json;
+    let invocation = match cli.command {
+        Command::Completions { shell } => {
+            let mut command = Cli::command();
+            clap_complete::generate(shell, &mut command, "panora-cli", &mut std::io::stdout());
+            return Ok(());
+        }
+        Command::Man { dir } => {
+            write_man_pages(&dir).map_err(|e| format!("cannot write man pages: {e}"))?;
+            return Ok(());
+        }
+        other => to_invocation(other),
     };
-    Ok(Some(Invocation {
+    let data = client::call(&invocation.request)?;
+    print_response(s, json, &invocation, data)
+}
+
+/// Map a parsed command onto the IPC request it stands for.
+fn to_invocation(command: Command) -> Invocation {
+    let plain = |request| Invocation {
         request,
-        json,
-        mime,
-        out,
-    }))
+        mime: None,
+        out: None,
+    };
+    match command {
+        Command::List { query, filter } => plain(Request::List(query_request(query, filter))),
+        Command::Search { text, filter } => plain(Request::List(query_request(Some(text), filter))),
+        Command::Copy { id, paste, mime } => plain(Request::Recall { id, paste, mime }),
+        Command::Preview { id, mime, out } => Invocation {
+            request: Request::Preview { id },
+            mime,
+            out,
+        },
+        Command::Pin { id } => plain(Request::Pin { id, pinned: true }),
+        Command::Unpin { id } => plain(Request::Pin { id, pinned: false }),
+        Command::Delete { id } => plain(Request::Delete { id }),
+        Command::Clear => plain(Request::Clear),
+        Command::Private { state } => plain(Request::SetPrivate {
+            enabled: state == OnOff::On,
+        }),
+        Command::Status => plain(Request::Status),
+        Command::Toggle => plain(Request::Toggle),
+        Command::Reload => plain(Request::ReloadConfig),
+        Command::Completions { .. } | Command::Man { .. } => {
+            unreachable!("handled before reaching the daemon")
+        }
+    }
 }
 
-fn next_value<'a>(iter: &mut std::slice::Iter<'a, String>, flag: &str) -> Result<String, String> {
-    iter.next()
-        .map(|v| v.to_string())
-        .ok_or_else(|| format!("{flag} requires a value"))
+fn query_request(search: Option<String>, filter: FilterArgs) -> QueryRequest {
+    QueryRequest {
+        search: search.filter(|q| !q.trim().is_empty()),
+        kind: filter.kind.map(|k| k.as_str().to_string()),
+        pinned_only: filter.pinned,
+        limit: filter.limit,
+        offset: filter.offset,
+    }
 }
 
-fn parse_id(args: &[&str]) -> Result<i64, String> {
-    args.get(1)
-        .ok_or("command requires an id")?
-        .parse()
-        .map_err(|_| "id must be an integer".into())
+/// Render `panora-cli.1` plus one page per subcommand into `dir`.
+fn write_man_pages(dir: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    let root = Cli::command();
+    let render = |command: clap::Command, file: &str| -> std::io::Result<()> {
+        let mut buffer = Vec::new();
+        clap_mangen::Man::new(command).render(&mut buffer)?;
+        std::fs::write(dir.join(file), buffer)
+    };
+    render(root.clone(), "panora-cli.1")?;
+    for sub in root.get_subcommands().filter(|c| !c.is_hide_set()) {
+        let name = format!("panora-cli-{}", sub.get_name());
+        render(sub.clone().name(name.clone()), &format!("{name}.1"))?;
+    }
+    Ok(())
 }
 
-fn print_response(s: &Strings, invocation: &Invocation, data: ResponseData) -> Result<(), String> {
-    if invocation.json {
+fn print_response(
+    s: &Strings,
+    json: bool,
+    invocation: &Invocation,
+    data: ResponseData,
+) -> Result<(), Failure> {
+    if json {
         let json = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
         println!("{json}");
         return Ok(());
@@ -168,7 +345,7 @@ fn print_response(s: &Strings, invocation: &Invocation, data: ResponseData) -> R
             let caps = &status.capabilities;
             println!(
                 "backend={} entries={} private={} version={} protocol={} revision={} \
-                 primary={} persist={} paste={} source_app={}",
+                 primary={} persist={} paste={} source_app={} needs_bridge={}",
                 status.backend,
                 status.entries,
                 status.private_mode,
@@ -178,7 +355,8 @@ fn print_response(s: &Strings, invocation: &Invocation, data: ResponseData) -> R
                 caps.primary,
                 caps.persist,
                 caps.synthetic_paste,
-                caps.source_app
+                caps.source_app,
+                caps.needs_bridge
             );
         }
         ResponseData::Count(count) => println!("{}", fill(s.cli_count, "n", &count.to_string())),
@@ -223,14 +401,16 @@ fn print_response(s: &Strings, invocation: &Invocation, data: ResponseData) -> R
     Ok(())
 }
 
-fn write_payload(data: &[u8], out: Option<&str>) -> Result<(), String> {
+fn write_payload(data: &[u8], out: Option<&std::path::Path>) -> Result<(), Failure> {
     match out {
-        Some(path) => std::fs::write(path, data).map_err(|e| format!("cannot write {path}: {e}")),
+        Some(path) => std::fs::write(path, data)
+            .map_err(|e| format!("cannot write {}: {e}", path.display()).into()),
         None => {
             let stdout = std::io::stdout();
             let mut lock = stdout.lock();
             lock.write_all(data).map_err(|e| e.to_string())?;
-            lock.flush().map_err(|e| e.to_string())
+            lock.flush().map_err(|e| e.to_string())?;
+            Ok(())
         }
     }
 }
@@ -239,28 +419,29 @@ fn write_payload(data: &[u8], out: Option<&str>) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    fn args(list: &[&str]) -> Vec<String> {
-        list.iter().map(|s| s.to_string()).collect()
+    fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
+        Cli::try_parse_from(std::iter::once("panora-cli").chain(args.iter().copied()))
+    }
+
+    #[test]
+    fn command_line_definition_is_consistent() {
+        Cli::command().debug_assert();
     }
 
     #[test]
     fn parses_list_with_options() {
-        let s = Language::English.strings();
-        let inv = parse(
-            &args(&[
-                "list", "foo", "--kind", "image", "--pinned", "--limit", "5", "--json",
-            ]),
-            s,
-        )
-        .unwrap()
+        let cli = parse(&[
+            "list", "foo", "--kind", "image", "--pinned", "--limit", "5", "--json",
+        ])
         .unwrap();
-        assert!(inv.json);
-        match inv.request {
+        assert!(cli.json);
+        match to_invocation(cli.command).request {
             Request::List(q) => {
                 assert_eq!(q.search.as_deref(), Some("foo"));
                 assert_eq!(q.kind.as_deref(), Some("image"));
                 assert!(q.pinned_only);
                 assert_eq!(q.limit, 5);
+                assert_eq!(q.offset, 0);
             }
             other => panic!("unexpected {other:?}"),
         }
@@ -268,38 +449,104 @@ mod tests {
 
     #[test]
     fn parses_copy_with_paste_and_preview_options() {
-        let s = Language::Turkish.strings();
-        let inv = parse(&args(&["copy", "7", "--paste"]), s).unwrap().unwrap();
+        let cli = parse(&["copy", "7", "--paste"]).unwrap();
         assert!(matches!(
-            inv.request,
+            to_invocation(cli.command).request,
             Request::Recall {
                 id: 7,
                 paste: true,
                 mime: None
             }
         ));
-        let inv = parse(
-            &args(&["preview", "3", "--mime", "image/png", "--out", "x.png"]),
-            s,
-        )
-        .unwrap()
-        .unwrap();
+        let cli = parse(&["recall", "8", "--mime", "text/plain"]).unwrap();
+        assert!(matches!(
+            to_invocation(cli.command).request,
+            Request::Recall { id: 8, paste: false, mime: Some(m) } if m == "text/plain"
+        ));
+        let cli = parse(&["preview", "3", "--mime", "image/png", "--out", "x.png"]).unwrap();
+        let inv = to_invocation(cli.command);
         assert!(matches!(inv.request, Request::Preview { id: 3 }));
         assert_eq!(inv.mime.as_deref(), Some("image/png"));
-        assert_eq!(inv.out.as_deref(), Some("x.png"));
+        assert_eq!(inv.out.as_deref(), Some(std::path::Path::new("x.png")));
+    }
+
+    #[test]
+    fn private_accepts_boolean_spellings() {
+        for (word, expected) in [("on", true), ("1", true), ("off", false), ("false", false)] {
+            let cli = parse(&["private", word]).unwrap();
+            assert!(matches!(
+                to_invocation(cli.command).request,
+                Request::SetPrivate { enabled } if enabled == expected
+            ));
+        }
+        assert!(parse(&["private", "maybe"]).is_err());
+    }
+
+    #[test]
+    fn simple_commands_map_to_requests() {
+        assert!(matches!(
+            to_invocation(parse(&["status"]).unwrap().command).request,
+            Request::Status
+        ));
+        assert!(matches!(
+            to_invocation(parse(&["toggle"]).unwrap().command).request,
+            Request::Toggle
+        ));
+        assert!(matches!(
+            to_invocation(parse(&["reload"]).unwrap().command).request,
+            Request::ReloadConfig
+        ));
+        assert!(matches!(
+            to_invocation(parse(&["clear"]).unwrap().command).request,
+            Request::Clear
+        ));
+        assert!(matches!(
+            to_invocation(parse(&["rm", "4"]).unwrap().command).request,
+            Request::Delete { id: 4 }
+        ));
+        assert!(matches!(
+            to_invocation(parse(&["unpin", "4"]).unwrap().command).request,
+            Request::Pin {
+                id: 4,
+                pinned: false
+            }
+        ));
     }
 
     #[test]
     fn rejects_bad_input() {
-        let s = Language::English.strings();
-        assert!(parse(&args(&["copy", "x"]), s).is_err());
-        assert!(parse(&args(&["private", "maybe"]), s).is_err());
-        assert!(parse(&args(&["bogus"]), s).is_err());
-        assert!(parse(&args(&["--limit"]), s).is_err());
-        assert!(parse(&args(&[]), s).unwrap().is_none());
-        assert!(matches!(
-            parse(&args(&["reload"]), s).unwrap().unwrap().request,
-            Request::ReloadConfig
-        ));
+        assert!(parse(&["copy", "x"]).is_err());
+        assert!(parse(&["bogus"]).is_err());
+        assert!(parse(&["list", "--limit"]).is_err());
+        assert!(parse(&[]).is_err(), "a subcommand is required");
+        assert!(parse(&["search"]).is_err(), "search needs text");
+    }
+
+    #[test]
+    fn failures_map_to_documented_exit_codes() {
+        let no_daemon = Failure::from(Error::Ipc("daemon unavailable: no socket".into()));
+        assert_eq!(no_daemon.code, exit::NO_DAEMON);
+        let missing = Failure::from(Error::Ipc("entry not found: 9".into()));
+        assert_eq!(missing.code, exit::NOT_FOUND);
+        let other = Failure::from(Error::Ipc("IPC request limit exceeded".into()));
+        assert_eq!(other.code, exit::FAILURE);
+        assert_eq!(Failure::from("plain").code, exit::FAILURE);
+    }
+
+    #[test]
+    fn man_pages_render_for_every_visible_command() {
+        let dir = std::env::temp_dir().join(format!("panora-cli-man-{}", std::process::id()));
+        write_man_pages(&dir).unwrap();
+        let mut pages: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        pages.sort();
+        assert!(pages.contains(&"panora-cli.1".to_string()));
+        assert!(pages.contains(&"panora-cli-list.1".to_string()));
+        assert!(!pages.contains(&"panora-cli-man.1".to_string()), "hidden");
+        let main_page = std::fs::read_to_string(dir.join("panora-cli.1")).unwrap();
+        assert!(main_page.contains("Exit status"));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

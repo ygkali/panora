@@ -65,6 +65,11 @@ oo7 = { version = "0.6", default-features = false, features = ["tokio", "native_
 directories = "5"
 toml = "0.8"
 
+# --- CLI ---
+clap = { version = "4", features = ["derive", "wrap_help", "string"] }
+clap_complete = "4"
+clap_mangen = "0.2"
+
 [profile.release]
 opt-level = 2          # dengeli: boyut/hiz; dusuk RAM hedefi
 lto = "thin"

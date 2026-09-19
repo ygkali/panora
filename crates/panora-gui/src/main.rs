@@ -34,6 +34,15 @@ pub struct App {
 }
 
 fn main() -> glib::ExitCode {
+    // GApplication treats any argument it does not know as a file to open,
+    // so the version flag is answered before GTK sees the command line.
+    if std::env::args()
+        .skip(1)
+        .any(|arg| arg == "--version" || arg == "-V")
+    {
+        println!("panora-gui {}", env!("CARGO_PKG_VERSION"));
+        return glib::ExitCode::SUCCESS;
+    }
     // Cairo avoids a large software/GL surface allocation in minimal X11
     // desktops; advanced users can override it through GSK_RENDERER.
     if std::env::var_os("GSK_RENDERER").is_none() {

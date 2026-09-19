@@ -196,11 +196,9 @@ pub struct Strings {
     pub settings_instant_paste_sub: &'static str,
     pub settings_restart_hint: &'static str,
     pub settings_invalid: &'static str,
-    pub cli_help: &'static str,
     pub cli_ok: &'static str,
     /// `{n}` = affected count.
     pub cli_count: &'static str,
-    pub cli_unknown_command: &'static str,
 }
 
 static TR: Strings = Strings {
@@ -315,10 +313,8 @@ static TR: Strings = Strings {
     settings_instant_paste_sub: "Kayıt seçilince odaktaki pencereye Ctrl+V gönder",
     settings_restart_hint: "Dil değişikliği pencere yeniden açıldığında uygulanır.",
     settings_invalid: "Geçersiz değer",
-    cli_help: "Panora güvenli pano yöneticisi CLI\nKullanım:\n  panora-cli list [arama] [--kind tür] [--pinned] [--limit N] [--offset N]\n  panora-cli search <metin>\n  panora-cli copy <id> [--paste] [--mime tür]\n  panora-cli preview <id> [--mime tür] [--out dosya]\n  panora-cli pin|unpin <id>\n  panora-cli delete <id>\n  panora-cli clear            (sabitlenmemiş kayıtları siler)\n  panora-cli private on|off\n  panora-cli status\n  panora-cli toggle           (popup'ı aç/kapat)\n  panora-cli reload           (config.toml'u yeniden yükle)\n  panora-cli --json ...       (makine okunur çıktı)",
     cli_ok: "tamam",
     cli_count: "{n} kayıt işlendi.",
-    cli_unknown_command: "bilinmeyen komut",
 };
 
 static EN: Strings = Strings {
@@ -433,10 +429,8 @@ static EN: Strings = Strings {
     settings_instant_paste_sub: "Send Ctrl+V to the focused window after picking an item",
     settings_restart_hint: "Language changes apply the next time the window opens.",
     settings_invalid: "Invalid value",
-    cli_help: "Panora secure clipboard manager CLI\nUsage:\n  panora-cli list [query] [--kind kind] [--pinned] [--limit N] [--offset N]\n  panora-cli search <text>\n  panora-cli copy <id> [--paste] [--mime tür]\n  panora-cli preview <id> [--mime type] [--out file]\n  panora-cli pin|unpin <id>\n  panora-cli delete <id>\n  panora-cli clear            (deletes unpinned items)\n  panora-cli private on|off\n  panora-cli status\n  panora-cli toggle           (show/hide the popup)\n  panora-cli reload           (re-read config.toml)\n  panora-cli --json ...       (machine-readable output)",
     cli_ok: "ok",
     cli_count: "{n} items processed.",
-    cli_unknown_command: "unknown command",
 };
 
 /// Replace the first `{key}` placeholder with `value`.
