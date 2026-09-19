@@ -133,7 +133,9 @@ pub trait ClipboardBackend: Send + Sync {
 #[derive(Debug, Default)]
 pub struct MockBackend {
     offered: std::sync::Mutex<Option<ClipboardData>>,
-    sender: std::sync::Mutex<Option<mpsc::Sender<ClipboardEvent>>>,
+    /// One sender per watched selection, so a test can tell whether the
+    /// daemon is currently listening to PRIMARY at all.
+    senders: std::sync::Mutex<std::collections::HashMap<Selection, mpsc::Sender<ClipboardEvent>>>,
 }
 
 impl MockBackend {
@@ -143,11 +145,22 @@ impl MockBackend {
     }
 
     /// Inject a synthetic change event (as if the user copied something).
+    /// Dropped when nobody watches that selection, like a real display
+    /// server that was never asked for the events.
     pub async fn push_event(&self, event: ClipboardEvent) {
-        let tx = self.sender.lock().unwrap().clone();
+        let tx = self.senders.lock().unwrap().get(&event.selection).cloned();
         if let Some(tx) = tx {
             let _ = tx.send(event).await;
         }
+    }
+
+    /// True while a live `watch` receiver exists for `selection`.
+    pub fn watching(&self, selection: Selection) -> bool {
+        self.senders
+            .lock()
+            .unwrap()
+            .get(&selection)
+            .is_some_and(|tx| !tx.is_closed())
     }
 }
 
@@ -168,9 +181,9 @@ impl ClipboardBackend for MockBackend {
         }
     }
 
-    async fn watch(&self, _selection: Selection) -> Result<mpsc::Receiver<ClipboardEvent>> {
+    async fn watch(&self, selection: Selection) -> Result<mpsc::Receiver<ClipboardEvent>> {
         let (tx, rx) = mpsc::channel(64);
-        *self.sender.lock().unwrap() = Some(tx);
+        self.senders.lock().unwrap().insert(selection, tx);
         Ok(rx)
     }
 

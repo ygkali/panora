@@ -79,6 +79,9 @@ pub struct Daemon {
     /// the pushed bytes against this entry's blobs keeps it from becoming a
     /// second, single-format copy.
     last_recall: Mutex<Option<(i64, std::time::Instant)>>,
+    /// Bumped by `apply_config`; the capture loop subscribes so a changed
+    /// `record_primary` opens or drops the PRIMARY watch without a restart.
+    config_epoch: tokio::sync::watch::Sender<u64>,
 }
 
 impl Daemon {
@@ -104,6 +107,7 @@ impl Daemon {
             revision: AtomicU64::new(1),
             last_stored: Mutex::new(HashMap::new()),
             last_recall: Mutex::new(None),
+            config_epoch: tokio::sync::watch::channel(0).0,
         }
     }
 
@@ -167,6 +171,7 @@ impl Daemon {
             *slot = config;
         }
         info!("configuration reloaded");
+        self.config_epoch.send_modify(|epoch| *epoch += 1);
         self.collect_garbage()?;
         self.bump();
         Ok(())
@@ -202,12 +207,8 @@ impl Daemon {
     /// Run the capture loop until the shutdown channel closes.
     pub async fn run(&self, mut shutdown: mpsc::Receiver<()>) -> Result<()> {
         let mut rx = self.backend.watch(Selection::Clipboard).await?;
-        let record_primary = self.config().history.record_primary;
-        let mut primary_rx = if record_primary && self.backend.capabilities().primary {
-            Some(self.backend.watch(Selection::Primary).await?)
-        } else {
-            None
-        };
+        let mut config_rx = self.config_epoch.subscribe();
+        let mut primary_rx = self.primary_watch().await?;
 
         info!(backend = self.backend.name(), "panod capture loop started");
 
@@ -227,6 +228,28 @@ impl Daemon {
                         }
                     }
                 }
+                changed = config_rx.changed() => {
+                    if changed.is_err() {
+                        // The sender lives in `self`, so this cannot happen
+                        // while the loop runs; stay defensive anyway.
+                        continue;
+                    }
+                    // `record_primary` is the one setting the loop owns: the
+                    // watch has to be opened or dropped here, not merely
+                    // consulted per event, or the toggle needs a restart.
+                    let wanted = self.config().history.record_primary;
+                    match (wanted, primary_rx.is_some()) {
+                        (true, false) => match self.primary_watch().await {
+                            Ok(watch) => primary_rx = watch,
+                            Err(e) => warn!(error = %e, "cannot start PRIMARY watch"),
+                        },
+                        (false, true) => {
+                            primary_rx = None;
+                            info!("PRIMARY recording disabled");
+                        }
+                        _ => {}
+                    }
+                }
                 ev = async {
                     match primary_rx.as_mut() {
                         Some(r) => r.recv().await,
@@ -239,6 +262,17 @@ impl Daemon {
                     }
                 }
             }
+        }
+    }
+
+    /// Open the PRIMARY watch when recording it is both wanted and possible.
+    async fn primary_watch(&self) -> Result<Option<mpsc::Receiver<ClipboardEvent>>> {
+        if self.config().history.record_primary && self.backend.capabilities().primary {
+            let rx = self.backend.watch(Selection::Primary).await?;
+            info!("PRIMARY recording enabled");
+            Ok(Some(rx))
+        } else {
+            Ok(None)
         }
     }
 
@@ -1184,6 +1218,65 @@ mod tests {
         daemon.apply_config(config).unwrap();
         daemon.handle_event(event).await;
         assert_eq!(daemon.db().count().unwrap(), 1);
+    }
+
+    /// Poll `condition` for up to two seconds.
+    async fn eventually(mut condition: impl FnMut() -> bool) -> bool {
+        for _ in 0..200 {
+            if condition() {
+                return true;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        condition()
+    }
+
+    #[tokio::test]
+    async fn primary_watch_follows_config_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let (daemon, backend) = test_daemon(&dir);
+        let daemon = std::rc::Rc::new(daemon);
+        let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let runner = daemon.clone();
+                let loop_task =
+                    tokio::task::spawn_local(async move { runner.run(shutdown_rx).await });
+                assert!(eventually(|| backend.watching(Selection::Clipboard)).await);
+                // Off by default: no PRIMARY watch is opened at all.
+                assert!(!backend.watching(Selection::Primary));
+
+                let primary = ClipboardData {
+                    selection: Selection::Primary,
+                    payloads: vec![MimePayload::new("text/plain", "selected text")],
+                    offered_mimes: vec!["text/plain".into()],
+                    source_app: None,
+                };
+                backend.offer(Selection::Primary, primary).await.unwrap();
+                let event =
+                    ClipboardEvent::changed(Selection::Primary, vec!["text/plain".into()], None);
+
+                // Turning it on through a reload must open the watch live.
+                let mut config = Config::default();
+                config.history.record_primary = true;
+                daemon.apply_config(config).unwrap();
+                assert!(eventually(|| backend.watching(Selection::Primary)).await);
+                backend.push_event(event.clone()).await;
+                assert!(eventually(|| daemon.db().count().unwrap() == 1).await);
+
+                // Turning it off drops the watch: later PRIMARY changes are
+                // neither delivered nor stored.
+                daemon.apply_config(Config::default()).unwrap();
+                assert!(eventually(|| !backend.watching(Selection::Primary)).await);
+                backend.push_event(event).await;
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                assert_eq!(daemon.db().count().unwrap(), 1);
+
+                shutdown_tx.send(()).await.unwrap();
+                loop_task.await.unwrap().unwrap();
+            })
+            .await;
     }
 
     #[tokio::test]

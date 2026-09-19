@@ -294,6 +294,15 @@ mod tests {
     }
 
     #[test]
+    fn reply_cap_carries_the_largest_allowed_payload() {
+        // A Preview reply holds the payload base64-encoded (4/3 growth) plus
+        // the JSON envelope; the config ceiling must never exceed what a
+        // client is willing to read, or stored entries become unreadable.
+        let encoded = (crate::config::MAX_MIME_BYTES_LIMIT as u64 * 4).div_ceil(3);
+        assert!(encoded + 1024 * 1024 <= MAX_RESPONSE_BYTES);
+    }
+
+    #[test]
     fn query_limits_are_safe() {
         let filter: QueryFilter = QueryRequest {
             limit: 999_999,

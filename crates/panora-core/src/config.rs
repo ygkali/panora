@@ -8,6 +8,15 @@ use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// Upper bound for `history.max_mime_bytes`.
+///
+/// A payload reaches the GUI and CLI base64-encoded inside one JSON reply,
+/// and clients refuse replies above `ipc::MAX_RESPONSE_BYTES` (64 MiB). At
+/// 40 MiB the encoded form stays under 54 MiB, which leaves room for the
+/// envelope; a larger limit would let entries be stored that no client can
+/// preview or export.
+pub const MAX_MIME_BYTES_LIMIT: usize = 40 * 1024 * 1024;
+
 /// Clipboard history limits and retention settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -113,10 +122,10 @@ impl Config {
                 "max_entries must be between 1 and 100000".into(),
             ));
         }
-        if self.history.max_mime_bytes == 0 || self.history.max_mime_bytes > 256 * 1024 * 1024 {
-            return Err(Error::Config(
-                "max_mime_bytes is outside the safe range".into(),
-            ));
+        if self.history.max_mime_bytes == 0 || self.history.max_mime_bytes > MAX_MIME_BYTES_LIMIT {
+            return Err(Error::Config(format!(
+                "max_mime_bytes must be between 1 and {MAX_MIME_BYTES_LIMIT} (40 MiB)"
+            )));
         }
         if self.history.max_age_days > 36_500 {
             return Err(Error::Config("max_age_days must be at most 36500".into()));
@@ -231,6 +240,12 @@ mod tests {
         assert!(cfg.validate().is_err());
         let mut cfg = Config::default();
         cfg.ui.theme = "sepia".into();
+        assert!(cfg.validate().is_err());
+        // Anything the IPC reply cap could not carry is rejected up front.
+        let mut cfg = Config::default();
+        cfg.history.max_mime_bytes = MAX_MIME_BYTES_LIMIT;
+        cfg.validate().unwrap();
+        cfg.history.max_mime_bytes = MAX_MIME_BYTES_LIMIT + 1;
         assert!(cfg.validate().is_err());
     }
 
