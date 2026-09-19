@@ -1,28 +1,24 @@
-# Panora benchmark raporu
+# Panora benchmark notları
 
-**Ölçüm tarihi:** 2026-08-18. **Makine:** sandbox x86_64, Rust release profile, SQLite in-memory benchmark veritabanı.
+> **Durum (2026-09-19):** Önceki sürümde bu belge var olmayan bir `benches/fts.rs` dosyasına ve 2026-08-18 tarihli tek bir sandbox ölçümüne dayanıyordu. Criterion benchmark'ları (`STO-06`) ve gerçek makine ölçümleri (`STO-07`) `docs/ROADMAP.md` içinde planlıdır; sonuçlar alındığında bu dosya ölçüm tarihi, makine ve komutla birlikte yeniden yazılacaktır.
 
-## FTS5 arama
+## Hedefler
 
-Criterion ile 10.000 pano kaydı oluşturuldu ve 50 sonuç limitli `merhaba` sorgusu ölçüldü. Sonuç: **15.675–15.737 ms (ortalama 15.705 ms)**. Proje hedefi olan 50 ms altında kalmaktadır.
+| Metrik | Hedef | Kabul tavanı | Nasıl ölçülür |
+|---|---|---|---|
+| FTS5 önek araması, 10 000 kayıt, 50 sonuç | < 20 ms | 50 ms | criterion `panora-core` benchmark'ı |
+| Kayıt saklama (metin, 1 KiB) | < 5 ms | 20 ms | criterion (`Database::upsert_entry` + `BlobStore::put`) |
+| IPC gidiş-dönüş (`Status`) | < 1 ms | 5 ms | criterion, Unix soket, `MockBackend` |
+| `panod` boşta RSS | < 30 MB | 50 MB | `/usr/bin/time -v` veya `smem`, gerçek oturum |
+| Popup soğuk açılış (Super+V → pencere görünür) | < 400 ms | 800 ms | `GTK_DEBUG=interactive` değil; `journalctl` + zaman damgası, gerçek oturum |
+| Popup sıcak açılış (UI-14 sonrası) | < 50 ms | 150 ms | aynı |
 
-Komut:
-
-```sh
-cargo bench -p panora-core --bench fts
-```
-
-Bu ölçüm yalnızca FTS5 arama yolunu kapsar; şifreli BLOB okuma, GUI render ve IPC gecikmesi dahil değildir. Benchmark kaynak dosyası `crates/panora-core/benches/fts.rs` içindedir.
-
-## Bellek ve CPU
-
-Daemon event loop ve GTK popup ayrı süreçlerdir. Boşta CPU için polling yerine backend olayları hedeflenmiştir; mevcut wl-clipboard-rs yüksek seviyeli API'si olay callback'i sunmadığı için Wayland watcher v1'de 120 ms düşük maliyetli değişiklik kontrolü kullanır. Bu, gelecekte doğrudan data-control event queue ile değiştirilecek optimizasyon noktasıdır. Bu nedenle **"event-driven, polling yok" hedefi Wayland v1 için henüz karşılanmış sayılmamalıdır**.
-
-Boşta RAM hedefi <30 MB, kabul tavanı 50 MB'dir. Gerçek GNOME oturumu sandbox'ta bulunmadığından bu metrik release ortamında ayrıca ölçülmelidir:
+## Ölçüm yöntemi (planlanan)
 
 ```sh
-/usr/bin/time -v -- target/release/panod
-/usr/bin/time -v -- target/release/panora-gui
+cargo bench -p panora-core            # fts, store, blob
+cargo bench -p panod                  # ipc roundtrip
+/usr/bin/time -v -- target/release/panod   # gerçek oturumda, keyring açıkken
 ```
 
-Daemon'un kullanıcı keyring'i ve GNOME/Wayland oturumu olmadan başlayamaması beklenen bir çevre koşuludur; bu bir performans ölçümü değildir.
+Daemon olay tabanlıdır (XFIXES / data-control); Wayland'de yoklama yoktur, bu nedenle boşta CPU kullanımı ölçülebilir bir hedef değil, `0` beklentisidir.

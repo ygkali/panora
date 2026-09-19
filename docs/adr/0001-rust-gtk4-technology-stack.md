@@ -33,3 +33,8 @@ Panora; Debian tabanlı sistemlerde GNOME öncelikli, düşük RAM tüketimli, g
 - **Olumlu:** Güvenlik, performans, GNOME entegrasyonu, tek dilde bakım kolaylığı.
 - **Olumsuz:** GTK4 Rust binding'leri (`gtk4-rs`) öğrenme eğrisi; `gtk4-layer-shell` GTK sürümleriyle uyumluluk takibi gerektirir (sürüm sabitleme + CI ile azaltılır).
 - **Nötr:** GNOME'da layer-shell yoktur; popup GNOME'da ortalanmış modal pencere olarak açılır (kabul edilmiş düşüş).
+
+## Güncelleme (2026-09-19)
+
+- `gtk4-layer-shell` **uygulanmadı**: 1.2.0 hiçbir sürümünde bağımlılık olarak eklenmedi. Popup her ortamda sıradan bir üst düzey pencere olarak açılır; GNOME'da eklenti xdg-activation belirteci ile odak verir. wlroots bileşim yöneticilerinde overlay konumlandırma `docs/ROADMAP.md` UI-02 maddesi olarak planlıdır (isteğe bağlı `layer-shell` özelliği, çalışma zamanında `is_supported()` kontrolü).
+- Wayland pano erişimi `wl-clipboard-rs` yerine doğrudan `wayland-client` ile `ext-data-control-v1` / `zwlr-data-control-v1` üzerinden yapılır (1.2.0); alt süreç ve yoklama yoktur.
