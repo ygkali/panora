@@ -1,7 +1,0 @@
-workspace_tests=9
-clippy=PASS
-format=PASS
-gnome_extension_node_syntax=PASS
-gui_xvfb_exit=124 (124 means healthy event loop under timeout)
-benchmark=15.705_ms_fts5_10k
-deb_sha256=d9590967d6fb1fc158b54fd44e0f6bcfe3cb0620534e9690a66c5fcf63d11069

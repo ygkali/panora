@@ -1,4 +1,0 @@
-video=/home/ubuntu/panora/test-artifacts/panora-feature-tour.mp4
-raw=/home/ubuntu/panora/test-artifacts/panora-feature-tour.raw.mp4
-gui_window=4194308
-scenario=v2

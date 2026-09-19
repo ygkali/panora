@@ -1,1 +1,0 @@
-release_build_status=0

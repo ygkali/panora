@@ -1,2 +1,0 @@
-install_status=0
-runtime_status=0

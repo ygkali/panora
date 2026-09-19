@@ -1,2 +1,0 @@
-release_build_status=0
-package_status=0
