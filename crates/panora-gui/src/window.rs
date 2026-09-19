@@ -166,9 +166,12 @@ pub fn build(app: &adw::Application, state: &Rc<App>) {
     chips.set_column_spacing(6);
     chips.set_min_children_per_line(1);
     chips.set_max_children_per_line(Filter::ALL.len() as u32);
-    // Start, not Center: a filter bar reads as a row you scan from the edge
-    // the text starts at, and Start is the one that mirrors under RTL.
-    chips.set_halign(gtk::Align::Start);
+    // Fill, not Start: with Start the flow box is allocated only its minimum
+    // width (one chip), wraps every chip onto its own line and, because its
+    // height was requested for the full width, overflows into the list below.
+    // A filled flow box still lays chips out from the leading edge, so RTL
+    // mirroring comes from GTK's text direction, not from the alignment.
+    chips.set_halign(gtk::Align::Fill);
     chips.set_margin_top(10);
     chips.set_margin_start(14);
     chips.set_margin_end(14);
