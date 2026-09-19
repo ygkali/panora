@@ -1,79 +1,140 @@
 # Panora
 
-**Panora**, Debian tabanlı Linux ve GNOME için geliştirilen, Windows Win+V deneyimini hedefleyen, düşük kaynak tüketimli ve güvenlik odaklı bir pano geçmişi yöneticisidir. Proje GPL-3.0-only lisanslıdır.
+[![CI](https://github.com/ygkali/panora/actions/workflows/ci.yml/badge.svg)](https://github.com/ygkali/panora/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/ygkali/panora?include_prereleases)](https://github.com/ygkali/panora/releases)
+[![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue.svg)](LICENSE)
 
-> **Tasarım kararı:** Panora tamamen yereldir. Cihazlar arası senkronizasyon ve telefon companion uygulaması bu sürümde yoktur; `panora_core::sync` yalnızca gelecekteki şifreli senkron için ağsız bir trait sınırı sağlar. Uygulama hiçbir ağ bağlantısı açmaz.
+**Panora** is an encrypted clipboard history for Linux desktops with a
+Windows Win+V style popup. It is written in Rust with GTK4/libadwaita, speaks
+the X11 and Wayland clipboard protocols natively, never opens a network
+connection, and never reads what a password manager copied.
 
-## Özellikler
+*Türkçe: [README.tr.md](README.tr.md).*
 
-- **Olay tabanlı yakalama, alt süreç yok.** `panod` X11'de XFIXES `SelectionNotify`, Wayland'de `ext-data-control-v1` / `wlr-data-control-v1` protokollerini doğrudan konuşur (x11rb ve wayland-client). `xclip` veya `wl-clipboard` gerekmez, yoklama (polling) yapılmaz.
-- **TARGETS-önce gizlilik kapısı.** Sunulan MIME listesi payload okunmadan değerlendirilir; parola yöneticisi bayrakları (`x-kde-passwordManagerHint`, `ConcealedType`, …) taşıyan içerik hiç okunmaz. KeePassXC, Bitwarden, 1Password ve GNOME Secrets varsayılan olarak hariçtir; liste ayarlardan genişletilir ve **yeniden başlatmadan** uygulanır.
-- **Tüm biçimler korunur.** Metin, HTML/RTF, URI/dosya listeleri, PNG/JPEG/WebP/BMP/TIFF/GIF/SVG görselleri ve renk kodları birlikte saklanır; geri çağırma tüm biçimleri aynı anda sunar (metin + HTML, görsel), büyük payload'lar X11'de INCR ile aktarılır.
-- **Pano kalıcılığı (X11).** Kaynak uygulama kapanınca pano boşalırsa daemon yalnızca o an kaydettiği son içeriği yeniden sunar (CLIPBOARD_MANAGER davranışı); bilinçli temizlemeler (parola yöneticileri) geri alınmaz. Wayland'de kalıcılık bileşim yöneticisine (Mutter, KWin) bırakılır.
-- **Şifreli depolama.** Payload'lar XChaCha20-Poly1305 ile içerik adresli BLOB olarak, önizlemeler AEAD ile bağlanmış şekilde SQLite'ta saklanır; FTS5 önek araması yazdıkça daralır. Ana anahtar Secret Service'ten şifreli D-Bus oturumuyla alınır.
-- **GTK4/libadwaita popup.** Windows Win+V gibi tek kolonlu dar bir panel: içerik önde, satır eylemleri (sabitle, ayrıntı, sil) yalnızca fare üzerine gelince veya klavye o satıra geçince açılır. Arama, tür filtreleri (metin, bağlantı, görsel, dosya, biçimli, renk, sabitli), sayfalı liste, canlı yenileme, açık/koyu tema, Türkçe/İngilizce arayüz ve ayarlar penceresi. Super+V ile aç/kapat (tek örnek uygulama, D-Bus etkinleştirme). Simge düğmelerinin hepsi ekran okuyucu adı taşır, dokunma hedefleri 28 piksel, yazı boyutları kullanıcının metin ölçeğini izler ve arayüz RTL dillerde aynalanır.
-- **Anında yapıştır.** İsteğe bağlı: bir kayıt seçilince odaktaki pencereye Ctrl+V gönderilir (X11'de XTEST, GNOME'da Shell eklentisi, diğer Wayland masaüstlerinde `wtype`/`ydotool`).
-- **`panora-cli`.** Aynı 0600 Unix socket protokolü üzerinden liste, arama, kopyalama, yapıştırma, önizleme dışa aktarma, sabitleme, özel mod, durum ve `--json` çıktısı.
+<p align="center">
+  <img src="docs/screenshots/popup-light.png" width="300" alt="Panora popup, light style">
+  <img src="docs/screenshots/popup-dark.png" width="300" alt="Panora popup, dark style">
+</p>
 
-## Kurulum
+> Not to be confused with [Pano](https://github.com/oae/gnome-shell-pano), a
+> GNOME Shell extension. Panora is a standalone daemon plus a GTK application;
+> its GNOME extension only provides Super+V and a bridge for older GNOME.
 
-En kolay yol proje klasöründeki kurulum script'idir. Script Debian/Ubuntu bağımlılıklarını kurar, gerekirse Rust'ı (rustup) kullanıcı dizinine indirir, paketi kaynaktan derler, yükler ve `panod.service` kullanıcı servisini başlatır:
+## Features
+
+- **Event-driven capture, no helper processes.** `panod` uses XFIXES
+  `SelectionNotify` on X11 and `ext-data-control-v1` / `wlr-data-control-v1` on
+  Wayland directly (x11rb, wayland-client). No `xclip`, no `wl-clipboard`, no
+  polling.
+- **TARGETS-first privacy gate.** The offered MIME list is judged before any
+  payload is read; content flagged by a password manager
+  (`x-kde-passwordManagerHint`, `ConcealedType`, ...) is never transferred.
+  KeePassXC, Bitwarden, 1Password and GNOME Secrets are excluded by default;
+  the list is editable and applies without a restart.
+- **Every format is kept.** Text, HTML/RTF, URI/file lists, PNG/JPEG/WebP/
+  BMP/TIFF/GIF/SVG images and colour codes are stored together and offered
+  again at once (text + HTML, image); large payloads go through INCR on X11.
+- **Clipboard persistence on X11.** When the source application exits, the
+  daemon re-offers only what it just recorded, so a password manager clearing
+  the clipboard is never undone. On Wayland the compositor keeps the content
+  (Mutter, KWin).
+- **Encrypted at rest.** Payloads are content-addressed blobs encrypted with
+  XChaCha20-Poly1305, previews are AEAD-bound in SQLite, FTS5 prefix search
+  narrows as you type. The master key lives in your Secret Service keyring
+  and crosses the bus encrypted.
+- **Win+V style popup.** A narrow single-column panel: search, type filters
+  (text, link, image, file, rich text, colour, pinned), paging, live refresh,
+  light/dark, English and Turkish, a settings dialog. Super+V toggles it on
+  GNOME; it is a single-instance application with D-Bus activation. Every
+  icon button has a screen-reader name, targets are 28 px, fonts follow the
+  user's text scale and the layout mirrors for RTL languages.
+- **Instant paste** (optional): picking an entry sends Ctrl+V to the focused
+  window (XTEST on X11, the Shell extension on GNOME, `wtype`/`ydotool`
+  elsewhere).
+- **`panora-cli`** with list, search, copy, preview export, pin, private mode,
+  status, `--json`, man pages and shell completions; stable exit codes for
+  scripting.
+- **Sandboxed daemon.** The systemd user unit runs with `ProtectSystem=strict`,
+  `ProtectHome=read-only`, `MemoryDenyWriteExecute`,
+  `RestrictAddressFamilies=AF_UNIX` and friends.
+
+## Install
+
+Panora needs GTK 4.12 and libadwaita 1.5, so **Debian 13, Ubuntu 24.04, Zorin
+OS 18 or newer**. Older releases (Ubuntu 22.04, Zorin OS 17, Mint 21) are not
+supported.
+
+### From the Debian package
+
+Download `panora_<version>_<arch>.deb` from the
+[releases page](https://github.com/ygkali/panora/releases) (amd64 and arm64),
+verify it against `SHA256SUMS`, then:
 
 ```sh
-cd panora
-chmod +x install.sh test-local.sh uninstall.sh
-./install.sh
-```
-
-Kurulumdan sonra hızlı lokal smoke test:
-
-```sh
-./test-local.sh              # durum, kopyalama, arama, geri çağırma, GUI
-PANORA_NO_GUI=1 ./test-local.sh
-```
-
-Script kullanmadan elle kurulum (hazır paket `packaging/build-deb.sh` ile üretilir):
-
-```sh
-sudo apt update
-sudo apt install -y libgtk-4-1 libadwaita-1-0 libsqlite3-0 adwaita-icon-theme librsvg2-common gnome-keyring
-./packaging/build-deb.sh
-sudo dpkg -i dist/panora_*.deb
-sudo apt-get -f install -y
-systemctl --user daemon-reload
+sudo apt install ./panora_*.deb
 systemctl --user enable --now panod.service
-panora-cli status
 ```
 
-GUI `panora` veya `panora-gui` ile açılır; ikinci çağrı açık pencereyi kapatır. GNOME'da Super+V kısayolu eklenti etkinleştirildiğinde çalışır:
+On GNOME, log out and back in once so the Shell sees the extension, then:
 
 ```sh
 gnome-extensions enable panora@ygkali.github.io
 ```
 
-### Pencere içi klavye kısayolları
+`panora-doctor` checks the whole setup and tells you what to fix.
 
-| Kısayol | İşlev |
-| --- | --- |
-| `Ctrl+F` | Arama alanına git |
-| `↑ ↓ ← →` | Kayıtlar arasında gez |
-| `Enter` | Seçili kaydı panoya koy (ayar açıksa yapıştır) ve pencereyi kapat |
-| `Space` | Seçili kaydın ayrıntısını aç (tam metin, görsel, biçimler) |
-| `Ctrl+D` | Seçili kaydı sabitle / sabitlemeyi kaldır |
-| `Delete` | Seçili kaydı sil |
-| `Ctrl+Shift+P` | Özel modu aç / kapat |
-| `Ctrl+,` | Ayarlar |
-| `Esc` | Aramayı temizle, arama boşsa pencereyi kapat |
+### With the installer script
 
-### Ayarlar
+From a checkout or the install kit, `./install.sh` installs the runtime
+dependencies, uses the `.deb` in `dist/` when it matches your machine (or
+builds one from source, installing rustup into your home if needed), enables
+the user service and tries to enable the extension. `./test-local.sh` runs the
+doctor and a quick clipboard test afterwards; `./uninstall.sh` removes the
+package and keeps your encrypted history unless you pass `--purge-data`.
+Messages are English, or Turkish when your locale is Turkish.
 
-Başlık çubuğunda soldan sağa: özel mod anahtarı, **geçmişi temizle** ve menü. Menü → **Ayarlar** (veya `Ctrl+,`). Değerler `~/.config/panora/config.toml` dosyasına yazılır ve daemon'a anında yüklenir:
+### From source
+
+```sh
+sudo apt install -y build-essential pkg-config libgtk-4-dev libadwaita-1-dev \
+  binutils libglib2.0-bin adwaita-icon-theme librsvg2-common gnome-keyring
+git clone https://github.com/ygkali/panora.git && cd panora
+./packaging/build-deb.sh          # dist/panora_<version>_<arch>.deb
+sudo apt install ./dist/panora_*.deb
+```
+
+Rust 1.85 or newer (rustup) is required.
+
+## Use
+
+Open the panel with **Super+V** (GNOME), `panora`, the launcher entry or
+`panora-cli toggle`. Opening it again closes it.
+
+| Key | Action |
+|---|---|
+| `Ctrl+F` | Focus the search box |
+| `↑ ↓ ← →` | Move between entries |
+| `Enter` | Put the entry on the clipboard (and paste it when instant paste is on), close |
+| `Space` | Details: full text, full-size image, formats |
+| `Ctrl+D` | Pin / unpin |
+| `Delete` | Delete the entry |
+| `Ctrl+Shift+P` | Private mode on / off |
+| `Ctrl+,` | Settings |
+| `Esc` | Clear the search; close when it is empty |
+
+The header bar holds the private-mode switch, **clear history** (pinned
+entries survive) and the menu with **Settings**.
+
+### Settings
+
+Written to `~/.config/panora/config.toml` and applied by the daemon on the
+spot:
 
 ```toml
 [history]
-record_primary = false   # fareyle seçilen metni (PRIMARY) de kaydet
-max_entries = 1000       # sabitlenmemiş kayıt üst sınırı
-max_age_days = 30        # 0 = süresiz
+record_primary = false   # also record mouse selections (PRIMARY)
+max_entries = 1000       # unpinned entries kept
+max_age_days = 30        # 0 = forever
 max_mime_bytes = 10485760
 
 [privacy]
@@ -86,62 +147,74 @@ theme = "system"         # system | light | dark
 instant_paste = false
 ```
 
-### CLI
+### Command line
 
 ```sh
-panora-cli list [arama] [--kind image] [--pinned] [--limit 20] [--offset 20]
-panora-cli search <metin>
-panora-cli copy <id> [--paste]
-panora-cli preview <id> [--mime image/png] [--out foto.png]
+panora-cli list [query] [--kind image] [--pinned] [--limit 20] [--offset 20]
+panora-cli search <text>
+panora-cli copy <id> [--paste] [--mime text/plain]
+panora-cli preview <id> [--mime image/png] [--out photo.png]
 panora-cli pin|unpin|delete <id>
 panora-cli clear | private on|off | status | toggle | reload
 panora-cli --json status
+panora-cli completions bash|zsh|fish
 ```
 
-Panora'yı kaldırmak için `./uninstall.sh`; şifreli geçmiş (`~/.local/share/panora`) ve ayarlar (`~/.config/panora`) varsayılan olarak korunur.
+Exit status: 0 success, 1 daemon error, 2 usage error, 3 daemon not running,
+4 no such entry. `man panora-cli` has the details.
 
-## Kaynaktan derleme
+## Desktop support
 
-Rust 1.85+ stable ve GTK4/libadwaita geliştirme paketleri gerekir; X11 ve Wayland protokolleri saf Rust'tır, ek C kütüphanesi istemez.
-
-```sh
-sudo apt install -y build-essential pkg-config libgtk-4-dev libadwaita-1-dev
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-./scripts/security-check.sh
-```
-
-X11 backend'inin uçtan uca testleri `DISPLAY` varsa çalışır (CI'da Xvfb): `cargo test -p panod --test x11_integration`.
-
-## Masaüstü uyumluluğu
-
-| Oturum | Yakalama | Geri çağırma | Uygulama adı | Anında yapıştır |
+| Session | Capture | Recall | Source app name | Instant paste |
 |---|---|---|---|---|
-| X11 (GNOME, Xfce, MATE, i3, …) | XFIXES olayları | Yerel selection owner (INCR) | `_NET_ACTIVE_WINDOW` → `WM_CLASS` | XTEST |
-| Wayland — GNOME 48+ | `ext-data-control-v1` | Yerel data source | Shell eklentisi (bridge kapalı) | Shell eklentisi |
-| Wayland — GNOME ≤ 47 | Shell eklentisi (D-Bus push) | Shell eklentisi `SetClipboard` | Shell eklentisi | Shell eklentisi |
-| Wayland — KDE, Sway, Hyprland, … | `ext`/`wlr-data-control` | Yerel data source | Protokol kimlik sunmaz (MIME kapısı çalışır) | `wtype` / `ydotool` varsa |
+| X11 (GNOME, Xfce, MATE, i3, ...) | XFIXES events | Native selection owner (INCR) | `_NET_ACTIVE_WINDOW` → `WM_CLASS` | XTEST |
+| Wayland, GNOME 48+ | `ext-data-control-v1` | Native data source | Shell extension | Shell extension |
+| Wayland, GNOME ≤ 47 (Zorin OS 18) | Shell extension (D-Bus push) | Shell extension, **one format per recall** | Shell extension | Shell extension |
+| Wayland, KDE / Sway / Hyprland / ... | `ext` / `wlr-data-control` | Native data source | Not exposed by the protocol (MIME gate still applies) | `wtype` / `ydotool` if installed |
 
-## Paketler ve mimari
+Details, including what each backend can and cannot do, are in
+[docs/protocol-matrix.md](docs/protocol-matrix.md).
 
-- `crates/panora-core`: model, privacy engine, config, crypto, BLOB, SQLite/FTS5, IPC protokolü ve istemcisi, i18n, sync trait.
-- `crates/panod`: daemon, yerel X11/Wayland backend'leri, GNOME bridge backend'i, Secret Service keyring, D-Bus servisleri, IPC sunucusu.
-- `crates/panora-gui`: GTK4/libadwaita popup, ayrıntı görünümü ve ayarlar.
-- `crates/panora-cli`: Unix socket CLI.
-- `gnome-extension`: Super+V, GNOME < 48 için pano köprüsü, `SetClipboard`/`Paste` yardımcı servisi.
-- `packaging`: `.deb` üretimi, systemd user unit, `.desktop` ve D-Bus activation dosyaları.
+## Privacy and security
 
-## Güvenlik standardı ve gizlilik davranışı
+- Password managers' secret markers and the exclusion list are enforced on
+  the MIME/TARGETS list before a payload is read. Private mode stops recording
+  entirely and survives configuration reloads.
+- On plain Wayland compositors the protocol does not tell which application
+  owns the clipboard, so the exclusion list cannot fire there; `panora-cli
+  status` reports `source_app=false` and the settings dialog says so next to
+  the list. The MIME gate works everywhere.
+- Storage: XChaCha20-Poly1305 with a versioned envelope and associated data,
+  master key in the Secret Service over an encrypted D-Bus session
+  (`dh-ietf1024-sha256-aes128-cbc-pkcs7`; the daemon refuses to start
+  without it), directories 0700, files 0600, IPC socket 0600 with peer UID
+  checks and frame/request limits, GNOME bridge pushes accepted only from
+  `org.gnome.Shell`. A database opened with a different key is refused with a
+  clear message instead of showing garbage.
+- Deleted entries' blobs are removed from disk unless another entry shares
+  them; retention runs on every store and hourly.
 
-Parola yöneticilerinin gizli pano işaretleri ve varsayılan hariç listesi payload okunmadan, sunulan MIME/TARGETS listesi üzerinden uygulanır. Kullanıcı özel modu açarak kayıt almayı tamamen durdurabilir; özel mod ayarlar yeniden yüklense de korunur. Hariç listesi kopyalayan uygulamanın adına dayandığı için düz Wayland oturumlarında (protokol istemci kimliği sunmaz) devreye giremez; daemon bunu `panora-cli status` çıktısında `source_app=false` ile bildirir ve ayarlar penceresi listenin yanında bunu yazar.
+This is not an independent audit. The kernel, swap, core dumps, a malicious
+GNOME extension and an already compromised session are outside the threat
+model; see [SECURITY.md](SECURITY.md), the ADRs in `docs/adr/` and
+[docs/security-checklist.md](docs/security-checklist.md). RustSec
+`cargo-audit` and `cargo-deny` gate every CI run.
 
-Yerel geçmiş, Secret Service anahtar deposundan alınan anahtarla XChaCha20-Poly1305 kullanılarak şifrelenir. Şifreli zarf formatı sürümlüdür ve BLOB/preview verisi için AEAD associated data kullanır. Veri dizinleri 0700, dosyalar 0600 izinlidir; IPC Unix socket'i bağlantı başına frame ve istek limitlerine ve Linux peer UID kontrolüne sahiptir. GNOME köprüsünün oturum veriyolundaki `Push`/`PushMany` çağrıları yalnızca `org.gnome.Shell` adının sahibinden kabul edilir, böylece veriyoluna erişen başka bir süreç geçmişe uydurma kayıt yazamaz. Ana anahtar Secret Service oturumuna `dh-ietf1024-sha256-aes128-cbc-pkcs7` ile bağlanır; servis şifreli oturum açamazsa daemon başlamayı reddeder.
+## Troubleshooting
 
-Silinen kayıtların BLOB'ları yalnızca başka bir kayıt tarafından paylaşılmıyorsa diskten kaldırılır; saklama sınırı veya süresi aşılan kayıtlar hem veritabanından hem diskten temizlenir (her kayıtta ve saatte bir). Geçmişi temizlemek sabitlenmiş kayıtları silmez.
+`panora-doctor` first. Common cases and the daemon log are described in
+[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 
-Bu kontroller **bağımsız güvenlik denetimi veya sertifikasyon yerine geçmez**. Kernel, swap, core dump, kötü amaçlı GNOME extension ve zaten ele geçirilmiş kullanıcı oturumu tehdit modelinin dışındadır. Ayrıntılar için `docs/security-research-notes.md`, `docs/security-gap-analysis.md` ve `docs/security-checklist.md`. RustSec `cargo-audit` ve `cargo-deny` kontrolleri CI'da zorunludur.
+## Project
 
-## Lisans
+- [docs/ROADMAP.md](docs/ROADMAP.md): what is planned, with an id per task.
+- [CHANGELOG.md](CHANGELOG.md), [CONTRIBUTING.md](CONTRIBUTING.md),
+  [SECURITY.md](SECURITY.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+- Architecture: `crates/panora-core` (model, privacy, storage, IPC, i18n),
+  `crates/panod` (daemon, backends, keyring, D-Bus), `crates/panora-gui`,
+  `crates/panora-cli`, `gnome-extension`, `packaging`.
 
-GPL-3.0-only. Ayrıntı için `LICENSE` dosyasına bakın.
+## License
+
+GPL-3.0-only. See [LICENSE](LICENSE); licences of the statically linked
+crates are listed in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
