@@ -1,55 +1,191 @@
 # Changelog
 
-## Yayınlanmadı
+All notable changes to Panora are recorded here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1/) and the project uses
+semantic versioning (see `docs/RELEASING.md`).
 
-### Arayüz
-- Popup artık Windows Win+V gibi **tek kolonlu dar bir panel** (420×660, en az 340×420). Kart ızgarası kalktı: en yeni kayıt bir köşe değil listenin başı, Yukarı/Aşağı satır satır ilerliyor.
-- **İçerik önde.** 9 piksel büyük harfli tür etiketi kaldırıldı (önizleme zaten ne olduğunu gösteriyor, tür ekran okuyucuya satırın erişilebilir adıyla gidiyor); yerine içeriğin altında tür simgesi + yaş + boyut + kaynak uygulama satırı geldi.
-- **Satır eylemleri artık hep görünmüyor.** Sabitle / ayrıntı / sil, fare satıra geldiğinde, klavye o satıra geçtiğinde veya satır seçildiğinde açılıyor; sabitli satırlar yıldızını her zaman gösteriyor. Düğmeler yerlerini koruduğu için imlecin altında kayma olmuyor ve Tab ile hâlâ erişilebiliyorlar.
-- **Geçmişi temizle** menüden başlık çubuğuna taşındı.
-- Filtre çipleri artık satır sonunda alt satıra kayıyor. Önceki kaydırmalı satır dar panelde son iki çipi (`Biçimli`, `Renk`) hiçbir ipucu vermeden kırpıyordu; çeviriler İngilizceden uzun olduğu için bu her dilde farklı yerde oluyordu.
-- **Erişilebilirlik:** her simge düğmesi ve her geçmiş satırı ekran okuyucu adı taşıyor (tooltip AT-SPI'de *açıklama*, ad değil — adsız düğme yalnızca "button" olarak okunuyordu); satır eylemleri 24 değil 28 piksel (WCAG 2.2 SC 2.5.8); sabit piksel yazı boyutları kaldırıldı, tipografi libadwaita sınıflarıyla kullanıcının metin ölçeğini izliyor; ikincil metin kontrastı 0.5'ten 0.7 alfaya çıktı (SC 1.4.11); klavye odağı seçim renginden bağımsız kendi çerçevesini çiziyor (SC 2.4.7).
-- **RTL:** hizalamalar mutlak `xalign` yerine `halign: Start` kullanıyor, böylece arayüz sağdan sola dillerde aynalanıyor.
+## [Unreleased]
 
-### Daemon ve paketleme
-- **Kimlikler GitHub ad alanına taşındı.** Uygulama kimliği `io.panora.Panora` → `io.github.ygkali.Panora`, D-Bus adları `io.panora.GnomeBridge1` / `io.panora.GnomeShell1` → `io.github.ygkali.Panora.GnomeBridge1` / `io.github.ygkali.Panora.GnomeShell1`, eklenti UUID `panora@panora-clipboard.org` → `panora@ygkali.github.io`, paket bakımcısı `ygkali <kompansebuyucu@proton.me>`. Eski adlar projenin sahibi olmadığı alan adlarına dayanıyordu; Flathub ve extensions.gnome.org bunları kabul etmez. 1.2.0 kurulumundan yükseltirken eski eklenti dizini kaldırılır ve eklentinin yeniden etkinleştirilmesi gerekir.
-- GNOME köprüsü artık çağıranı doğruluyor: `io.panora.GnomeBridge1.Push`/`PushMany` yalnızca `org.gnome.Shell` adının sahibinden kabul ediliyor. Servis oturum veriyolunda olduğu için daha önce her kullanıcı süreci (ör. yalnızca `--socket=session-bus` izinli bir Flatpak) uydurma kayıt enjekte edebiliyordu. Veriyolundaki imza değişmedi, eklenti güncellemesi gerekmiyor.
-- Yeni backend yeteneği `source_app`: kopyalayan uygulamanın adı bilinebiliyor mu? `panora-cli status` bunu `source_app=` olarak yazıyor ve ayarlar penceresi düz Wayland oturumlarında hariç tutma listesinin o oturumda çalışmadığını söylüyor (liste `source_app`'e dayanıyor, data-control protokolü istemci kimliği sunmuyor).
-- `Cargo.toml`, `panod.service` ve paket `Homepage` alanı gerçek depo adresini gösteriyor.
+Everything below ships as **1.3.0**, the first public release, once the
+real-machine verification in `docs/RELEASING.md` is done.
 
-## 1.2.0
+### Added
+- Application icon (scalable and symbolic), AppStream metadata, man pages
+  for every binary and bash/zsh/fish completions, all installed by the
+  `.deb`; the package also carries a DEP-5 `copyright`, a Debian-format
+  changelog, `THIRD_PARTY_LICENSES.md` and md5sums, and is lintian-clean.
+- `--version` for `panora-cli`, `panora-gui` and `panod`; `panod --help`.
+- Schema migration framework for the history database: the stored schema
+  version is checked on every start, a newer schema is refused, an older one
+  is backed up with `VACUUM INTO` and migrated step by step, and a damaged
+  file fails `PRAGMA quick_check` instead of half-working.
+- Key fingerprint in the database: a history opened with a different master
+  key (a reset keyring) is refused with a clear message instead of showing
+  `[decryption failed]` rows.
+- Integration tests for the IPC server on a real Unix socket (round trips,
+  frame and request limits, peer UID check) and for the Secret Service round
+  trip through a throwaway gnome-keyring (`scripts/keyring-test.sh`).
+- CI: MSRV job (Rust 1.85), `cargo doc` without warnings, shellcheck, keyring
+  job, desktop/AppStream validation, lintian, an install smoke test of the
+  package, and an arm64 package next to amd64. A tag-triggered release
+  workflow builds both packages and the install kit, writes `SHA256SUMS`
+  (minisign-signed when a key is configured) and an SPDX SBOM, and publishes
+  the GitHub release with the matching changelog section.
+- `uninstall.sh --yes` and `--purge-data`; `scripts/capture-screenshots.sh`
+  renders the README screenshots from the fixture data under Xvfb.
+- English `README.md`, `docs/TROUBLESHOOTING.md`, `docs/RELEASING.md`,
+  `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, issue and pull
+  request templates, Dependabot, `REUSE.toml`, `AUTHORS.md`, and
+  `docs/ROADMAP.md` with every planned task identified.
+
+### Changed
+- **Identifiers moved to the GitHub namespace.** Application id
+  `io.panora.Panora` → `io.github.ygkali.Panora`, bus names
+  `io.panora.GnomeBridge1` / `io.panora.GnomeShell1` →
+  `io.github.ygkali.Panora.GnomeBridge1` / `io.github.ygkali.Panora.GnomeShell1`,
+  extension UUID `panora@panora-clipboard.org` → `panora@ygkali.github.io`,
+  package maintainer `ygkali <kompansebuyucu@proton.me>`. The old names used
+  domains the project does not own. Upgrading from 1.2.0 removes the old
+  extension directory; enable the new UUID once after logging in again.
+- The workspace moved from `panora/` to the repository root: `cargo install
+  --git` works and CI no longer needs working-directory overrides.
+  `KUR.sh`, `TEST.sh` and `KALDIR.sh` stay as Turkish-named wrappers of
+  `install.sh`, `test-local.sh` and `uninstall.sh`.
+- `panora-cli` is built on clap: `panora-cli <command> --help` for every
+  command, `completions`, `man`, and documented exit statuses (1 daemon
+  error, 2 usage, 3 daemon not running, 4 no such entry). `list`, `search`,
+  `copy`/`recall`, `preview`/`show`, `pin`, `unpin`, `delete`/`rm`, `clear`,
+  `private on|off`, `status`, `toggle`, `reload` and `--json` work as before;
+  `status` now also prints `needs_bridge`.
+- `install.sh`, `uninstall.sh`, `test-local.sh` and `panora-doctor` speak
+  English by default and Turkish when the locale is Turkish
+  (`LANG`/`LC_ALL`/`PANORA_LANG`); the doctor's status labels are
+  `OK/WARN/ERROR/INFO` and its JSON keys never change. `scripts/e2e-test.sh`
+  is English only.
+- The popup is a **single-column Win+V style panel** (420×660, minimum
+  340×420): the newest entry is the top of a list, Up/Down move one row at a
+  time, the 9 px type badge is gone in favour of a type icon + age + size +
+  source line under the content, row actions (pin, details, delete) appear
+  on hover, keyboard focus or selection while pinned rows always show their
+  star, **clear history** moved to the header bar and the filter chips wrap.
+- Accessibility: every icon button and history row has a screen-reader
+  name, row actions are 28 px (WCAG 2.2 SC 2.5.8), fixed pixel font sizes are
+  gone so typography follows the user's text scale, secondary text contrast
+  rose from 0.5 to 0.7 alpha (SC 1.4.11), keyboard focus draws its own ring
+  (SC 2.4.7). RTL: alignments use `halign: Start`, so the layout mirrors.
+- The `max_mime_bytes` ceiling is 40 MiB (was 256 MiB): anything larger
+  could be stored but never previewed or exported through the 64 MiB IPC
+  reply cap.
+- The Debian package `Recommends: gnome-keyring | kwalletmanager` and
+  `Suggests: wtype, ydotool, xclip, wl-clipboard`.
+- Docs: ADR 0001 and 0002 carry addenda for what was never built
+  (gtk4-layer-shell, the `org.panora.Pano1` D-Bus API); `docs/benchmark.md`
+  is a goals-and-method note until the benches exist; 1.0/1.1-era reports
+  and test artefacts describing the abandoned arboard/wl-clipboard design
+  were removed.
+
+### Fixed
+- Switching `history.record_primary` in the settings needed a daemon
+  restart; the capture loop now opens or drops the PRIMARY watch on reload.
+- The GNOME bridge validates its caller: `Push`/`PushMany` are accepted only
+  from the owner of `org.gnome.Shell`, so another session-bus process (a
+  Flatpak with only `--socket=session-bus`, for instance) can no longer
+  inject fabricated entries. The bus signature is unchanged.
+- New backend capability `source_app`: `panora-cli status` shows it and the
+  settings dialog says on plain Wayland sessions that the exclusion list
+  cannot fire there (the data-control protocols expose no client identity).
+- `Cargo.toml`, `panod.service` and the package `Homepage` point at the real
+  repository.
+
+## [1.2.0] - 2026-09-11
 
 ### Zorin OS 18 / Ubuntu 24.04
-- `install.sh` refuses releases older than Ubuntu 24.04 / Debian 13 / Zorin 18 with a clear message, detects a too-old apt `cargo` (1.75) and installs rustup instead, picks the `libglib2.0-0t64` runtime name, installs `libglib2.0-bin` (where `glib-compile-schemas` really lives) and tolerates a broken third-party apt repo.
-- GNOME 46 Wayland bridge: `PushMany` carries text + HTML (or uri-list) per change so bridge entries have the same fidelity as native captures; the daemon recognises the echo of its own recall; a failed bridge service is fatal when capture depends on it; backend detection no longer calls the blocking zbus API inside the runtime (this crashed panod at startup on sessions without `XDG_CURRENT_DESKTOP`).
-- Extension: loads in Zorin's `zorin` session mode, takes `<Super>v` away from GNOME's notification list while enabled (restored on disable), waits for focus to leave the popup before pasting, uses evdev key codes so Ctrl+V works on any layout, activates the popup with a 25 s timeout and only falls back to spawning when no D-Bus service exists.
-- New `panora-doctor` (installed to /usr/bin) diagnoses the session, daemon, extension, D-Bus names, keyring and shortcut conflicts; `scripts/e2e-test.sh` runs a PASS/FAIL functional test of every feature on the real machine; `test-local.sh` runs the doctor first.
+- `install.sh` refuses releases older than Ubuntu 24.04 / Debian 13 / Zorin
+  18 with a clear message, detects a too-old apt `cargo` (1.75) and installs
+  rustup instead, picks the `libglib2.0-0t64` runtime name, installs
+  `libglib2.0-bin` (where `glib-compile-schemas` really lives) and tolerates a
+  broken third-party apt repo.
+- GNOME 46 Wayland bridge: `PushMany` carries text + HTML (or uri-list) per
+  change so bridge entries have the same fidelity as native captures; the
+  daemon recognises the echo of its own recall; a failed bridge service is
+  fatal when capture depends on it; backend detection no longer calls the
+  blocking zbus API inside the runtime (this crashed panod at startup on
+  sessions without `XDG_CURRENT_DESKTOP`).
+- Extension: loads in Zorin's `zorin` session mode, takes `<Super>v` away
+  from GNOME's notification list while enabled (restored on disable), waits
+  for focus to leave the popup before pasting, uses evdev key codes so Ctrl+V
+  works on any layout, activates the popup with a 25 s timeout and only falls
+  back to spawning when no D-Bus service exists.
+- New `panora-doctor` (installed to /usr/bin) diagnoses the session, daemon,
+  extension, D-Bus names, keyring and shortcut conflicts;
+  `scripts/e2e-test.sh` runs a PASS/FAIL functional test of every feature on
+  the real machine; `test-local.sh` runs the doctor first.
 
 ### Daemon
-- Native X11 backend (x11rb): XFIXES change events instead of 180 ms polling, `ConvertSelection` reads with INCR, panod becomes the selection owner on recall and serves every stored format (text + HTML, images) with INCR for large payloads, XTEST instant paste, re-offer of the last entry when the owning application exits. `xclip` is no longer required.
-- Native Wayland backend (wayland-client): `ext-data-control-v1` and `wlr-data-control-v1`, event-driven capture with the MIME list delivered before any payload, multi-format data sources on recall, primary selection support. `wl-clipboard` is no longer required. Consecutive copies of the same type are no longer missed.
-- GNOME bridge backend for GNOME ≤ 47 (no data-control): recall and paste through the Shell extension's new `io.panora.GnomeShell1` service; bridge pushes are ignored when a native backend is active so entries are never duplicated.
-- Live configuration reload (`ReloadConfig`), preserving private mode; retention runs hourly and on every store; evicted or deleted entries release their encrypted blobs unless another entry still references them; revived entries are indexed for search again.
-- `Recall { paste }` synthesizes Ctrl+V after the clipboard is set; `Toggle` activates the GUI over D-Bus; `Status` reports revision, version, protocol and capabilities; SIGTERM shuts down cleanly.
-- FTS5 prefix search (`mer` finds `merhaba`), safe against operator injection.
+- Native X11 backend (x11rb): XFIXES change events instead of 180 ms polling,
+  `ConvertSelection` reads with INCR, panod becomes the selection owner on
+  recall and serves every stored format (text + HTML, images) with INCR for
+  large payloads, XTEST instant paste, re-offer of the last entry when the
+  owning application exits. `xclip` is no longer required.
+- Native Wayland backend (wayland-client): `ext-data-control-v1` and
+  `wlr-data-control-v1`, event-driven capture with the MIME list delivered
+  before any payload, multi-format data sources on recall, primary selection
+  support. `wl-clipboard` is no longer required. Consecutive copies of the
+  same type are no longer missed.
+- GNOME bridge backend for GNOME ≤ 47 (no data-control): recall and paste
+  through the Shell extension's helper service; bridge pushes are ignored
+  when a native backend is active so entries are never duplicated.
+- Live configuration reload (`ReloadConfig`), preserving private mode;
+  retention runs hourly and on every store; evicted or deleted entries
+  release their encrypted blobs unless another entry still references them;
+  revived entries are indexed for search again.
+- `Recall { paste }` synthesizes Ctrl+V after the clipboard is set; `Toggle`
+  activates the GUI over D-Bus; `Status` reports revision, version, protocol
+  and capabilities; SIGTERM shuts down cleanly.
+- FTS5 prefix search (`mer` finds `merhaba`), safe against operator
+  injection.
 
 ### GUI
-- Unique application: Super+V / `panora` / `panora-cli toggle` toggle the popup; D-Bus activation file installed.
-- Turkish and English catalogues (`ui.language`), light/dark/system theme (`ui.theme`).
-- Settings dialog (history limits, PRIMARY recording, private start, excluded applications, language, theme, instant paste) that writes `config.toml` and reloads the daemon.
-- Details view (full text, full-size image, formats, copy as plain text), rich-text and colour filter chips, pagination with "load more", live refresh while open, desktop notification when instant paste is unavailable.
+- Unique application: Super+V / `panora` / `panora-cli toggle` toggle the
+  popup; D-Bus activation file installed.
+- Turkish and English catalogues (`ui.language`), light/dark/system theme
+  (`ui.theme`).
+- Settings dialog (history limits, PRIMARY recording, private start,
+  excluded applications, language, theme, instant paste) that writes
+  `config.toml` and reloads the daemon.
+- Details view (full text, full-size image, formats, copy as plain text),
+  rich-text and colour filter chips, pagination with "load more", live
+  refresh while open, desktop notification when instant paste is
+  unavailable.
 
 ### CLI
-- Shared protocol types from `panora-core`; `--json`, `--kind`, `--pinned`, `--limit`, `--offset`, `copy --paste`, `preview --mime/--out`, `toggle`, `reload`, localized help.
+- Shared protocol types from `panora-core`; `--json`, `--kind`, `--pinned`,
+  `--limit`, `--offset`, `copy --paste`, `preview --mime/--out`, `toggle`,
+  `reload`, localized help.
 
 ### Packaging
-- Review fixes: dialogs no longer lose Escape/Delete/Space to the main window, Super+V toggles through `org.freedesktop.Application.Activate`, the GUI spawned by panod escapes the service sandbox via `systemd-run --user`, package upgrades restart the daemon, `PrivateTmp` dropped so `ydotool` can reach its socket, aspect-correct thumbnails, "copy as plain text" goes through the daemon (`Recall { mime }`), `install.sh` builds as the desktop user and hands display variables to the user session.
-- `io.panora.Panora.desktop` with `DBusActivatable=true`, `io.panora.Panora.service`, `.deb` without xclip/wl-clipboard dependencies (`Suggests: wtype, ydotool`), `install.sh` installs rustup when `cargo` is missing, CI builds the package and runs the new X11 integration tests under Xvfb.
+- Review fixes: dialogs no longer lose Escape/Delete/Space to the main
+  window, Super+V toggles through `org.freedesktop.Application.Activate`, the
+  GUI spawned by panod escapes the service sandbox via `systemd-run --user`,
+  package upgrades restart the daemon, `PrivateTmp` dropped so `ydotool` can
+  reach its socket, aspect-correct thumbnails, "copy as plain text" goes
+  through the daemon (`Recall { mime }`), `install.sh` builds as the desktop
+  user and hands display variables to the user session.
+- Desktop entry with `DBusActivatable=true`, D-Bus service file, `.deb`
+  without xclip/wl-clipboard dependencies (`Suggests: wtype, ydotool`),
+  `install.sh` installs rustup when `cargo` is missing, CI builds the package
+  and runs the new X11 integration tests under Xvfb.
 
-## 1.1.0
+## [1.1.0] - 2026-08-25
 
-- Fix silent keyboard, privacy and packaging failures; add the GNOME extension.
+- Fix silent keyboard, privacy and packaging failures; add the GNOME
+  extension.
 
-## 1.0.0
+## [1.0.0] - 2026-08-18
 
 - First release.
+
+[Unreleased]: https://github.com/ygkali/panora/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/ygkali/panora/releases/tag/v1.2.0
+[1.1.0]: https://github.com/ygkali/panora/releases/tag/v1.1.0
+[1.0.0]: https://github.com/ygkali/panora/releases/tag/v1.0.0

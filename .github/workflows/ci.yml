@@ -15,7 +15,6 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
 
-
 jobs:
   fmt-clippy:
     name: Format & Clippy
@@ -25,12 +24,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
       - name: Install system deps
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-4-dev libadwaita-1-dev
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Docs build without warnings
+        run: cargo doc --workspace --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
 
   test:
     name: Unit & Integration Tests
@@ -38,6 +42,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - name: Install system deps
         run: |
           sudo apt-get update
@@ -51,6 +56,54 @@ jobs:
           DISPLAY=:99 dbus-run-session -- cargo test -p panod --test x11_integration -- --test-threads=1
         env:
           DISPLAY: :99
+
+  keyring:
+    name: Secret Service Integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev gnome-keyring dbus-daemon
+      - name: Master key round trip through gnome-keyring
+        run: scripts/keyring-test.sh
+
+  msrv:
+    name: MSRV (Rust 1.85)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.85
+      - uses: Swatinem/rust-cache@v2
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev
+      - run: cargo check --workspace --all-targets --locked
+
+  shell:
+    name: Shell Scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          shellcheck -S warning install.sh uninstall.sh test-local.sh KUR.sh TEST.sh KALDIR.sh \
+            packaging/build-deb.sh packaging/make-kit.sh \
+            scripts/panora-doctor scripts/e2e-test.sh scripts/security-check.sh scripts/keyring-test.sh
+      - name: bash -n
+        run: |
+          for f in install.sh uninstall.sh test-local.sh packaging/*.sh scripts/panora-doctor scripts/*.sh; do
+            bash -n "$f"
+          done
+      - name: Scripts stay LF
+        run: |
+          ! grep -rlI $'\r' install.sh uninstall.sh test-local.sh packaging scripts gnome-extension
 
   extension-security:
     name: GNOME Extension Security
@@ -89,25 +142,49 @@ jobs:
           manifest-path: ./Cargo.toml
 
   package:
-    name: Release Build & Debian Package (x86_64)
-    runs-on: ubuntu-latest
-    needs: [fmt-clippy, test, extension-security, audit, deny]
+    name: Debian Package (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    needs: [fmt-clippy, test, extension-security, audit, deny, shell]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - name: Install system deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev binutils libglib2.0-dev-bin
+          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev binutils libglib2.0-bin \
+            lintian desktop-file-utils appstream
       - name: Verify lockfile
         run: cargo metadata --locked --no-deps --format-version 1 >/dev/null
+      - name: Validate desktop entry and AppStream metadata
+        run: |
+          desktop-file-validate packaging/io.github.ygkali.Panora.desktop
+          appstreamcli validate --no-net packaging/io.github.ygkali.Panora.metainfo.xml
       - name: Build .deb
         run: ./packaging/build-deb.sh
       - name: Inspect package
         run: |
           dpkg-deb --contents dist/panora_*.deb
           dpkg-deb --field dist/panora_*.deb Depends Recommends Suggests
+      - name: lintian
+        run: lintian --fail-on error,warning --tag-display-limit 0 dist/panora_*.deb
+      - name: Install and smoke-test the package
+        run: |
+          sudo apt-get install -y ./dist/panora_*.deb
+          panora-cli --version
+          panod --version
+          panora-gui --version
+          panora-doctor --json | head -c 400; echo
+          man -w panora-cli panod panora-gui panora-doctor
       - uses: actions/upload-artifact@v4
         with:
-          name: panora-deb
+          name: panora-deb-${{ matrix.arch }}
           path: dist/panora_*.deb

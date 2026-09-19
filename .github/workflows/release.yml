@@ -1,0 +1,117 @@
+name: Release
+
+# A pushed tag `vX.Y.Z` builds the Debian packages for amd64 and arm64, the
+# install kit, checksums and an SBOM, and publishes a GitHub release with the
+# matching CHANGELOG section. `workflow_dispatch` runs the same build without
+# publishing, to try the pipeline on a branch.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  build:
+    name: Package (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev binutils libglib2.0-bin lintian
+      - name: Tag must match Cargo.toml
+        if: github.ref_type == 'tag'
+        run: |
+          version="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n1)"
+          test "v$version" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != v$version"; exit 1; }
+          grep -q "^## \[$version\]" CHANGELOG.md || { echo "CHANGELOG.md has no [$version] section"; exit 1; }
+      - name: Build .deb
+        run: ./packaging/build-deb.sh
+      - name: lintian
+        run: lintian --fail-on error,warning --tag-display-limit 0 dist/panora_*.deb
+      - name: Install kit (amd64 only)
+        if: matrix.arch == 'amd64'
+        run: PANORA_DEB="$(ls dist/panora_*.deb)" ./packaging/make-kit.sh dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: panora-${{ matrix.arch }}
+          path: |
+            dist/panora_*.deb
+            dist/panora-*-install-kit.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: Publish
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      # Secrets cannot be read in `if:`; this flag can.
+      MINISIGN_CONFIGURED: ${{ secrets.MINISIGN_KEY != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          cd artifacts
+          sha256sum panora_*.deb panora-*-install-kit.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+      - name: Sign checksums (when a minisign key is configured)
+        if: env.MINISIGN_CONFIGURED == 'true'
+        env:
+          MINISIGN_KEY: ${{ secrets.MINISIGN_KEY }}
+          MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
+        run: |
+          sudo apt-get update && sudo apt-get install -y minisign
+          printf '%s\n' "$MINISIGN_KEY" > minisign.key
+          printf '%s\n' "$MINISIGN_PASSWORD" | minisign -S -s minisign.key -m artifacts/SHA256SUMS
+          rm -f minisign.key
+      - name: SBOM (SPDX)
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: artifacts/panora-sbom.spdx.json
+          upload-artifact: false
+      - name: Release notes from CHANGELOG
+        if: github.ref_type == 'tag'
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '
+            $0 ~ "^## \\[" v "\\]" { on = 1; next }
+            on && /^## \[/ { exit }
+            on { print }
+          ' CHANGELOG.md > notes.md
+          test -s notes.md || echo "See CHANGELOG.md." > notes.md
+          printf '\n---\nVerify: `sha256sum -c SHA256SUMS --ignore-missing`\n' >> notes.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: panora-release-files
+          path: artifacts/*
+      - name: GitHub release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Panora ${{ github.ref_name }}
+          body_path: notes.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: artifacts/*
