@@ -118,23 +118,8 @@ async fn run_app() -> anyhow::Result<()> {
         }
     });
 
-    let server = daemon.clone();
-    let accept_loop = async move {
-        loop {
-            let (stream, _) = listener.accept().await?;
-            let d = server.clone();
-            tokio::task::spawn_local(async move {
-                if let Err(e) = serve_client(stream, d, socket_uid).await {
-                    warn!(error = %e, "IPC client disconnected");
-                }
-            });
-        }
-        #[allow(unreachable_code)]
-        Ok::<(), anyhow::Error>(())
-    };
-
     let outcome = tokio::select! {
-        result = accept_loop => result,
+        result = serve(listener, daemon.clone(), socket_uid) => result,
         _ = shutdown_signal() => {
             let _ = shutdown_tx.send(()).await;
             info!("panod stopped");
@@ -181,7 +166,27 @@ async fn run_gnome_bridge(daemon: Rc<Daemon>) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn serve_client(
+/// Accept IPC clients until the listener fails; every connection is served
+/// on its own local task. Public so the integration tests can run the real
+/// server against a socket of their own.
+pub async fn serve(
+    listener: UnixListener,
+    daemon: Rc<Daemon>,
+    socket_uid: u32,
+) -> anyhow::Result<()> {
+    loop {
+        let (stream, _) = listener.accept().await?;
+        let d = daemon.clone();
+        tokio::task::spawn_local(async move {
+            if let Err(e) = serve_client(stream, d, socket_uid).await {
+                warn!(error = %e, "IPC client disconnected");
+            }
+        });
+    }
+}
+
+/// Serve one connection: peer UID check, then bounded JSON-lines requests.
+pub async fn serve_client(
     stream: UnixStream,
     daemon: Rc<Daemon>,
     socket_uid: u32,
