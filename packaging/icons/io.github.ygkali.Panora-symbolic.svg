@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Panora symbolic icon (16x16): a clipboard with stacked history lines. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <path fill="#2e3436" d="M6 1a1 1 0 0 0-1 1H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2h-1a1 1 0 0 0-1-1zm0 1h4v1H6zM4 4h1a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1h1v9H4zm1 2v2h6V6zm0 3v1h6V9zm0 2v1h4v-1z"/>
+</svg>

@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright (C) 2026 Panora contributors -->
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<component type="desktop-application">
+  <id>io.github.ygkali.Panora</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
+  <name>Panora</name>
+  <name xml:lang="tr">Panora</name>
+  <summary>Encrypted clipboard history with a Win+V style popup</summary>
+  <summary xml:lang="tr">Win+V tarzı popup ile şifreli pano geçmişi</summary>
+  <developer id="io.github.ygkali">
+    <name>ygkali</name>
+  </developer>
+  <description>
+    <p>
+      Panora records what you copy and lets you bring it back with Super+V:
+      text, rich text, links, files, images and colours are kept together and
+      offered again in every format at once.
+    </p>
+    <p>
+      Everything stays on this machine. Payloads are encrypted with
+      XChaCha20-Poly1305 using a key held in your keyring, password manager
+      copies are never read at all, and a private mode pauses recording. Panora
+      opens no network connections.
+    </p>
+    <p>
+      It talks the X11 and Wayland clipboard protocols natively (no helper
+      processes, no polling), works on GNOME, KDE Plasma, Sway and Hyprland,
+      and ships a GNOME Shell extension for Super+V and for GNOME releases
+      without a clipboard protocol.
+    </p>
+    <p xml:lang="tr">
+      Panora kopyaladıklarınızı kaydeder ve Super+V ile geri getirir: metin,
+      biçimli metin, bağlantı, dosya, görsel ve renkler birlikte saklanır ve
+      tüm biçimleriyle geri sunulur.
+    </p>
+    <p xml:lang="tr">
+      Her şey bu makinede kalır. İçerik anahtarlığınızdaki bir anahtarla
+      XChaCha20-Poly1305 ile şifrelenir, parola yöneticisi kopyaları hiç
+      okunmaz ve özel mod kaydı duraklatır. Panora hiçbir ağ bağlantısı açmaz.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.ygkali.Panora.desktop</launchable>
+  <provides>
+    <binary>panora</binary>
+    <binary>panora-cli</binary>
+    <binary>panod</binary>
+    <dbus type="session">io.github.ygkali.Panora</dbus>
+  </provides>
+  <url type="homepage">https://github.com/ygkali/panora</url>
+  <url type="bugtracker">https://github.com/ygkali/panora/issues</url>
+  <url type="vcs-browser">https://github.com/ygkali/panora</url>
+  <url type="help">https://github.com/ygkali/panora#readme</url>
+  <screenshots>
+    <screenshot type="default">
+      <caption>The history popup with search and type filters</caption>
+      <caption xml:lang="tr">Arama ve tür filtreleriyle geçmiş penceresi</caption>
+      <image>https://raw.githubusercontent.com/ygkali/panora/main/docs/screenshots/popup-light.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Dark style</caption>
+      <caption xml:lang="tr">Koyu tema</caption>
+      <image>https://raw.githubusercontent.com/ygkali/panora/main/docs/screenshots/popup-dark.png</image>
+    </screenshot>
+  </screenshots>
+  <branding>
+    <color type="primary" scheme_preference="light">#99c1f1</color>
+    <color type="primary" scheme_preference="dark">#1a5fb4</color>
+  </branding>
+  <content_rating type="oars-1.1"/>
+  <categories>
+    <category>Utility</category>
+    <category>GTK</category>
+  </categories>
+  <keywords>
+    <keyword>clipboard</keyword>
+    <keyword>history</keyword>
+    <keyword>paste</keyword>
+    <keyword xml:lang="tr">pano</keyword>
+    <keyword xml:lang="tr">geçmiş</keyword>
+  </keywords>
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+    <control>touch</control>
+  </supports>
+  <releases>
+    <release version="1.3.0" date="2026-09-19" type="development">
+      <description>
+        <p>First public release: single-column Win+V style panel, identifiers
+        moved to the io.github.ygkali namespace, live PRIMARY toggle, clap based
+        CLI with man pages and completions, schema migration framework, English
+        installer messages, packaging and CI hardening.</p>
+      </description>
+    </release>
+    <release version="1.2.0" date="2026-09-11">
+      <description>
+        <p>Native X11 and Wayland backends, GNOME bridge for GNOME 47 and
+        older, settings, Turkish and English interface, instant paste,
+        Zorin OS 18 readiness.</p>
+      </description>
+    </release>
+  </releases>
+</component>

@@ -1,0 +1,75 @@
+.TH PANOD 1 "2026-09-19" "panora" "User Commands"
+.SH NAME
+panod \- Panora clipboard history daemon
+.SH SYNOPSIS
+.B panod
+.RB [ \-\-version ]
+.RB [ \-\-help ]
+.SH DESCRIPTION
+.B panod
+watches the CLIPBOARD selection (and, when enabled, PRIMARY) of the running
+desktop session, passes every change through the privacy engine and stores
+the allowed content encrypted on disk. Clients such as
+.BR panora-gui (1)
+and
+.BR panora-cli (1)
+talk to it over a private Unix socket.
+.PP
+The daemon runs in the foreground. The Debian package installs it as the
+.B panod.service
+systemd user unit, which starts with the graphical session; enable it with
+.IP
+.nf
+systemctl \-\-user enable \-\-now panod.service
+.fi
+.SH BACKENDS
+The backend is chosen from the session:
+.TP
+.B x11
+XFIXES change events, native selection ownership on recall (INCR for large
+payloads), XTEST for instant paste.
+.TP
+.B wayland
+.I ext\-data\-control\-v1
+or
+.I zwlr\-data\-control\-v1
+(GNOME 48+, KDE Plasma, Sway, Hyprland, \&...). The protocols expose no client
+identity, so the application exclusion list cannot fire here; the password
+manager MIME gate still applies.
+.TP
+.B gnome\-bridge
+GNOME 47 and older on Wayland: clipboard changes arrive from the Panora GNOME
+Shell extension over the session bus, which must be enabled.
+.SH PRIVACY
+Content flagged by a password manager
+.RI ( x\-kde\-passwordManagerHint ,
+.IR org.nspasteboard.ConcealedType ,
+\&...) is never read. Applications on the exclusion list, and everything while
+private mode is on, are skipped before any payload is transferred.
+.SH FILES
+.TP
+.I ~/.config/panora/config.toml
+Configuration; re-read on
+.B panora-cli reload
+and when the settings dialog saves.
+.TP
+.I ~/.local/share/panora/history.db
+Entry metadata and encrypted previews (SQLite, mode 0600).
+.TP
+.I ~/.local/share/panora/blobs/
+Encrypted, content-addressed payloads.
+.TP
+.I $XDG_RUNTIME_DIR/panora.sock
+IPC socket (mode 0600, peer UID checked).
+.SH ENVIRONMENT
+.TP
+.B RUST_LOG
+Log filter, for example
+.BR info " (default) or " debug .
+Output goes to the journal when started by systemd.
+.SH SEE ALSO
+.BR panora-cli (1),
+.BR panora-gui (1),
+.BR panora-doctor (1)
+.SH BUGS
+https://github.com/ygkali/panora/issues

@@ -1,0 +1,35 @@
+.TH PANORA-DOCTOR 1 "2026-09-19" "panora" "User Commands"
+.SH NAME
+panora-doctor \- diagnose a Panora installation
+.SH SYNOPSIS
+.B panora-doctor
+.RB [ \-\-json ]
+.SH DESCRIPTION
+.B panora-doctor
+checks the operating system, the session type, the installed binaries,
+.BR panod.service ,
+the IPC socket, the active backend, the GNOME Shell extension, the D-Bus
+names, the Secret Service, the Super+V shortcut, the data directory and the
+configuration. Every check prints one line
+.RB ( OK ", " WARN ", " ERROR " or " INFO )
+with a suggested command when something is wrong. It never modifies anything.
+.SH OPTIONS
+.TP
+.B \-\-json
+Print the checks as one JSON document instead of text.
+.SH EXIT STATUS
+.B 0
+unless the daemon itself is unusable (not running, no socket, or
+.B panora-cli status
+failing); warnings never change the exit status.
+.SH ENVIRONMENT
+.TP
+.B PANORA_LANG
+Force the message language
+.RB ( en " or " tr );
+otherwise the locale decides.
+.SH SEE ALSO
+.BR panod (1),
+.BR panora-cli (1)
+.SH BUGS
+https://github.com/ygkali/panora/issues

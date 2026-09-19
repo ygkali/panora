@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Panora application icon. 128x128 GNOME HIG grid: a clipboard whose sheet
+     shows the stacked history, with the newest entry highlighted. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="board" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#62a0ea"/>
+      <stop offset="1" stop-color="#1c71d8"/>
+    </linearGradient>
+    <linearGradient id="clip" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#77767b"/>
+      <stop offset="1" stop-color="#3d3846"/>
+    </linearGradient>
+    <linearGradient id="sheet" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#f6f5f4"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="2"/>
+      <feOffset dy="2" result="o"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.35"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <!-- board -->
+  <rect x="22" y="14" width="84" height="104" rx="12" fill="url(#board)" filter="url(#shadow)"/>
+  <rect x="22" y="14" width="84" height="104" rx="12" fill="none" stroke="#1a5fb4" stroke-width="2"/>
+  <!-- sheet -->
+  <rect x="32" y="30" width="64" height="78" rx="6" fill="url(#sheet)"/>
+  <!-- history rows: newest first, highlighted with the accent colour -->
+  <rect x="40" y="44" width="48" height="12" rx="3" fill="#3584e4"/>
+  <rect x="40" y="62" width="48" height="10" rx="3" fill="#c0bfbc"/>
+  <rect x="40" y="78" width="36" height="10" rx="3" fill="#c0bfbc"/>
+  <rect x="40" y="94" width="42" height="8" rx="3" fill="#deddda"/>
+  <!-- clip -->
+  <rect x="48" y="8" width="32" height="18" rx="5" fill="url(#clip)"/>
+  <rect x="54" y="4" width="20" height="10" rx="4" fill="#5e5c64"/>
+  <rect x="52" y="14" width="24" height="7" rx="2" fill="#241f31" opacity="0.35"/>
+</svg>

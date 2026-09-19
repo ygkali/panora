@@ -1,0 +1,27 @@
+# Third-party licences
+
+Panora's binaries statically link the Rust crates listed here. This file is
+generated with `cargo about generate about.hbs -o THIRD_PARTY_LICENSES.md`
+(configuration in `about.toml`); every licence text appears once, followed by
+the crates distributed under it. Panora itself is GPL-3.0-only (see LICENSE).
+
+## Overview
+
+{{#each overview}}
+- **{{{name}}}** ({{id}}): {{count}} crate{{#if (ne count 1)}}s{{/if}}
+{{/each}}
+
+{{#each licenses}}
+## {{{name}}} ({{id}})
+
+Used by:
+
+{{#each used_by}}
+- {{crate.name}} {{crate.version}}{{#if crate.repository}} ({{crate.repository}}){{/if}}
+{{/each}}
+
+```text
+{{{text}}}
+```
+
+{{/each}}

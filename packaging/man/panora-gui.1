@@ -1,0 +1,64 @@
+.TH PANORA-GUI 1 "2026-09-19" "panora" "User Commands"
+.SH NAME
+panora-gui, panora \- Panora clipboard history popup
+.SH SYNOPSIS
+.B panora
+.RB [ \-\-version ]
+.br
+.B panora-gui
+.RB [ \-\-gapplication\-service ]
+.SH DESCRIPTION
+.B panora-gui
+is the GTK4/libadwaita panel that shows the clipboard history recorded by
+.BR panod (1):
+search as you type, filter by type (text, link, image, file, rich text,
+colour, pinned), pin, delete, inspect an entry and put it back on the
+clipboard. It is a single-instance application: launching it while the panel
+is open closes the panel, which is what Super+V, the launcher entry and
+.B panora-cli toggle
+rely on.
+.SH KEYBOARD
+.TP
+.B Ctrl+F
+Focus the search box.
+.TP
+.B Up, Down, Left, Right
+Move between entries.
+.TP
+.B Enter
+Put the selected entry on the clipboard (and paste it when instant paste is
+enabled), then close.
+.TP
+.B Space
+Open the details view (full text, full-size image, formats).
+.TP
+.B Ctrl+D
+Pin or unpin the selected entry.
+.TP
+.B Delete
+Delete the selected entry.
+.TP
+.B Ctrl+Shift+P
+Toggle private mode.
+.TP
+.B Ctrl+,
+Open settings.
+.TP
+.B Esc
+Clear the search; close when the search is empty.
+.SH OPTIONS
+.TP
+.B \-\-version
+Print the version and exit.
+.TP
+.B \-\-gapplication\-service
+Start as a D-Bus service without showing a window (used by D-Bus activation).
+.SH FILES
+.TP
+.I ~/.config/panora/config.toml
+Settings written by the preferences dialog.
+.SH SEE ALSO
+.BR panod (1),
+.BR panora-cli (1)
+.SH BUGS
+https://github.com/ygkali/panora/issues
