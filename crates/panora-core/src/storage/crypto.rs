@@ -196,7 +196,7 @@ pub fn hex_encode(bytes: &[u8]) -> String {
 /// Hex decoding counterpart of `hex_encode`; None on malformed input.
 pub fn hex_decode(s: &str) -> Option<Vec<u8>> {
     let bytes = s.as_bytes();
-    if bytes.len() % 2 != 0 {
+    if !bytes.len().is_multiple_of(2) {
         return None;
     }
     let val = |c: u8| -> Option<u8> {
@@ -208,7 +208,7 @@ pub fn hex_decode(s: &str) -> Option<Vec<u8>> {
         }
     };
     let mut out = Vec::with_capacity(bytes.len() / 2);
-    for pair in bytes.chunks_exact(2) {
+    for pair in bytes.as_chunks::<2>().0 {
         out.push((val(pair[0])? << 4) | val(pair[1])?);
     }
     Some(out)

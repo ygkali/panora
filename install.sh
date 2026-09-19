@@ -257,9 +257,9 @@ ADW_RUNTIME="$(apt_first_available libadwaita-1-0 libadwaita-1-0t64)"
   adwaita-icon-theme librsvg2-common \
   gnome-keyring
 
-# The workspace declares rust-version 1.85 and Cargo.lock is v4 (cargo 1.78+).
+# The workspace declares rust-version 1.92 (oo7 needs it) and Cargo.lock is v4.
 # Ubuntu 24.04's apt cargo is 1.75, so "some cargo on PATH" is not enough.
-MIN_RUST="1.85"
+MIN_RUST="1.92"
 cargo_version() {
   run_as_desktop_user bash -c 'command -v cargo >/dev/null 2>&1 && cargo --version' 2>/dev/null |
     grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -n1 || true

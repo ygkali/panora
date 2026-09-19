@@ -21,7 +21,7 @@ the issue or pull request title.
 
 ## Building
 
-Debian 13, Ubuntu 24.04 or newer; Rust 1.85+ (rustup); GTK 4.12 and
+Debian 13, Ubuntu 24.04 or newer; Rust 1.92+ (rustup); GTK 4.12 and
 libadwaita 1.5 development packages:
 
 ```sh

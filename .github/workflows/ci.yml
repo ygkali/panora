@@ -69,14 +69,40 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-4-dev libadwaita-1-dev gnome-keyring dbus-daemon
       - name: Master key round trip through gnome-keyring
-        run: scripts/keyring-test.sh
+        run: bash scripts/keyring-test.sh
 
-  msrv:
-    name: MSRV (Rust 1.85)
+  gui-smoke:
+    name: Popup renders under Xvfb
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.85
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev xvfb dbus-x11 imagemagick \
+            adwaita-icon-theme librsvg2-common
+      - name: Render the popup from the fixture data
+        run: bash scripts/capture-screenshots.sh shots
+      - name: The shots must show a window, not a blank screen
+        run: |
+          for f in shots/*.png; do
+            size=$(stat -c %s "$f")
+            echo "$f: $size bytes"
+            test "$size" -gt 10000
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: popup-screenshots
+          path: shots/*.png
+
+  msrv:
+    name: MSRV (Rust 1.92)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.92
       - uses: Swatinem/rust-cache@v2
       - name: Install system deps
         run: |
