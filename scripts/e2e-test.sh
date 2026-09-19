@@ -20,17 +20,17 @@ set -Eeuo pipefail
 
 usage() {
   cat <<'USAGE'
-Kullanım: scripts/e2e-test.sh [seçenekler]
+Usage: scripts/e2e-test.sh [options]
 
-  --install-helpers   xclip ve wl-clipboard eksikse apt ile kur (sudo ister)
-  --safe              geçmişi silen adımları atla (clear, max_entries)
-  --yes               onay sormadan devam et
-  --no-gui            popup aç/kapa testini atla
-  --keep              test kayıtlarını sonunda silme (inceleme için)
-  -h, --help          bu yardım
+  --install-helpers   install xclip and wl-clipboard with apt when missing (asks for sudo)
+  --safe              skip the steps that delete history (clear, max_entries)
+  --yes               continue without asking
+  --no-gui            skip the popup open/close test
+  --keep              keep the test entries at the end (for inspection)
+  -h, --help          this help
 
-Ortam: PANORA_E2E_TIMEOUT (varsayılan 3) bir kaydın görünmesi için
-beklenecek saniye.
+Environment: PANORA_E2E_TIMEOUT (default 3) seconds to wait for an entry to
+appear.
 USAGE
 }
 
@@ -47,15 +47,16 @@ for arg in "$@"; do
     --no-gui) NO_GUI=1 ;;
     --keep) KEEP=1 ;;
     -h|--help) usage; exit 0 ;;
-    *) echo "e2e-test: bilinmeyen seçenek: $arg" >&2; usage >&2; exit 2 ;;
+    *) echo "e2e-test: unknown option: $arg" >&2; usage >&2; exit 2 ;;
   esac
 done
 
+APP_ID="io.github.ygkali.Panora"
+EXT_UUID="panora@ygkali.github.io"
 WAIT_SECS="${PANORA_E2E_TIMEOUT:-3}"
 RUN_ID="$(date +%s)$RANDOM"
 TMP="$(mktemp -d -t panora-e2e.XXXXXX)"
 CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/panora/config.toml"
-EXT_UUID="panora@ygkali.github.io"
 
 PASS_N=0
 FAIL_N=0
@@ -99,7 +100,7 @@ cleanup() {
       rm -f -- "$CONFIG"
     fi
     cli reload >/dev/null 2>&1
-    note "config.toml geri yüklendi."
+    note "config.toml restored."
   fi
   if [[ -n "$PRIVATE_BEFORE" ]]; then
     if [[ "$PRIVATE_BEFORE" == "true" ]]; then
@@ -114,7 +115,7 @@ cleanup() {
       cli unpin "$id" >/dev/null 2>&1
       cli delete "$id" >/dev/null 2>&1
     done
-    note "Test kayıtları silindi (${#CREATED_IDS[@]} adet)."
+    note "Test entries deleted (${#CREATED_IDS[@]})."
   fi
   rm -rf -- "$TMP"
   exit "$rc"
@@ -194,12 +195,12 @@ READER=""        # xclip | wl-paste | ""
 GTK_HELPER=0     # python3 + GTK multi-target offer available
 
 # Note on the GNOME bridge backend (GNOME <= 47 on Wayland): the Shell
-# extension's io.github.ygkali.Panora.GnomeShell1.SetClipboard is deliberately NOT used as
-# a writer. It exists for recalls, and the extension mutes its own
-# owner-changed echo for 1.5 s after the call, so nothing would ever reach
-# panod. X11 clients through XWayland (xclip) are bridged into Mutter's
-# selection and captured like any other app; wl-copy falls back to a
-# transient focus surface on compositors without data-control.
+# extension's SetClipboard helper is deliberately NOT used as a writer. It
+# exists for recalls, and the extension mutes its own owner-changed echo for
+# 1.5 s after the call, so nothing would ever reach panod. X11 clients through
+# XWayland (xclip) are bridged into Mutter's selection and captured like any
+# other app; wl-copy falls back to a transient focus surface on compositors
+# without data-control.
 
 # set_clip MIME FILE -> put one payload on the CLIPBOARD selection.
 set_clip() {
@@ -329,11 +330,11 @@ name_absent() { ! name_has_owner "$1"; }
 
 # ================================================================== start
 
-echo "Panora uçtan uca test  (çalıştırma kimliği $RUN_ID)"
+echo "Panora end-to-end test  (run id $RUN_ID)"
 echo "============================================================"
 
 if ! has panora-cli; then
-  echo "HATA: panora-cli bulunamadı. Önce ./install.sh çalıştırın." >&2
+  echo "ERROR: panora-cli not found. Run ./install.sh first." >&2
   exit 1
 fi
 
@@ -344,12 +345,12 @@ if STATUS="$(cli status 2>&1)"; then
   pass "status ($STATUS)"
 else
   fail "status" "$STATUS"
-  echo "Daemon yanıt vermiyor; devam edilemez. Önce panora-doctor çalıştırın." >&2
+  echo "The daemon is not answering; cannot continue. Run panora-doctor first." >&2
   exit 1
 fi
 
 if [[ "$PRIVATE_BEFORE" == "true" ]]; then
-  note "Özel mod açıktı; test süresince kapatılıyor, sonunda geri açılacak."
+  note "Private mode was on; it is turned off for the test and restored at the end."
   cli private off >/dev/null
 fi
 
@@ -365,7 +366,7 @@ if [[ "$INSTALL_HELPERS" -eq 1 ]]; then
   has xclip || PKGS+=(xclip)
   has wl-copy || PKGS+=(wl-clipboard)
   if [[ ${#PKGS[@]} -gt 0 ]]; then
-    echo "Yardımcı araçlar kuruluyor: ${PKGS[*]}"
+    echo "Installing helper tools: ${PKGS[*]}"
     sudo apt-get install -y "${PKGS[@]}"
   fi
 fi
@@ -397,11 +398,11 @@ elif [[ -n "${WAYLAND_DISPLAY:-}" ]] && has wl-paste && wl-paste --list-types >/
 fi
 
 if [[ -z "$WRITER" ]]; then
-  fail "pano yazma aracı" "xclip / wl-copy yok (GNOME köprüsünde eklentinin SetClipboard'ı yakalanmaz). --install-helpers ile kurun."
-  echo "Pano yazılamadığı için kalan testler çalıştırılamaz." >&2
+  fail "clipboard writer" "no xclip / wl-copy (the extension's SetClipboard is not captured on the GNOME bridge). Install with --install-helpers."
+  echo "The remaining tests cannot run without a clipboard writer." >&2
   exit 1
 fi
-note "backend=$BACKEND oturum=${SESSION:-?} yazıcı=$WRITER okuyucu=${READER:-yok}"
+note "backend=$BACKEND session=${SESSION:-?} writer=$WRITER reader=${READER:-none}"
 
 # GTK helper availability (python3-gi + gir1.2-gtk-3.0); verified live below.
 if has python3 && python3 - >/dev/null 2>&1 <<'PY'
@@ -422,13 +423,13 @@ fi
 # Destructive steps need consent.
 if [[ "$SAFE" -eq 0 && "$YES" -eq 0 ]]; then
   echo
-  echo "UYARI: 'clear' ve 'max_entries' adımları sabitlenmemiş TÜM pano geçmişini siler."
-  echo "       Atlamak için --safe, sormadan devam için --yes kullanın."
+  echo "WARNING: the 'clear' and 'max_entries' steps delete ALL unpinned clipboard history."
+  echo "         Use --safe to skip them or --yes to continue without asking."
   if [[ -t 0 ]]; then
-    read -r -p "Geçmiş silinerek devam edilsin mi? [e/H] " ANSWER
+    read -r -p "Continue and delete history? [y/N] " ANSWER
     [[ "$ANSWER" =~ ^[EeYy]$ ]] || SAFE=1
   else
-    echo "       Etkileşimli değil: yıkıcı adımlar atlanıyor (--yes ile açın)."
+    echo "         Not interactive: destructive steps skipped (enable with --yes)."
     SAFE=1
   fi
 fi
@@ -440,18 +441,18 @@ snapshot
 set_clip_text "$MARKER"
 if TEXT_ID="$(wait_new "^\[text\] .*zqx$RUN_ID")"; then
   CREATED_IDS+=("$TEXT_ID")
-  pass "metin yakalama (id $TEXT_ID)"
+  pass "text capture (id $TEXT_ID)"
 else
-  fail "metin yakalama" "$WAIT_SECS sn içinde listede görünmedi (backend=$BACKEND, yazıcı=$WRITER)"
-  echo "Temel yakalama çalışmadığı için kalan testler anlamsız; panora-doctor çalıştırın." >&2
+  fail "text capture" "did not appear in the list within $WAIT_SECS s (backend=$BACKEND, writer=$WRITER)"
+  echo "Basic capture does not work, so the remaining tests are meaningless; run panora-doctor." >&2
   exit 1
 fi
 
 # 4. FTS prefix search ---------------------------------------------------
 if cli search "zqx" 2>/dev/null | grep -qE "^[* ] +$TEXT_ID \["; then
-  pass "FTS önek araması (zqx -> id $TEXT_ID)"
+  pass "FTS prefix search (zqx -> id $TEXT_ID)"
 else
-  fail "FTS önek araması" "'panora-cli search zqx' kaydı döndürmedi"
+  fail "FTS prefix search" "'panora-cli search zqx' did not return the entry"
 fi
 
 # 5. HTML capture --------------------------------------------------------
@@ -466,7 +467,7 @@ if [[ "$GTK_HELPER" -eq 1 ]]; then
   if HTML_ID="$(wait_new "^\[richtext\] .*$HTML_TEXT")"; then
     HTML_MULTI=1
   else
-    note "GTK çok biçimli yardımcı bu oturumda çalışmadı; tek biçimli araca dönülüyor."
+    note "The GTK multi-format helper did not work in this session; falling back to the single-format tool."
     GTK_HELPER=0
   fi
 fi
@@ -477,21 +478,21 @@ if [[ -z "$HTML_ID" ]]; then
 fi
 if [[ -n "$HTML_ID" ]]; then
   CREATED_IDS+=("$HTML_ID")
-  pass "HTML yakalama -> richtext (id $HTML_ID)"
+  pass "HTML capture -> richtext (id $HTML_ID)"
   PREVIEW="$(cli preview "$HTML_ID" 2>/dev/null || true)"
   if grep -q '^--- text/html' <<<"$PREVIEW"; then
     if grep -qE '^--- (text/plain|UTF8_STRING|STRING|TEXT)' <<<"$PREVIEW"; then
-      pass "richtext önizleme text/html + düz metin sunuyor"
+      pass "richtext preview offers text/html + plain text"
     elif [[ "$HTML_MULTI" -eq 0 ]]; then
-      skip "richtext önizleme düz metin" "$WRITER tek biçim sunar; iki biçim için python3-gi (GTK) gerekir"
+      skip "richtext preview plain text" "$WRITER offers a single format; two formats need python3-gi (GTK)"
     else
-      fail "richtext önizleme düz metin" "text/plain payload'ı kaydedilmedi"
+      fail "richtext preview plain text" "the text/plain payload was not stored"
     fi
   else
-    fail "richtext önizleme" "text/html payload'ı yok: $(head -n3 <<<"$PREVIEW")"
+    fail "richtext preview" "no text/html payload: $(head -n3 <<<"$PREVIEW")"
   fi
 else
-  fail "HTML yakalama" "richtext kaydı görünmedi"
+  fail "HTML capture" "no richtext entry appeared"
 fi
 
 # 6. PNG capture + byte-identical round trip -----------------------------
@@ -520,17 +521,17 @@ if has base64 && has gzip; then
   set_clip "image/png" "$PNG"
   if PNG_ID="$(wait_new '^\[image\]')"; then
     CREATED_IDS+=("$PNG_ID")
-    pass "PNG yakalama -> image (id $PNG_ID)"
+    pass "PNG capture -> image (id $PNG_ID)"
     if cli preview "$PNG_ID" --mime image/png --out "$TMP/back.png" >/dev/null 2>&1 && cmp -s "$PNG" "$TMP/back.png"; then
-      pass "PNG önizleme dışa aktarma bayt bayt aynı ($(stat -c %s "$PNG") bayt)"
+      pass "PNG preview export is byte-identical ($(stat -c %s "$PNG") bytes)"
     else
-      fail "PNG önizleme dışa aktarma" "preview --mime image/png --out çıktısı özgün dosyayla aynı değil"
+      fail "PNG preview export" "preview --mime image/png --out differs from the original file"
     fi
   else
-    fail "PNG yakalama" "image kaydı görünmedi"
+    fail "PNG capture" "no image entry appeared"
   fi
 else
-  skip "PNG yakalama" "base64/gzip yok"
+  skip "PNG capture" "no base64/gzip"
 fi
 
 # 7. file URI list -> files ---------------------------------------------
@@ -550,11 +551,11 @@ if [[ -z "$FILES_ID" && "$BACKEND" != "gnome-bridge" ]]; then
 fi
 if [[ -n "$FILES_ID" ]]; then
   CREATED_IDS+=("$FILES_ID")
-  pass "dosya listesi yakalama -> files (id $FILES_ID)"
+  pass "file list capture -> files (id $FILES_ID)"
 elif [[ "$BACKEND" == "gnome-bridge" ]]; then
-  skip "dosya listesi yakalama" "GNOME köprüsünde eklenti yalnızca text/uri-list iletir; dosya yöneticisinden elle kopyalayıp 'files' türünü doğrulayın"
+  skip "file list capture" "on the GNOME bridge the extension forwards text/uri-list only; copy from the file manager by hand and check for the 'files' kind"
 else
-  fail "dosya listesi yakalama" "files kaydı görünmedi"
+  fail "file list capture" "no files entry appeared"
 fi
 
 # 8. color ---------------------------------------------------------------
@@ -563,9 +564,9 @@ snapshot
 set_clip_text "$COLOR"
 if COLOR_ID="$(wait_new "^\[color\] $COLOR")"; then
   CREATED_IDS+=("$COLOR_ID")
-  pass "renk yakalama $COLOR -> color (id $COLOR_ID)"
+  pass "colour capture $COLOR -> color (id $COLOR_ID)"
 else
-  fail "renk yakalama" "$COLOR için color kaydı görünmedi"
+  fail "colour capture" "no color entry appeared for $COLOR"
 fi
 
 # 9. link ----------------------------------------------------------------
@@ -574,9 +575,9 @@ snapshot
 set_clip_text "$LINK"
 if LINK_ID="$(wait_new "^\[link\] $LINK")"; then
   CREATED_IDS+=("$LINK_ID")
-  pass "bağlantı yakalama -> link (id $LINK_ID)"
+  pass "link capture -> link (id $LINK_ID)"
 else
-  fail "bağlantı yakalama" "link kaydı görünmedi"
+  fail "link capture" "no link entry appeared"
   LINK_ID=""
 fi
 
@@ -584,70 +585,70 @@ fi
 if cli pin "$TEXT_ID" >/dev/null 2>&1 && cli list --pinned 2>/dev/null | grep -qE "^\* +$TEXT_ID \["; then
   pass "pin -> list --pinned"
 else
-  fail "pin" "id $TEXT_ID 'list --pinned' çıktısında '*' ile görünmedi"
+  fail "pin" "id $TEXT_ID did not show up with '*' in 'list --pinned'"
 fi
 if cli unpin "$TEXT_ID" >/dev/null 2>&1 && ! cli list --pinned 2>/dev/null | grep -qE "^[* ] +$TEXT_ID \["; then
-  pass "unpin -> list --pinned dışında"
+  pass "unpin -> gone from list --pinned"
 else
-  fail "unpin" "id $TEXT_ID hâlâ sabitli görünüyor"
+  fail "unpin" "id $TEXT_ID still looks pinned"
 fi
 
 # 11. recall -------------------------------------------------------------
 if cli copy "$TEXT_ID" >/dev/null 2>&1; then
   if [[ -n "$READER" ]]; then
     if wait_until clip_text_is "$MARKER"; then
-      pass "geri çağırma (copy $TEXT_ID) panoya yazdı ($READER ile doğrulandı)"
+      pass "recall (copy $TEXT_ID) wrote the clipboard (verified with $READER)"
     else
-      fail "geri çağırma" "$READER panoda beklenen metni okumadı: '$(read_clip_text | head -c 60 || true)'"
+      fail "recall" "$READER did not read the expected text from the clipboard: '$(read_clip_text | head -c 60 || true)'"
     fi
   else
     top_is_text() { [[ "$(list_all | grep -E '^  +[0-9]+ \[' | head -n1)" =~ $LIST_RE && "${BASH_REMATCH[2]}" == "$TEXT_ID" ]]; }
     if wait_until top_is_text; then
-      pass "geri çağırma (copy $TEXT_ID) kaydı listenin başına taşıdı (okuyucu yok)"
+      pass "recall (copy $TEXT_ID) moved the entry to the top (no reader)"
     else
-      fail "geri çağırma" "kayıt listenin başına gelmedi"
+      fail "recall" "the entry did not move to the top"
     fi
   fi
 else
-  fail "geri çağırma" "panora-cli copy $TEXT_ID başarısız"
+  fail "recall" "panora-cli copy $TEXT_ID failed"
 fi
 
 # 12. recall of HTML entry offers both formats ---------------------------
 if [[ -z "$HTML_ID" ]]; then
-  skip "HTML geri çağırma (iki biçim)" "HTML kaydı yok"
+  skip "HTML recall (two formats)" "no HTML entry"
 elif [[ "$BACKEND" == "gnome-bridge" ]]; then
-  skip "HTML geri çağırma (iki biçim)" "GNOME köprüsü (St.Clipboard) tek biçim sunar; tasarım gereği"
+  skip "HTML recall (two formats)" "the GNOME bridge (St.Clipboard) offers one format by design"
 elif [[ -z "$READER" ]]; then
-  skip "HTML geri çağırma (iki biçim)" "pano okuyucu (xclip/wl-paste) yok"
+  skip "HTML recall (two formats)" "no clipboard reader (xclip/wl-paste)"
 elif [[ "$HTML_MULTI" -eq 0 ]]; then
-  skip "HTML geri çağırma (iki biçim)" "kayıt tek biçimle yakalandı (yazıcı $WRITER)"
+  skip "HTML recall (two formats)" "the entry was captured with one format (writer $WRITER)"
 else
   cli copy "$HTML_ID" >/dev/null 2>&1 || true
   both_offered() { local t; t="$(read_clip_types || true)"; types_have_html "$t" && types_have_text "$t"; }
   if wait_until both_offered; then
-    pass "HTML geri çağırma text/html + düz metin sunuyor"
+    pass "HTML recall offers text/html + plain text"
   else
-    fail "HTML geri çağırma (iki biçim)" "sunulan biçimler: $(read_clip_types | tr '\n' ' ' || true)"
+    fail "HTML recall (two formats)" "offered formats: $(read_clip_types | tr '\n' ' ' || true)"
   fi
 fi
 
 # 13. copy --mime text/plain offers only plain text ----------------------
 if [[ -z "$HTML_ID" ]]; then
-  skip "copy --mime text/plain" "HTML kaydı yok"
+  skip "copy --mime text/plain" "no HTML entry"
 elif [[ -z "$READER" ]]; then
-  skip "copy --mime text/plain" "pano okuyucu yok"
+  skip "copy --mime text/plain" "no clipboard reader"
 elif [[ "$HTML_MULTI" -eq 0 ]]; then
-  skip "copy --mime text/plain" "kayıtta düz metin payload'ı yok (tek biçimli yazıcı); text/html'e düşmesi tasarım gereği"
+  skip "copy --mime text/plain" "the entry has no text/plain payload (single-format writer); falling back to text/html is by design"
 else
   if cli copy "$HTML_ID" --mime text/plain >/dev/null 2>&1; then
     only_text() { local t; t="$(read_clip_types || true)"; types_have_text "$t" && ! types_have_html "$t"; }
     if wait_until only_text; then
-      pass "copy --mime text/plain yalnızca düz metin sunuyor"
+      pass "copy --mime text/plain offers plain text only"
     else
-      fail "copy --mime text/plain" "sunulan biçimler: $(read_clip_types | tr '\n' ' ' || true)"
+      fail "copy --mime text/plain" "offered formats: $(read_clip_types | tr '\n' ' ' || true)"
     fi
   else
-    fail "copy --mime text/plain" "panora-cli copy $HTML_ID --mime text/plain başarısız"
+    fail "copy --mime text/plain" "panora-cli copy $HTML_ID --mime text/plain failed"
   fi
 fi
 
@@ -657,10 +658,10 @@ if [[ -n "$LINK_ID" ]]; then
   if cli delete "$LINK_ID" >/dev/null 2>&1 && wait_until gone; then
     pass "delete (id $LINK_ID)"
   else
-    fail "delete" "id $LINK_ID hâlâ listede"
+    fail "delete" "id $LINK_ID is still listed"
   fi
 else
-  skip "delete" "silinecek link kaydı yok"
+  skip "delete" "no link entry to delete"
 fi
 
 # 15. dedup: A, B, A -> one entry, A on top -------------------------------
@@ -678,12 +679,12 @@ if [[ -n "$A_ID" && -n "$B_ID" ]]; then
   set_clip_text "$DEDUP_A"
   a_on_top() { [[ "$(list_all | grep -E '^  +[0-9]+ \[' | head -n1)" =~ $LIST_RE && "${BASH_REMATCH[2]}" == "$A_ID" ]]; }
   if wait_until a_on_top && [[ "$(count_matching "\[text\] $DEDUP_A\$")" == "1" ]]; then
-    pass "tekilleştirme: aynı metin ikinci kez -> tek kayıt, üste taşındı"
+    pass "dedup: same text a second time -> one entry, moved to the top"
   else
-    fail "tekilleştirme" "kayıt sayısı $(count_matching "\[text\] $DEDUP_A\$"), üstteki: $(list_all | grep -E '^  +[0-9]+ \[' | head -n1)"
+    fail "dedup" "entry count $(count_matching "\[text\] $DEDUP_A\$"), top: $(list_all | grep -E '^  +[0-9]+ \[' | head -n1)"
   fi
 else
-  fail "tekilleştirme" "hazırlık kayıtları yakalanamadı"
+  fail "dedup" "the preparatory entries were not captured"
 fi
 
 # 16. private mode -------------------------------------------------------
@@ -692,41 +693,41 @@ if cli private on >/dev/null 2>&1 && cli status 2>/dev/null | grep -q 'private=t
   snapshot
   set_clip_text "$PRIV_TEXT"
   if PRIV_ID="$(wait_new "$PRIV_TEXT" 2)"; then
-    fail "özel mod" "özel mod açıkken kopyalanan metin kaydedildi (id $PRIV_ID)"
+    fail "private mode" "text copied while private mode was on got recorded (id $PRIV_ID)"
     CREATED_IDS+=("$PRIV_ID")
   else
-    pass "özel mod açık -> kopya kaydedilmedi"
+    pass "private mode on -> copy not recorded"
   fi
   if cli private off >/dev/null 2>&1 && cli status 2>/dev/null | grep -q 'private=false'; then
-    pass "özel mod kapatıldı"
+    pass "private mode turned off"
   else
-    fail "özel mod kapatma" "status private=false göstermiyor"
+    fail "private mode off" "status does not show private=false"
   fi
 else
-  fail "özel mod" "panora-cli private on başarısız"
+  fail "private mode" "panora-cli private on failed"
 fi
 
 # 17. clear keeps pinned (destructive) -----------------------------------
 if [[ "$SAFE" -eq 1 ]]; then
-  skip "clear sabitliyi korur" "--safe (geçmiş silinmedi)"
+  skip "clear keeps pinned" "--safe (history not deleted)"
 else
   cli pin "$TEXT_ID" >/dev/null 2>&1 || true
   if cli clear >/dev/null 2>&1; then
     UNPINNED_LEFT="$(list_all | grep -cE '^  +[0-9]+ \[' || true)"
     if [[ -n "$(entry_line "$TEXT_ID")" && "$UNPINNED_LEFT" == "0" ]]; then
-      pass "clear: sabitli kayıt korundu, sabitsizler silindi"
+      pass "clear: pinned entry kept, unpinned entries deleted"
     else
-      fail "clear" "sabitli id $TEXT_ID: '$(entry_line "$TEXT_ID")', kalan sabitsiz: $UNPINNED_LEFT"
+      fail "clear" "pinned id $TEXT_ID: '$(entry_line "$TEXT_ID")', unpinned left: $UNPINNED_LEFT"
     fi
   else
-    fail "clear" "panora-cli clear başarısız"
+    fail "clear" "panora-cli clear failed"
   fi
   cli unpin "$TEXT_ID" >/dev/null 2>&1 || true
 fi
 
 # 18. config reload: max_entries = 3 (destructive) -----------------------
 if [[ "$SAFE" -eq 1 ]]; then
-  skip "config reload (max_entries=3)" "--safe (geçmiş silinmedi)"
+  skip "config reload (max_entries=3)" "--safe (history not deleted)"
 else
   CONFIG_BACKUP="$TMP/config.toml.bak"
   if [[ -f "$CONFIG" ]]; then
@@ -767,12 +768,12 @@ else
     done
     UNPINNED="$(list_all | grep -cE '^  +[0-9]+ \[' || true)"
     if [[ "$OK_ALL" -eq 1 && "$UNPINNED" -le 3 && "$UNPINNED" -ge 1 ]]; then
-      pass "config reload: max_entries=3 -> 5 kopyadan sonra $UNPINNED sabitsiz kayıt"
+      pass "config reload: max_entries=3 -> $UNPINNED unpinned entries after 5 copies"
     else
-      fail "config reload" "sabitsiz kayıt sayısı $UNPINNED (beklenen <= 3), tüm kopyalar yakalandı: $OK_ALL"
+      fail "config reload" "unpinned entry count $UNPINNED (expected <= 3), all copies captured: $OK_ALL"
     fi
   else
-    fail "config reload" "panora-cli reload başarısız (yazılan dosya: $CONFIG)"
+    fail "config reload" "panora-cli reload failed (file written: $CONFIG)"
   fi
   # Restore right away so the rest of the run and the user get the original.
   if [[ "$CONFIG_EXISTED" -eq 1 ]]; then
@@ -782,9 +783,9 @@ else
   fi
   CONFIG_TOUCHED=0
   if cli reload >/dev/null 2>&1; then
-    pass "config.toml geri yüklendi ve yeniden okundu"
+    pass "config.toml restored and re-read"
   else
-    fail "config geri yükleme" "panora-cli reload başarısız; $CONFIG dosyasını kontrol edin"
+    fail "config restore" "panora-cli reload failed; check $CONFIG"
   fi
 fi
 
@@ -796,38 +797,38 @@ if [[ "$GTK_HELPER" -eq 1 ]]; then
   snapshot
   offer_targets 3 "text/plain=$TMP/secret.bin" "x-kde-passwordManagerHint=$TMP/hint.bin"
   if SECRET_ID="$(wait_new "$SECRET_TEXT" 2)"; then
-    fail "parola yöneticisi bayrağı" "x-kde-passwordManagerHint sunulan içerik kaydedildi (id $SECRET_ID)"
+    fail "password manager hint" "content offered with x-kde-passwordManagerHint was recorded (id $SECRET_ID)"
     CREATED_IDS+=("$SECRET_ID")
   else
-    pass "parola yöneticisi bayrağı (x-kde-passwordManagerHint) -> kaydedilmedi"
+    pass "password manager hint (x-kde-passwordManagerHint) -> not recorded"
   fi
 else
-  skip "parola yöneticisi bayrağı" "iki biçimi birlikte sunmak için python3-gi (GTK3) gerekir; elle: KeePassXC'den kopyalayın, listede görünmemeli"
+  skip "password manager hint" "offering two formats at once needs python3-gi (GTK); by hand: copy from KeePassXC, it must not appear in the list"
 fi
 
 # 20. GUI toggle via D-Bus name ------------------------------------------
 if [[ "$NO_GUI" -eq 1 ]]; then
-  skip "GUI aç/kapa" "--no-gui"
+  skip "GUI open/close" "--no-gui"
 elif [[ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]]; then
-  skip "GUI aç/kapa" "görüntü sunucusu yok"
+  skip "GUI open/close" "no display server"
 elif ! has gdbus && ! has busctl; then
-  skip "GUI aç/kapa" "gdbus/busctl yok"
+  skip "GUI open/close" "no gdbus/busctl"
 else
-  if name_has_owner io.github.ygkali.Panora; then
-    note "Popup zaten açık; önce kapatılıyor."
+  if name_has_owner "$APP_ID"; then
+    note "The popup is already open; closing it first."
     cli toggle >/dev/null 2>&1 || true
-    wait_until name_absent io.github.ygkali.Panora || true
+    wait_until name_absent "$APP_ID" || true
   fi
   WAIT_SAVE="$WAIT_SECS"; WAIT_SECS=6
-  if cli toggle >/dev/null 2>&1 && wait_until name_has_owner io.github.ygkali.Panora; then
-    pass "GUI aç: io.github.ygkali.Panora veriyolunda"
-    if cli toggle >/dev/null 2>&1 && wait_until name_absent io.github.ygkali.Panora; then
-      pass "GUI kapa: io.github.ygkali.Panora veriyolundan ayrıldı"
+  if cli toggle >/dev/null 2>&1 && wait_until name_has_owner "$APP_ID"; then
+    pass "GUI open: $APP_ID on the bus"
+    if cli toggle >/dev/null 2>&1 && wait_until name_absent "$APP_ID"; then
+      pass "GUI close: $APP_ID left the bus"
     else
-      fail "GUI kapa" "ikinci toggle sonrası io.github.ygkali.Panora hâlâ veriyolunda"
+      fail "GUI close" "$APP_ID still on the bus after the second toggle"
     fi
   else
-    fail "GUI aç" "toggle sonrası io.github.ygkali.Panora veriyolunda görünmedi (journalctl --user -u panod.service)"
+    fail "GUI open" "$APP_ID did not appear on the bus after toggle (journalctl --user -u panod.service)"
   fi
   WAIT_SECS="$WAIT_SAVE"
 fi
@@ -837,26 +838,26 @@ if [[ "$IS_GNOME" -eq 1 ]]; then
   if has gnome-extensions; then
     EXT_STATE="$(gnome-extensions info "$EXT_UUID" 2>/dev/null | sed -n 's/^ *State: *//p' | head -n1)"
     if [[ "$EXT_STATE" == "ACTIVE" ]]; then
-      pass "GNOME eklentisi ACTIVE"
+      pass "GNOME extension ACTIVE"
     elif [[ "$BACKEND" == "gnome-bridge" ]]; then
-      fail "GNOME eklentisi" "durum '${EXT_STATE:-yok}'; köprü backend'i eklentisiz yakalayamaz: gnome-extensions enable $EXT_UUID"
+      fail "GNOME extension" "state '${EXT_STATE:-none}'; the bridge backend cannot capture without it: gnome-extensions enable $EXT_UUID"
     else
-      skip "GNOME eklentisi" "durum '${EXT_STATE:-yok}'; Super+V için: gnome-extensions enable $EXT_UUID"
+      skip "GNOME extension" "state '${EXT_STATE:-none}'; for Super+V: gnome-extensions enable $EXT_UUID"
     fi
   else
-    skip "GNOME eklentisi" "gnome-extensions aracı yok"
+    skip "GNOME extension" "no gnome-extensions tool"
   fi
 else
-  skip "GNOME eklentisi" "GNOME dışı masaüstü (bilgi)"
+  skip "GNOME extension" "non-GNOME desktop (info)"
 fi
 
 # ================================================================ summary
 echo
 echo "------------------------------------------------------------"
-echo "Özet: $PASS_N PASS, $FAIL_N FAIL, $SKIP_N SKIP"
+echo "Summary: $PASS_N PASS, $FAIL_N FAIL, $SKIP_N SKIP"
 if [[ "$FAIL_N" -gt 0 ]]; then
-  echo "Sonuç: BAŞARISIZ. Ayrıntı için panora-doctor ve journalctl --user -u panod.service -n 50"
+  echo "Result: FAILED. Details: panora-doctor and journalctl --user -u panod.service -n 50"
   exit 1
 fi
-echo "Sonuç: BAŞARILI."
+echo "Result: PASSED."
 exit 0
