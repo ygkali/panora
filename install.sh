@@ -289,14 +289,14 @@ else
 fi
 
 if command -v gnome-extensions >/dev/null 2>&1; then
-  if run_as_desktop_user gnome-extensions enable panora@panora-clipboard.org 2>/dev/null; then
+  if run_as_desktop_user gnome-extensions enable panora@ygkali.github.io 2>/dev/null; then
     echo "      GNOME eklentisi etkinleştirildi (Super+V)."
   else
     # gnome-shell only discovers a newly installed system extension after it
     # restarts, so this is expected on a first install.
     echo "      GNOME eklentisi henüz etkinleştirilemedi (normal)."
     echo "      Oturumu kapatıp açtıktan sonra:"
-    echo "        gnome-extensions enable panora@panora-clipboard.org"
+    echo "        gnome-extensions enable panora@ygkali.github.io"
   fi
 fi
 

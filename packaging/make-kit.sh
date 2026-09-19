@@ -72,7 +72,7 @@ panora
 GNOME kullanıyorsanız kısayol **Super+V**'dir. Etkinleştirmek için:
 
 ```sh
-gnome-extensions enable panora@panora-clipboard.org
+gnome-extensions enable panora@ygkali.github.io
 ```
 
 Ardından GNOME'u yeniden başlatın (X11'de `Alt+F2` → `r`, Wayland'de oturumu

@@ -25,7 +25,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 /// GApplication id; also the D-Bus name used for activation.
-pub const APP_ID: &str = "io.panora.Panora";
+pub const APP_ID: &str = "io.github.ygkali.Panora";
 
 /// Process-wide state shared by every window builder.
 pub struct App {

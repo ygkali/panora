@@ -46,13 +46,13 @@ install -m 0755 scripts/panora-doctor "$STAGE/usr/bin/panora-doctor"
 ln -s panora-gui "$STAGE/usr/bin/panora"
 
 install -m 0644 packaging/panod.service "$STAGE/usr/lib/systemd/user/panod.service"
-install -m 0644 packaging/io.panora.Panora.desktop "$STAGE/usr/share/applications/io.panora.Panora.desktop"
+install -m 0644 packaging/io.github.ygkali.Panora.desktop "$STAGE/usr/share/applications/io.github.ygkali.Panora.desktop"
 # D-Bus activation: panod and the GNOME extension toggle the popup by name.
-install -m 0644 packaging/io.panora.Panora.service "$STAGE/usr/share/dbus-1/services/io.panora.Panora.service"
+install -m 0644 packaging/io.github.ygkali.Panora.service "$STAGE/usr/share/dbus-1/services/io.github.ygkali.Panora.service"
 install -m 0644 LICENSE "$STAGE/usr/share/doc/panora/copyright"
 
 # GNOME Shell bridge: Super+V, clipboard forwarding on GNOME < 48, paste helper.
-EXT_UUID="panora@panora-clipboard.org"
+EXT_UUID="panora@ygkali.github.io"
 EXT_DIR="$STAGE/usr/share/gnome-shell/extensions/$EXT_UUID"
 install -d "$EXT_DIR/schemas"
 install -m 0644 gnome-extension/metadata.json "$EXT_DIR/metadata.json"
@@ -111,7 +111,7 @@ Depends: $LIBC_DEP, libgtk-4-1 (>= 4.12), libadwaita-1-0 (>= 1.5), libglib2.0-0t
 Recommends: gnome-keyring
 Suggests: wtype, ydotool
 Installed-Size: $INSTALLED_KB
-Maintainer: Panora contributors <panora@panora-clipboard.org>
+Maintainer: ygkali <kompansebuyucu@proton.me>
 Homepage: https://github.com/ygkali/panora
 Description: Secure, lightweight clipboard manager for Debian desktops
  Panora keeps an encrypted clipboard history with a GTK4/libadwaita popup,

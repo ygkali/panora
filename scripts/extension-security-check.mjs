@@ -14,7 +14,7 @@ const required = ["uuid", "name", "description", "shell-version"];
 for (const field of required) {
   if (!(field in metadata)) throw new Error(`metadata missing ${field}`);
 }
-if (metadata.uuid !== "panora@panora-clipboard.org") throw new Error("unexpected extension UUID");
+if (metadata.uuid !== "panora@ygkali.github.io") throw new Error("unexpected extension UUID");
 if (!Array.isArray(metadata["shell-version"]) || metadata["shell-version"].length === 0) {
   throw new Error("shell-version must be a non-empty array");
 }
@@ -22,7 +22,7 @@ if (/\b(eval|Function|fetch|XMLHttpRequest|WebSocket)\s*\(/.test(source)) {
   throw new Error("extension contains a dynamic/network execution primitive");
 }
 if (/https?:\/\//i.test(source)) throw new Error("extension contains an unexpected network URL");
-if (!source.includes("Gio.BusType.SESSION") || !source.includes("io.panora.GnomeBridge1")) {
+if (!source.includes("Gio.BusType.SESSION") || !source.includes("io.github.ygkali.Panora.GnomeBridge1")) {
   throw new Error("extension must use the expected session D-Bus boundary");
 }
 // The helper service the daemon calls back into must stay tiny and fixed.
@@ -30,8 +30,8 @@ const exportedMethods = [...source.matchAll(/<method name="([A-Za-z]+)"/g)].map(
 if (exportedMethods.join(",") !== "Paste,SetClipboard") {
   throw new Error(`unexpected helper methods exported: ${exportedMethods.join(", ")}`);
 }
-if (!source.includes("io.panora.GnomeShell1") || !source.includes("Gio.DBusExportedObject")) {
-  throw new Error("extension must export the io.panora.GnomeShell1 helper");
+if (!source.includes("io.github.ygkali.Panora.GnomeShell1") || !source.includes("Gio.DBusExportedObject")) {
+  throw new Error("extension must export the io.github.ygkali.Panora.GnomeShell1 helper");
 }
 if (/GLib\.spawn_(async|sync|command_line)/.test(source.replace(/\[POPUP_BINARY\]/g, ""))
   && !/GLib\.spawn_async\(null, \[POPUP_BINARY\]/.test(source)) {

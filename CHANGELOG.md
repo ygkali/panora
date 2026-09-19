@@ -12,6 +12,7 @@
 - **RTL:** hizalamalar mutlak `xalign` yerine `halign: Start` kullanıyor, böylece arayüz sağdan sola dillerde aynalanıyor.
 
 ### Daemon ve paketleme
+- **Kimlikler GitHub ad alanına taşındı.** Uygulama kimliği `io.panora.Panora` → `io.github.ygkali.Panora`, D-Bus adları `io.panora.GnomeBridge1` / `io.panora.GnomeShell1` → `io.github.ygkali.Panora.GnomeBridge1` / `io.github.ygkali.Panora.GnomeShell1`, eklenti UUID `panora@panora-clipboard.org` → `panora@ygkali.github.io`, paket bakımcısı `ygkali <kompansebuyucu@proton.me>`. Eski adlar projenin sahibi olmadığı alan adlarına dayanıyordu; Flathub ve extensions.gnome.org bunları kabul etmez. 1.2.0 kurulumundan yükseltirken eski eklenti dizini kaldırılır ve eklentinin yeniden etkinleştirilmesi gerekir.
 - GNOME köprüsü artık çağıranı doğruluyor: `io.panora.GnomeBridge1.Push`/`PushMany` yalnızca `org.gnome.Shell` adının sahibinden kabul ediliyor. Servis oturum veriyolunda olduğu için daha önce her kullanıcı süreci (ör. yalnızca `--socket=session-bus` izinli bir Flatpak) uydurma kayıt enjekte edebiliyordu. Veriyolundaki imza değişmedi, eklenti güncellemesi gerekmiyor.
 - Yeni backend yeteneği `source_app`: kopyalayan uygulamanın adı bilinebiliyor mu? `panora-cli status` bunu `source_app=` olarak yazıyor ve ayarlar penceresi düz Wayland oturumlarında hariç tutma listesinin o oturumda çalışmadığını söylüyor (liste `source_app`'e dayanıyor, data-control protokolü istemci kimliği sunmuyor).
 - `Cargo.toml`, `panod.service` ve paket `Homepage` alanı gerçek depo adresini gösteriyor.

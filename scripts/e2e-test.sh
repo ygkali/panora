@@ -55,7 +55,7 @@ WAIT_SECS="${PANORA_E2E_TIMEOUT:-3}"
 RUN_ID="$(date +%s)$RANDOM"
 TMP="$(mktemp -d -t panora-e2e.XXXXXX)"
 CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/panora/config.toml"
-EXT_UUID="panora@panora-clipboard.org"
+EXT_UUID="panora@ygkali.github.io"
 
 PASS_N=0
 FAIL_N=0
@@ -194,7 +194,7 @@ READER=""        # xclip | wl-paste | ""
 GTK_HELPER=0     # python3 + GTK multi-target offer available
 
 # Note on the GNOME bridge backend (GNOME <= 47 on Wayland): the Shell
-# extension's io.panora.GnomeShell1.SetClipboard is deliberately NOT used as
+# extension's io.github.ygkali.Panora.GnomeShell1.SetClipboard is deliberately NOT used as
 # a writer. It exists for recalls, and the extension mutes its own
 # owner-changed echo for 1.5 s after the call, so nothing would ever reach
 # panod. X11 clients through XWayland (xclip) are bridged into Mutter's
@@ -813,21 +813,21 @@ elif [[ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]]; then
 elif ! has gdbus && ! has busctl; then
   skip "GUI aç/kapa" "gdbus/busctl yok"
 else
-  if name_has_owner io.panora.Panora; then
+  if name_has_owner io.github.ygkali.Panora; then
     note "Popup zaten açık; önce kapatılıyor."
     cli toggle >/dev/null 2>&1 || true
-    wait_until name_absent io.panora.Panora || true
+    wait_until name_absent io.github.ygkali.Panora || true
   fi
   WAIT_SAVE="$WAIT_SECS"; WAIT_SECS=6
-  if cli toggle >/dev/null 2>&1 && wait_until name_has_owner io.panora.Panora; then
-    pass "GUI aç: io.panora.Panora veriyolunda"
-    if cli toggle >/dev/null 2>&1 && wait_until name_absent io.panora.Panora; then
-      pass "GUI kapa: io.panora.Panora veriyolundan ayrıldı"
+  if cli toggle >/dev/null 2>&1 && wait_until name_has_owner io.github.ygkali.Panora; then
+    pass "GUI aç: io.github.ygkali.Panora veriyolunda"
+    if cli toggle >/dev/null 2>&1 && wait_until name_absent io.github.ygkali.Panora; then
+      pass "GUI kapa: io.github.ygkali.Panora veriyolundan ayrıldı"
     else
-      fail "GUI kapa" "ikinci toggle sonrası io.panora.Panora hâlâ veriyolunda"
+      fail "GUI kapa" "ikinci toggle sonrası io.github.ygkali.Panora hâlâ veriyolunda"
     fi
   else
-    fail "GUI aç" "toggle sonrası io.panora.Panora veriyolunda görünmedi (journalctl --user -u panod.service)"
+    fail "GUI aç" "toggle sonrası io.github.ygkali.Panora veriyolunda görünmedi (journalctl --user -u panod.service)"
   fi
   WAIT_SECS="$WAIT_SAVE"
 fi

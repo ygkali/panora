@@ -5,10 +5,10 @@
 //!
 //! Two directions:
 //! * The Shell extension pushes clipboard changes *to* panod through the
-//!   `io.panora.GnomeBridge1` service exported here (needed on GNOME
+//!   `io.github.ygkali.Panora.GnomeBridge1` service exported here (needed on GNOME
 //!   versions without a data-control protocol, where Mutter denies other
 //!   clients clipboard reads).
-//! * panod asks the extension (`io.panora.GnomeShell1`) to set the
+//! * panod asks the extension (`io.github.ygkali.Panora.GnomeShell1`) to set the
 //!   clipboard or to synthesize a paste keystroke, and asks the GUI
 //!   (`org.freedesktop.Application`) to activate for Super+V / `Toggle`.
 
@@ -20,17 +20,17 @@ use tokio::sync::mpsc;
 use tracing::debug;
 
 /// GNOME bridge bus name.
-pub const BUS_NAME: &str = "io.panora.GnomeBridge1";
+pub const BUS_NAME: &str = "io.github.ygkali.Panora.GnomeBridge1";
 /// GNOME bridge object path.
-pub const OBJECT_PATH: &str = "/io/panora/GnomeBridge1";
+pub const OBJECT_PATH: &str = "/io/github/ygkali/Panora/GnomeBridge1";
 /// Bus name owned by the Shell extension's helper service.
-pub const SHELL_BUS_NAME: &str = "io.panora.GnomeShell1";
+pub const SHELL_BUS_NAME: &str = "io.github.ygkali.Panora.GnomeShell1";
 /// Object path of the Shell extension's helper service.
-pub const SHELL_OBJECT_PATH: &str = "/io/panora/GnomeShell1";
+pub const SHELL_OBJECT_PATH: &str = "/io/github/ygkali/Panora/GnomeShell1";
 /// GApplication id of the popup.
-pub const GUI_APP_ID: &str = "io.panora.Panora";
+pub const GUI_APP_ID: &str = "io.github.ygkali.Panora";
 /// D-Bus object path GApplication derives from the id.
-pub const GUI_OBJECT_PATH: &str = "/io/panora/Panora";
+pub const GUI_OBJECT_PATH: &str = "/io/github/ygkali/Panora";
 /// Well-known name GNOME Shell owns on the session bus. The extension runs
 /// inside gnome-shell and pushes over that process's shared session
 /// connection, so a legitimate push always arrives from this name's owner.
@@ -144,7 +144,7 @@ impl GnomeBridge {
 /// Upper bound on formats per `PushMany` call (text, html, uri-list, …).
 const MAX_BRIDGE_PAYLOADS: usize = 8;
 
-#[zbus::interface(name = "io.panora.GnomeBridge1")]
+#[zbus::interface(name = "io.github.ygkali.Panora.GnomeBridge1")]
 impl GnomeBridge {
     /// Receive a clipboard payload from GNOME Shell.
     async fn push(
@@ -228,9 +228,9 @@ impl GnomeBridge {
 }
 
 #[zbus::proxy(
-    interface = "io.panora.GnomeShell1",
-    default_service = "io.panora.GnomeShell1",
-    default_path = "/io/panora/GnomeShell1"
+    interface = "io.github.ygkali.Panora.GnomeShell1",
+    default_service = "io.github.ygkali.Panora.GnomeShell1",
+    default_path = "/io/github/ygkali/Panora/GnomeShell1"
 )]
 trait Shell {
     /// Put one payload on the clipboard through St.Clipboard.
@@ -241,8 +241,8 @@ trait Shell {
 
 #[zbus::proxy(
     interface = "org.freedesktop.Application",
-    default_service = "io.panora.Panora",
-    default_path = "/io/panora/Panora"
+    default_service = "io.github.ygkali.Panora",
+    default_path = "/io/github/ygkali/Panora"
 )]
 trait FreedesktopApplication {
     fn activate(&self, platform_data: HashMap<&str, zbus::zvariant::Value<'_>>)

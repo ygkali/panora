@@ -25,15 +25,15 @@ import St from 'gi://St';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
-const BRIDGE_NAME = 'io.panora.GnomeBridge1';
-const BRIDGE_PATH = '/io/panora/GnomeBridge1';
-const HELPER_NAME = 'io.panora.GnomeShell1';
-const HELPER_PATH = '/io/panora/GnomeShell1';
+const BRIDGE_NAME = 'io.github.ygkali.Panora.GnomeBridge1';
+const BRIDGE_PATH = '/io/github/ygkali/Panora/GnomeBridge1';
+const HELPER_NAME = 'io.github.ygkali.Panora.GnomeShell1';
+const HELPER_PATH = '/io/github/ygkali/Panora/GnomeShell1';
 const KEYBINDING = 'toggle-popup';
 const RESTORE_KEY = 'restore-message-tray';
-const APP_BUS_NAME = 'io.panora.Panora';
-const APP_OBJECT_PATH = '/io/panora/Panora';
-const APP_DESKTOP_ID = 'io.panora.Panora.desktop';
+const APP_BUS_NAME = 'io.github.ygkali.Panora';
+const APP_OBJECT_PATH = '/io/github/ygkali/Panora';
+const APP_DESKTOP_ID = 'io.github.ygkali.Panora.desktop';
 // Where the Debian package installs the popup (fallback when the desktop
 // entry is not visible to the Shell, e.g. source installs).
 const POPUP_BINARY = '/usr/bin/panora';

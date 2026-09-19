@@ -214,8 +214,8 @@ else
   fi
 fi
 
-for f in /usr/share/dbus-1/services/io.panora.Panora.service \
-         /usr/share/applications/io.panora.Panora.desktop \
+for f in /usr/share/dbus-1/services/io.github.ygkali.Panora.service \
+         /usr/share/applications/io.github.ygkali.Panora.desktop \
          /usr/lib/systemd/user/panod.service; do
   if [[ -f "$f" ]]; then
     check OK "$(basename "$f")" "$f"
@@ -321,7 +321,7 @@ fi
 
 section "GNOME entegrasyonu"
 
-EXT_UUID="panora@panora-clipboard.org"
+EXT_UUID="panora@ygkali.github.io"
 EXT_STATE=""
 EXT_ENABLED=""
 EXT_DIR=""
@@ -367,42 +367,42 @@ else
 fi
 
 # D-Bus names.
-if bus_has_name io.panora.GnomeBridge1; then
-  check OK "io.panora.GnomeBridge1" "oturum veriyolunda (panod)"
+if bus_has_name io.github.ygkali.Panora.GnomeBridge1; then
+  check OK "io.github.ygkali.Panora.GnomeBridge1" "oturum veriyolunda (panod)"
 else
   rc=$?
   if [[ "$rc" -eq 2 ]]; then
-    check UYARI "io.panora.GnomeBridge1" "kontrol edilemedi (gdbus/busctl yok)" "sudo apt install -y libglib2.0-bin"
+    check UYARI "io.github.ygkali.Panora.GnomeBridge1" "kontrol edilemedi (gdbus/busctl yok)" "sudo apt install -y libglib2.0-bin"
   elif [[ "$BACKEND" == "gnome-bridge" ]]; then
-    check HATA "io.panora.GnomeBridge1" "veriyolunda değil" \
+    check HATA "io.github.ygkali.Panora.GnomeBridge1" "veriyolunda değil" \
       "panod D-Bus servisini kaydedemedi; journalctl --user -u panod.service -n 50"
   else
-    check UYARI "io.panora.GnomeBridge1" "veriyolunda değil" \
+    check UYARI "io.github.ygkali.Panora.GnomeBridge1" "veriyolunda değil" \
       "panod çalışmıyor ya da oturum veriyoluna bağlanamadı (DBUS_SESSION_BUS_ADDRESS)."
   fi
 fi
 
-if bus_has_name io.panora.GnomeShell1; then
-  check OK "io.panora.GnomeShell1" "oturum veriyolunda (Shell eklentisi)"
+if bus_has_name io.github.ygkali.Panora.GnomeShell1; then
+  check OK "io.github.ygkali.Panora.GnomeShell1" "oturum veriyolunda (Shell eklentisi)"
 else
   rc=$?
   if [[ "$rc" -eq 2 ]]; then
-    check UYARI "io.panora.GnomeShell1" "kontrol edilemedi (gdbus/busctl yok)" "sudo apt install -y libglib2.0-bin"
+    check UYARI "io.github.ygkali.Panora.GnomeShell1" "kontrol edilemedi (gdbus/busctl yok)" "sudo apt install -y libglib2.0-bin"
   elif [[ "$IS_GNOME" -eq 1 ]]; then
-    check UYARI "io.panora.GnomeShell1" "veriyolunda değil" \
+    check UYARI "io.github.ygkali.Panora.GnomeShell1" "veriyolunda değil" \
       "Eklenti etkin değil ya da gnome-shell yeniden başlatılmadı: gnome-extensions enable $EXT_UUID"
   else
-    check BILGI "io.panora.GnomeShell1" "GNOME dışı masaüstünde beklenmez"
+    check BILGI "io.github.ygkali.Panora.GnomeShell1" "GNOME dışı masaüstünde beklenmez"
   fi
 fi
 
-if bus_has_name io.panora.Panora; then
-  check BILGI "io.panora.Panora" "popup şu anda açık"
-elif bus_activatable io.panora.Panora; then
-  check OK "io.panora.Panora" "D-Bus ile etkinleştirilebilir"
+if bus_has_name io.github.ygkali.Panora; then
+  check BILGI "io.github.ygkali.Panora" "popup şu anda açık"
+elif bus_activatable io.github.ygkali.Panora; then
+  check OK "io.github.ygkali.Panora" "D-Bus ile etkinleştirilebilir"
 else
-  check UYARI "io.panora.Panora" "etkinleştirilebilir değil" \
-    "/usr/share/dbus-1/services/io.panora.Panora.service eksik; paketi yeniden kurun."
+  check UYARI "io.github.ygkali.Panora" "etkinleştirilebilir değil" \
+    "/usr/share/dbus-1/services/io.github.ygkali.Panora.service eksik; paketi yeniden kurun."
 fi
 
 # Super+V conflicts.

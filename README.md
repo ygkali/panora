@@ -48,7 +48,7 @@ panora-cli status
 GUI `panora` veya `panora-gui` ile açılır; ikinci çağrı açık pencereyi kapatır. GNOME'da Super+V kısayolu eklenti etkinleştirildiğinde çalışır:
 
 ```sh
-gnome-extensions enable panora@panora-clipboard.org
+gnome-extensions enable panora@ygkali.github.io
 ```
 
 ### Pencere içi klavye kısayolları

@@ -57,10 +57,10 @@ elif [[ -n "${DISPLAY:-}" ]] && command -v xclip >/dev/null 2>&1; then
   echo "X11 clipboard testi (xclip)..."
   printf '%s\n' "$MARKER" | xclip -selection clipboard -in -t text/plain
   COPIED=1
-elif command -v gdbus >/dev/null 2>&1 && gdbus introspect --session --dest io.panora.GnomeShell1 --object-path /io/panora/GnomeShell1 >/dev/null 2>&1; then
+elif command -v gdbus >/dev/null 2>&1 && gdbus introspect --session --dest io.github.ygkali.Panora.GnomeShell1 --object-path /io/github/ygkali/Panora/GnomeShell1 >/dev/null 2>&1; then
   echo "GNOME Shell yardımcı servisi üzerinden clipboard testi..."
-  gdbus call --session --dest io.panora.GnomeShell1 --object-path /io/panora/GnomeShell1 \
-    --method io.panora.GnomeShell1.SetClipboard "text/plain" "[$(printf '%s' "$MARKER" | od -An -tu1 | tr -s ' \n' ',,' | sed 's/^,//; s/,$//')]" >/dev/null
+  gdbus call --session --dest io.github.ygkali.Panora.GnomeShell1 --object-path /io/github/ygkali/Panora/GnomeShell1 \
+    --method io.github.ygkali.Panora.GnomeShell1.SetClipboard "text/plain" "[$(printf '%s' "$MARKER" | od -An -tu1 | tr -s ' \n' ',,' | sed 's/^,//; s/,$//')]" >/dev/null
   COPIED=1
 else
   echo "Uyarı: panoya yazacak bir araç yok (wl-copy, xclip veya GNOME eklentisi)."

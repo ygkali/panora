@@ -41,7 +41,7 @@ systemctl --user enable --now panod.service
 systemctl --user status panod.service
 ```
 
-Paket şunları kurar: `/usr/bin/panod`, `/usr/bin/panora-gui` (+ `panora` sembolik bağı), `/usr/bin/panora-cli`, `/usr/lib/systemd/user/panod.service`, `/usr/share/applications/io.panora.Panora.desktop`, `/usr/share/dbus-1/services/io.panora.Panora.service` ve GNOME eklentisi `/usr/share/gnome-shell/extensions/panora@panora-clipboard.org`.
+Paket şunları kurar: `/usr/bin/panod`, `/usr/bin/panora-gui` (+ `panora` sembolik bağı), `/usr/bin/panora-cli`, `/usr/lib/systemd/user/panod.service`, `/usr/share/applications/io.github.ygkali.Panora.desktop`, `/usr/share/dbus-1/services/io.github.ygkali.Panora.service` ve GNOME eklentisi `/usr/share/gnome-shell/extensions/panora@ygkali.github.io`.
 
 Popup: `panora` (ikinci çağrı açık pencereyi kapatır). Daemon ve CLI:
 
@@ -157,8 +157,8 @@ sudo apt install -y librsvg2-common adwaita-icon-theme
 **Super+V çalışmıyor.** GNOME eklentisi paketle birlikte kurulur ama gnome-shell onu ancak yeniden başladıktan sonra görür. Oturumu kapatıp açın, sonra:
 
 ```bash
-gnome-extensions enable panora@panora-clipboard.org
-gnome-extensions info panora@panora-clipboard.org
+gnome-extensions enable panora@ygkali.github.io
+gnome-extensions info panora@ygkali.github.io
 ```
 
 Eklenti olmadan da panod (GNOME 48+ ve diğer masaüstlerinde) pano geçmişini toplamaya devam eder; popup'ı `panora` komutuyla, uygulama menüsünden veya `panora-cli toggle` ile açabilirsiniz. Başka bir masaüstünde kısayol için `panora-cli toggle` komutunu masaüstünüzün kısayol ayarlarına bağlayın.
