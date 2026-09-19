@@ -11,7 +11,7 @@ use gtk4 as gtk;
 use libadwaita as adw;
 use libadwaita::prelude::*;
 use panora_core::i18n::{fill, Strings};
-use panora_core::ipc::{QueryRequest, Request, ResponseData};
+use panora_core::ipc::{health, HealthItem, QueryRequest, Request, ResponseData};
 use panora_core::model::{ContentKind, Entry};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -86,6 +86,10 @@ pub struct Ui {
     pub toasts: adw::ToastOverlay,
     title: adw::WindowTitle,
     banner: adw::Banner,
+    /// The daemon's first health finding, with a button when it has a fix.
+    health_banner: adw::Banner,
+    /// Code of the finding the health banner currently shows.
+    health_code: RefCell<Option<String>>,
     search: gtk::SearchEntry,
     flow: gtk::FlowBox,
     stack: gtk::Stack,
@@ -186,6 +190,10 @@ pub fn build(app: &adw::Application, state: &Rc<App>) {
 
     let banner = adw::Banner::new(s.banner_private);
     banner.set_revealed(false);
+    // Its own banner, so a paused capture and a missing extension can both
+    // be on screen.
+    let health_banner = adw::Banner::new("");
+    health_banner.set_revealed(false);
 
     let flow = gtk::FlowBox::new();
     flow.set_selection_mode(gtk::SelectionMode::Single);
@@ -257,6 +265,7 @@ pub fn build(app: &adw::Application, state: &Rc<App>) {
 
     let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
     content.append(&banner);
+    content.append(&health_banner);
     content.append(&search);
     content.append(&chips);
     content.append(&stack);
@@ -277,6 +286,8 @@ pub fn build(app: &adw::Application, state: &Rc<App>) {
         toasts,
         title,
         banner,
+        health_banner,
+        health_code: RefCell::new(None),
         search: search.clone(),
         flow: flow.clone(),
         stack,
@@ -296,6 +307,7 @@ pub fn build(app: &adw::Application, state: &Rc<App>) {
     build_chips(&ui, &chips);
     build_menu(&ui, &menu_button);
     connect_retry(&ui);
+    connect_health_banner(&ui);
 
     {
         let ui = ui.clone();
@@ -665,11 +677,88 @@ fn sync_status(ui: &Rc<Ui>) -> bool {
         ui.private.set_active(status.private_mode);
         ui.suppress_private.set(false);
         ui.banner.set_revealed(status.private_mode);
+        show_health(ui, &status.health);
         let changed = ui.revision.get() != status.revision;
         ui.revision.set(status.revision);
         return changed;
     }
     false
+}
+
+/// Show the first health finding the daemon reports. Known codes get this
+/// file's wording and, where one exists, a button that applies the fix;
+/// anything else shows the daemon's own message.
+fn show_health(ui: &Rc<Ui>, health: &[HealthItem]) {
+    let Some(item) = health.first() else {
+        ui.health_code.replace(None);
+        ui.health_banner.set_revealed(false);
+        return;
+    };
+    if ui.health_code.borrow().as_deref() != Some(item.code.as_str()) {
+        let (title, button) = match item.code.as_str() {
+            health::EXTENSION_MISSING => (
+                ui.s.health_extension_missing.to_string(),
+                Some(ui.s.health_extension_enable),
+            ),
+            _ => (item.message.clone(), None),
+        };
+        ui.health_banner.set_title(&title);
+        ui.health_banner.set_button_label(button);
+        ui.health_code.replace(Some(item.code.clone()));
+    }
+    ui.health_banner.set_revealed(true);
+}
+
+/// The health banner's button runs the fix for the finding on show.
+fn connect_health_banner(ui: &Rc<Ui>) {
+    let handler = ui.clone();
+    ui.health_banner.connect_button_clicked(move |_| {
+        let code = handler.health_code.borrow().clone();
+        if code.as_deref() == Some(health::EXTENSION_MISSING) {
+            enable_extension(&handler);
+        }
+    });
+}
+
+/// `gnome-extensions enable` for the Panora extension, off the main loop.
+/// The outcome lands in a toast; the banner itself clears once the daemon
+/// sees the extension on the bus.
+fn enable_extension(ui: &Rc<Ui>) {
+    use gtk::gio::{Subprocess, SubprocessFlags};
+    let argv = ["gnome-extensions", "enable", health::EXTENSION_UUID];
+    let process = match Subprocess::newv(
+        &argv.map(std::ffi::OsStr::new),
+        SubprocessFlags::STDOUT_SILENCE | SubprocessFlags::STDERR_PIPE,
+    ) {
+        Ok(process) => process,
+        Err(e) => {
+            toast(
+                ui,
+                &fill(ui.s.toast_extension_enable_failed, "e", &e.to_string()),
+            );
+            return;
+        }
+    };
+    let ui = ui.clone();
+    let finished = process.clone();
+    process.communicate_utf8_async(
+        None,
+        None::<&gtk::gio::Cancellable>,
+        move |result| match result {
+            Ok(_) if finished.is_successful() => toast(&ui, ui.s.toast_extension_enabled),
+            Ok((_, stderr)) => {
+                let reason = stderr
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| format!("exit status {}", finished.exit_status()));
+                toast(&ui, &fill(ui.s.toast_extension_enable_failed, "e", &reason));
+            }
+            Err(e) => toast(
+                &ui,
+                &fill(ui.s.toast_extension_enable_failed, "e", &e.to_string()),
+            ),
+        },
+    );
 }
 
 /// Poll the daemon revision so copies made while the popup is open appear.

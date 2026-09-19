@@ -500,11 +500,12 @@ fn print_response(
         ResponseData::Status(status) => {
             let caps = &status.capabilities;
             println!(
-                "backend={} entries={} private={} version={} protocol={} revision={} \
-                 primary={} persist={} paste={} source_app={} needs_bridge={}",
+                "backend={} entries={} private={} locked={} version={} protocol={} \
+                 revision={} primary={} persist={} paste={} source_app={} needs_bridge={}",
                 status.backend,
                 status.entries,
                 status.private_mode,
+                status.locked,
                 status.version,
                 status.protocol,
                 status.revision,
@@ -514,6 +515,9 @@ fn print_response(
                 caps.source_app,
                 caps.needs_bridge
             );
+            for item in &status.health {
+                println!("health={} {}", item.code, item.message);
+            }
         }
         ResponseData::Count(count) => println!("{}", fill(s.cli_count, "n", &count.to_string())),
         ResponseData::Payloads(payloads) => {

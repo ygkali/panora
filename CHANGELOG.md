@@ -51,6 +51,11 @@ real-machine verification in `docs/RELEASING.md` is done.
   panod journal, the extension state and the configuration, with the home
   directory, user name and host name replaced, `ignore_patterns` left out
   and no clipboard content.
+- `Status` carries `health` findings with stable codes. The first one,
+  `extension_missing`, is set when capture depends on the GNOME Shell
+  extension and it is not on the bus: the popup shows a banner with an
+  **Enable** button that runs `gnome-extensions enable`, and
+  `panora-cli status` prints the finding.
 - Recording pauses while the session is locked (`org.gnome.ScreenSaver` /
   `org.freedesktop.ScreenSaver` `ActiveChanged`); `panora-cli status` shows
   `locked`.

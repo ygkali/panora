@@ -114,6 +114,15 @@ async fn run_app() -> anyhow::Result<()> {
         }
     });
 
+    if bridge_required {
+        let extension_watcher = daemon.clone();
+        tokio::task::spawn_local(async move {
+            if let Err(e) = watch_shell_extension(extension_watcher).await {
+                warn!(error = %e, "Shell extension watcher unavailable; status cannot report a missing extension");
+            }
+        });
+    }
+
     let maintenance = daemon.clone();
     tokio::task::spawn_local(async move {
         let mut ticker = tokio::time::interval(MAINTENANCE_INTERVAL);
@@ -186,6 +195,45 @@ async fn watch_screen_lock(daemon: Rc<Daemon>) -> zbus::Result<()> {
         match message.body().deserialize::<bool>() {
             Ok(active) => daemon.set_locked(active),
             Err(e) => warn!(error = %e, "unexpected ActiveChanged body"),
+        }
+    }
+    Ok(())
+}
+
+/// Follow the Shell extension's bus name so `Status` can say when a GNOME
+/// Wayland session has nothing feeding the daemon: an initial `NameHasOwner`,
+/// then every `NameOwnerChanged` for that name.
+async fn watch_shell_extension(daemon: Rc<Daemon>) -> zbus::Result<()> {
+    use futures::StreamExt as _;
+    let connection = zbus::Connection::session().await?;
+    let bus = zbus::fdo::DBusProxy::new(&connection).await?;
+    let rule = zbus::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .sender("org.freedesktop.DBus")?
+        .interface("org.freedesktop.DBus")?
+        .member("NameOwnerChanged")?
+        .arg(0, gnome::SHELL_BUS_NAME)?
+        .build();
+    bus.add_match_rule(rule).await?;
+    let name = zbus::names::BusName::try_from(gnome::SHELL_BUS_NAME)?;
+    daemon.set_extension_present(bus.name_has_owner(name).await?);
+    let mut stream = zbus::MessageStream::from(&connection);
+    while let Some(message) = stream.next().await {
+        let message = message?;
+        let header = message.header();
+        let is_owner_signal = header.message_type() == zbus::message::Type::Signal
+            && header
+                .member()
+                .is_some_and(|m| m.as_str() == "NameOwnerChanged");
+        if !is_owner_signal {
+            continue;
+        }
+        match message.body().deserialize::<(String, String, String)>() {
+            Ok((name, _, new_owner)) if name == gnome::SHELL_BUS_NAME => {
+                daemon.set_extension_present(!new_owner.is_empty());
+            }
+            Ok(_) => {}
+            Err(e) => warn!(error = %e, "unexpected NameOwnerChanged body"),
         }
     }
     Ok(())

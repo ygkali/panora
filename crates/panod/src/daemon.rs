@@ -7,7 +7,7 @@
 use panora_core::backend::{ClipboardBackend, ClipboardEvent, EventKind};
 use panora_core::config::Config;
 use panora_core::error::{Error, Result};
-use panora_core::ipc::{CapabilityData, StatusData, PROTOCOL_VERSION};
+use panora_core::ipc::{health, CapabilityData, HealthItem, StatusData, PROTOCOL_VERSION};
 use panora_core::model::{ClipboardData, ContentKind, Entry, MimePayload, Selection};
 use panora_core::privacy::{ContentFilters, PrivacyEngine};
 use panora_core::storage::{BlobStore, Database, QueryFilter};
@@ -85,6 +85,10 @@ pub struct Daemon {
     /// The session is locked (screensaver active). Nothing copied on the
     /// lock screen is recorded; unlike private mode this is not user state.
     locked: std::sync::atomic::AtomicBool,
+    /// The GNOME Shell extension owns its bus name (only meaningful when the
+    /// backend needs the bridge). Assumed true until the watcher reports, so
+    /// a slow bus never produces a false warning at startup.
+    extension_present: std::sync::atomic::AtomicBool,
 }
 
 /// How long a deleted entry can be brought back with `restore` before its
@@ -155,6 +159,7 @@ impl Daemon {
             last_recall: Mutex::new(None),
             config_epoch: tokio::sync::watch::channel(0).0,
             locked: std::sync::atomic::AtomicBool::new(false),
+            extension_present: std::sync::atomic::AtomicBool::new(true),
         }
     }
 
@@ -169,6 +174,36 @@ impl Daemon {
             info!(locked, "session lock state changed");
             self.bump();
         }
+    }
+
+    /// Whether the GNOME Shell extension currently owns its bus name.
+    pub fn extension_present(&self) -> bool {
+        self.extension_present.load(Ordering::Relaxed)
+    }
+
+    /// Record the extension appearing on or leaving the bus; the revision
+    /// moves so open popups pick the change up on their next poll.
+    pub fn set_extension_present(&self, present: bool) {
+        if self.extension_present.swap(present, Ordering::Relaxed) != present {
+            info!(present, "GNOME Shell extension presence changed");
+            self.bump();
+        }
+    }
+
+    /// Findings the clients should put in front of the user.
+    fn health(&self) -> Vec<HealthItem> {
+        let mut items = Vec::new();
+        if self.backend.capabilities().needs_bridge && !self.extension_present() {
+            items.push(HealthItem {
+                code: health::EXTENSION_MISSING.into(),
+                message: format!(
+                    "The GNOME Shell extension is not running, so nothing is recorded on \
+                     this session. Enable it with: gnome-extensions enable {}",
+                    health::EXTENSION_UUID
+                ),
+            });
+        }
+        items
     }
 
     /// Whether recording is paused.
@@ -262,6 +297,7 @@ impl Daemon {
                 needs_bridge: caps.needs_bridge,
             },
             locked: self.locked(),
+            health: self.health(),
         })
     }
 
@@ -2107,6 +2143,48 @@ mod tests {
             offered_mimes: vec!["text/plain;charset=utf-8".into(), "text/plain".into()],
             source_app: app.map(str::to_string),
         }
+    }
+
+    #[tokio::test]
+    async fn health_reports_a_missing_extension_only_when_capture_needs_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let (daemon, _backend) = test_daemon(&dir);
+        daemon.set_extension_present(false);
+        assert!(
+            daemon.status().unwrap().health.is_empty(),
+            "a backend that captures on its own has no use for the extension"
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        let daemon = Daemon::new(
+            Arc::new(BridgeMock(MockBackend::new())),
+            Database::open(
+                dir.path().join("history.db"),
+                Cipher::new(&MasterKey::generate()),
+            )
+            .unwrap(),
+            BlobStore::open(
+                dir.path().join("blobs"),
+                Cipher::new(&MasterKey::generate()),
+            )
+            .unwrap(),
+            Config::default(),
+            Arc::new(NoopSync),
+            "test-device".into(),
+        );
+        assert!(
+            daemon.status().unwrap().health.is_empty(),
+            "presence is assumed until the watcher reports"
+        );
+        let revision = daemon.revision();
+        daemon.set_extension_present(false);
+        let health = daemon.status().unwrap().health;
+        assert_eq!(health.len(), 1);
+        assert_eq!(health[0].code, health::EXTENSION_MISSING);
+        assert!(health[0].message.contains(health::EXTENSION_UUID));
+        assert!(daemon.revision() > revision, "clients poll the revision");
+        daemon.set_extension_present(true);
+        assert!(daemon.status().unwrap().health.is_empty());
     }
 
     #[tokio::test]

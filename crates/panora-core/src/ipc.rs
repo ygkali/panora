@@ -224,6 +224,29 @@ pub struct StatusData {
     /// until it unlocks, independently of private mode.
     #[serde(default)]
     pub locked: bool,
+    /// Conditions the user can act on. Each carries a stable code the
+    /// clients key their guidance on (see `health`) and a plain English
+    /// message for clients that know no better.
+    #[serde(default)]
+    pub health: Vec<HealthItem>,
+}
+
+/// One health finding of the daemon.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HealthItem {
+    /// Stable identifier, one of the constants in `health`.
+    pub code: String,
+    /// What is wrong and what to do about it, in English.
+    pub message: String,
+}
+
+/// Health codes the daemon reports in `StatusData::health`.
+pub mod health {
+    /// Capture depends on the GNOME Shell extension and it does not own its
+    /// bus name: nothing is recorded until it runs.
+    pub const EXTENSION_MISSING: &str = "extension_missing";
+    /// UUID of the GNOME Shell extension, as `gnome-extensions` knows it.
+    pub const EXTENSION_UUID: &str = "panora@ygkali.github.io";
 }
 
 /// Encode a value as one newline-terminated JSON frame.

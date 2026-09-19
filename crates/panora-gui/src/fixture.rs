@@ -25,6 +25,25 @@ fn png() -> &'static [u8] {
     })
 }
 
+/// `PANORA_FIXTURE_HEALTH=extension_missing,...` makes the popup show the
+/// health banner for those codes.
+fn fixture_health() -> Vec<panora_core::ipc::HealthItem> {
+    std::env::var("PANORA_FIXTURE_HEALTH")
+        .ok()
+        .map(|codes| {
+            codes
+                .split(',')
+                .map(str::trim)
+                .filter(|code| !code.is_empty())
+                .map(|code| panora_core::ipc::HealthItem {
+                    code: code.to_string(),
+                    message: format!("fixture health: {code}"),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 struct Store {
     entries: Vec<Entry>,
     private: bool,
@@ -193,6 +212,7 @@ pub fn call(request: &Request) -> Result<ResponseData> {
                     needs_bridge: false,
                 },
                 locked: false,
+                health: fixture_health(),
             }),
             Request::Preview { id, .. } => ResponseData::Payloads(
                 store
