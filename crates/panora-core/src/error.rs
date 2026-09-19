@@ -40,6 +40,11 @@ pub enum Error {
     #[error("entry not found: {0}")]
     NotFound(i64),
 
+    /// The on-disk history cannot be used as it is: integrity check
+    /// failure, a schema newer than this build, or a different master key.
+    #[error("storage error: {0}")]
+    Storage(String),
+
     /// Payload exceeds the configured per-MIME size limit.
     #[error("payload too large: {size} bytes (limit {limit})")]
     TooLarge {

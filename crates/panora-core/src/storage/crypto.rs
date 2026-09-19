@@ -63,6 +63,7 @@ impl std::fmt::Debug for MasterKey {
 /// Stateless AEAD cipher bound to a master key.
 pub struct Cipher {
     aead: XChaCha20Poly1305,
+    fingerprint: String,
 }
 
 impl Cipher {
@@ -71,7 +72,17 @@ impl Cipher {
         Self {
             aead: XChaCha20Poly1305::new_from_slice(key.as_bytes())
                 .expect("32-byte key is always valid for XChaCha20Poly1305"),
+            fingerprint: key_fingerprint(key.as_bytes()),
         }
+    }
+
+    /// Short public identifier of the key this cipher uses.
+    ///
+    /// A keyed BLAKE3 derivation, so it reveals nothing about the key but
+    /// changes with it; the database stores it to notice when it is opened
+    /// with a key other than the one that encrypted it.
+    pub fn fingerprint(&self) -> &str {
+        &self.fingerprint
     }
 
     /// Encrypt plaintext with no associated data.
@@ -163,6 +174,12 @@ impl Cipher {
         let plaintext = self.open_with_aad(aad, &sealed)?;
         String::from_utf8(plaintext).map_err(|_| Error::Crypto)
     }
+}
+
+/// 16 hex characters derived from the key under a fixed context string.
+fn key_fingerprint(key: &[u8; KEY_LEN]) -> String {
+    let derived = blake3::derive_key("panora master key fingerprint v1", key);
+    hex_encode(&derived[..8])
 }
 
 /// Lowercase hex encoding (avoids pulling in a hex crate).

@@ -21,8 +21,15 @@ use crate::model::{ContentKind, Entry, Selection};
 use rusqlite::{params, Connection};
 use std::path::Path;
 
-/// Schema version for future migrations.
-const SCHEMA_VERSION: i64 = 1;
+/// Schema version written to `meta`. Bump it together with `MIGRATIONS`.
+pub const SCHEMA_VERSION: i64 = 1;
+
+/// Ordered schema migrations for databases created by older releases, as
+/// `(version_after, sql)`. `init` always creates the current schema, so
+/// these only run on an existing file whose stored version is lower; each
+/// one runs in its own transaction and stamps its version with it. The last
+/// entry's version must equal `SCHEMA_VERSION`.
+const MIGRATIONS: &[(i64, &str)] = &[];
 
 /// Filter for history queries.
 #[derive(Debug, Clone, Default)]
@@ -68,6 +75,14 @@ pub struct Database {
     cipher: Cipher,
 }
 
+impl std::fmt::Debug for Database {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Database")
+            .field("key_fingerprint", &self.cipher.fingerprint())
+            .finish_non_exhaustive()
+    }
+}
+
 impl Database {
     /// Open or create the database at `path`. Sets restrictive file
     /// permissions (0600) since the FTS index contains plaintext
@@ -80,7 +95,8 @@ impl Database {
         }
         let conn = Connection::open(path)?;
         let db = Self { conn, cipher };
-        db.init()?;
+        db.check_integrity()?;
+        db.prepare(Some(path), MIGRATIONS, SCHEMA_VERSION)?;
         db.restrict_permissions(path)?;
         Ok(db)
     }
@@ -89,8 +105,174 @@ impl Database {
     pub fn open_in_memory(cipher: Cipher) -> Result<Self> {
         let conn = Connection::open_in_memory()?;
         let db = Self { conn, cipher };
-        db.init()?;
+        db.prepare(None, MIGRATIONS, SCHEMA_VERSION)?;
         Ok(db)
+    }
+
+    /// Refuse a damaged file before touching it. `quick_check` is the
+    /// integrity check minus the index cross-checks, cheap enough for every
+    /// start; a file that is not SQLite at all fails here too.
+    fn check_integrity(&self) -> Result<()> {
+        let verdict: String = self
+            .conn
+            .query_row("PRAGMA quick_check", [], |row| row.get(0))?;
+        if verdict != "ok" {
+            return Err(Error::Storage(format!(
+                "the history database failed its integrity check: {verdict}"
+            )));
+        }
+        Ok(())
+    }
+
+    /// Bring the file to the current schema and bind it to the cipher's key.
+    ///
+    /// A fresh file gets the current schema and is stamped with `target`. An
+    /// existing file is checked against the key first (so a foreign database
+    /// is never migrated or backed up), refused when its schema is newer than
+    /// this build, and otherwise migrated step by step after a `VACUUM INTO`
+    /// backup next to it. `migrations` and `target` are parameters only so
+    /// the tests can exercise the path with a fake migration.
+    fn prepare(&self, path: Option<&Path>, migrations: &[(i64, &str)], target: i64) -> Result<()> {
+        let stored = self.stored_schema_version()?;
+        if stored == 0 {
+            self.init()?;
+            self.set_schema_version(target)?;
+            self.bind_key()?;
+            return Ok(());
+        }
+        if stored > target {
+            return Err(Error::Storage(format!(
+                "the history database uses schema version {stored}, newer than this \
+                 version of Panora supports ({target}); upgrade Panora"
+            )));
+        }
+        self.check_key()?;
+        if stored < target {
+            if let Some(path) = path {
+                self.backup_before_migration(path, stored)?;
+            }
+            for (version, sql) in migrations.iter().filter(|(v, _)| *v > stored) {
+                let tx = self.conn.unchecked_transaction()?;
+                tx.execute_batch(sql)?;
+                tx.execute(
+                    "INSERT OR REPLACE INTO meta(key, value) VALUES('schema_version', ?1)",
+                    params![version.to_string()],
+                )?;
+                tx.commit()?;
+            }
+            if self.stored_schema_version()? != target {
+                return Err(Error::Storage(format!(
+                    "no migration path from schema version {stored} to {target}"
+                )));
+            }
+        }
+        // Idempotent: objects an older file never had (all CREATE IF NOT
+        // EXISTS) come into being here without a migration entry.
+        self.init()?;
+        Ok(())
+    }
+
+    /// Schema version recorded in the file, or 0 when nothing is there yet.
+    pub fn schema_version(&self) -> Result<i64> {
+        self.stored_schema_version()
+    }
+
+    fn stored_schema_version(&self) -> Result<i64> {
+        let has_meta: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'meta'",
+            [],
+            |row| row.get(0),
+        )?;
+        if has_meta == 0 {
+            return Ok(0);
+        }
+        Ok(self
+            .meta("schema_version")?
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(0))
+    }
+
+    fn set_schema_version(&self, version: i64) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO meta(key, value) VALUES('schema_version', ?1)",
+            params![version.to_string()],
+        )?;
+        Ok(())
+    }
+
+    fn meta(&self, key: &str) -> Result<Option<String>> {
+        use rusqlite::OptionalExtension as _;
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT value FROM meta WHERE key = ?1",
+                params![key],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
+    /// Record which key encrypts this file (first open only).
+    fn bind_key(&self) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR IGNORE INTO meta(key, value) VALUES('key_fingerprint', ?1)",
+            params![self.cipher.fingerprint()],
+        )?;
+        Ok(())
+    }
+
+    /// Fail closed when the file was encrypted with another key. Without a
+    /// stored fingerprint (files written before it existed) the newest
+    /// preview is decrypted as the proof instead, then the key is bound.
+    fn check_key(&self) -> Result<()> {
+        let mismatch = || {
+            Error::Storage(
+                "the history was encrypted with a different master key (was the keyring \
+                 reset?); restore the keyring, or move the Panora data directory away to \
+                 start a new history"
+                    .into(),
+            )
+        };
+        match self.meta("key_fingerprint")? {
+            Some(stored) if stored == self.cipher.fingerprint() => Ok(()),
+            Some(_) => Err(mismatch()),
+            None => {
+                use rusqlite::OptionalExtension as _;
+                let probe: Option<(String, String)> = self
+                    .conn
+                    .query_row(
+                        "SELECT content_hash, preview FROM entries ORDER BY id DESC LIMIT 1",
+                        [],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    )
+                    .optional()?;
+                if let Some((hash, sealed)) = probe {
+                    let opened = self
+                        .cipher
+                        .open_text_with_aad(Self::preview_aad(&hash).as_bytes(), &sealed)
+                        .or_else(|_| self.cipher.open_text(&sealed));
+                    if opened.is_err() {
+                        return Err(mismatch());
+                    }
+                }
+                self.bind_key()
+            }
+        }
+    }
+
+    /// Copy the file next to itself before a migration touches it. Uses
+    /// `VACUUM INTO`, which produces a consistent copy even with a WAL.
+    fn backup_before_migration(&self, path: &Path, stored: i64) -> Result<()> {
+        let backup = path.with_extension(format!("db.bak-v{stored}"));
+        if backup.exists() {
+            std::fs::remove_file(&backup)?;
+        }
+        self.conn.execute(
+            "VACUUM INTO ?1",
+            params![backup.to_string_lossy().into_owned()],
+        )?;
+        self.restrict_permissions(&backup)?;
+        Ok(())
     }
 
     #[cfg(unix)]
@@ -154,10 +336,6 @@ impl Database {
                 tokenize='unicode61'
             );
             ",
-        )?;
-        self.conn.execute(
-            "INSERT OR REPLACE INTO meta(key, value) VALUES('schema_version', ?1)",
-            params![SCHEMA_VERSION.to_string()],
         )?;
         Ok(())
     }
@@ -915,5 +1093,169 @@ mod tests {
             .unwrap();
         assert!(!raw.contains("sensitive"));
         assert!(raw.len() > 48, "sealed hex should be long: {raw}");
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+    use crate::storage::crypto::MasterKey;
+
+    fn open_with(path: &Path, key: &MasterKey) -> Result<Database> {
+        Database::open(path, Cipher::new(key))
+    }
+
+    fn insert_one(db: &Database, preview: &str) {
+        let hash = crate::storage::crypto::content_hash(preview.as_bytes());
+        db.upsert_entry(
+            &hash,
+            preview,
+            ContentKind::Text,
+            "text/plain",
+            preview.len() as i64,
+            None,
+            Selection::Clipboard,
+            1,
+            "dev0",
+            1,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn fresh_database_is_stamped_with_version_and_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let key = MasterKey::generate();
+        let db = open_with(&dir.path().join("history.db"), &key).unwrap();
+        assert_eq!(db.schema_version().unwrap(), SCHEMA_VERSION);
+        assert_eq!(
+            db.meta("key_fingerprint").unwrap().as_deref(),
+            Some(db.cipher.fingerprint())
+        );
+        assert_eq!(db.cipher.fingerprint().len(), 16);
+    }
+
+    #[test]
+    fn older_schema_is_migrated_after_a_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history.db");
+        let key = MasterKey::generate();
+        {
+            let db = open_with(&path, &key).unwrap();
+            insert_one(&db, "before the migration");
+        }
+        let conn = Connection::open(&path).unwrap();
+        let db = Database {
+            conn,
+            cipher: Cipher::new(&key),
+        };
+        let fake = [(
+            SCHEMA_VERSION + 1,
+            "ALTER TABLE entries ADD COLUMN migrated INTEGER NOT NULL DEFAULT 7",
+        )];
+        db.prepare(Some(&path), &fake, SCHEMA_VERSION + 1).unwrap();
+        assert_eq!(db.schema_version().unwrap(), SCHEMA_VERSION + 1);
+        let migrated: i64 = db
+            .conn
+            .query_row("SELECT migrated FROM entries LIMIT 1", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(migrated, 7);
+        assert_eq!(db.count().unwrap(), 1, "data survives the migration");
+
+        let backup = path.with_extension(format!("db.bak-v{SCHEMA_VERSION}"));
+        assert!(backup.exists(), "a backup is written before migrating");
+        let copy = Connection::open(&backup).unwrap();
+        let rows: i64 = copy
+            .query_row("SELECT COUNT(*) FROM entries", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(rows, 1);
+        let version: String = copy
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'schema_version'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            version,
+            SCHEMA_VERSION.to_string(),
+            "backup keeps the old schema"
+        );
+    }
+
+    #[test]
+    fn migration_gap_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history.db");
+        let key = MasterKey::generate();
+        drop(open_with(&path, &key).unwrap());
+        let db = Database {
+            conn: Connection::open(&path).unwrap(),
+            cipher: Cipher::new(&key),
+        };
+        // Target two versions ahead with only one migration: refuse rather
+        // than stamp a schema the file does not have.
+        let short = [(SCHEMA_VERSION + 1, "SELECT 1")];
+        let err = db
+            .prepare(Some(&path), &short, SCHEMA_VERSION + 2)
+            .unwrap_err();
+        assert!(matches!(err, Error::Storage(m) if m.contains("no migration path")));
+    }
+
+    #[test]
+    fn newer_schema_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history.db");
+        let key = MasterKey::generate();
+        {
+            let db = open_with(&path, &key).unwrap();
+            db.set_schema_version(SCHEMA_VERSION + 50).unwrap();
+        }
+        let err = open_with(&path, &key).unwrap_err();
+        assert!(matches!(err, Error::Storage(m) if m.contains("newer")));
+    }
+
+    #[test]
+    fn different_key_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history.db");
+        {
+            let db = open_with(&path, &MasterKey::generate()).unwrap();
+            insert_one(&db, "sealed with the first key");
+        }
+        let err = open_with(&path, &MasterKey::generate()).unwrap_err();
+        assert!(matches!(err, Error::Storage(m) if m.contains("different master key")));
+    }
+
+    #[test]
+    fn file_without_fingerprint_is_proven_by_decrypting_a_preview() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history.db");
+        let right = MasterKey::generate();
+        {
+            let db = open_with(&path, &right).unwrap();
+            insert_one(&db, "written before fingerprints existed");
+            db.conn
+                .execute("DELETE FROM meta WHERE key = 'key_fingerprint'", [])
+                .unwrap();
+        }
+        assert!(matches!(
+            open_with(&path, &MasterKey::generate()).unwrap_err(),
+            Error::Storage(_)
+        ));
+        let db = open_with(&path, &right).unwrap();
+        assert_eq!(
+            db.meta("key_fingerprint").unwrap().as_deref(),
+            Some(db.cipher.fingerprint()),
+            "the proven key is bound for next time"
+        );
+    }
+
+    #[test]
+    fn corrupt_file_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history.db");
+        std::fs::write(&path, b"this is not a database at all, not even close").unwrap();
+        assert!(open_with(&path, &MasterKey::generate()).is_err());
     }
 }
