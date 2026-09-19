@@ -21,6 +21,6 @@ fixture = []
 panora-core = { path = "../panora-core" }
 gtk4 = { version = "0.9", features = ["v4_12"] }
 libadwaita = { version = "0.7", features = ["v1_5"] }
-gdk-pixbuf = "0.20"
+gdk-pixbuf = "0.22"
 glib = "0.20"
 toml.workspace = true
