@@ -10,7 +10,8 @@
 //! 2. Per-application exclusion list (case-insensitive substring match).
 //! 3. Private mode (user-toggled recording pause).
 
-use crate::model::ClipboardData;
+use crate::config::{compile_ignore_pattern, PrivacyConfig};
+use crate::model::{ClipboardData, ContentKind};
 
 /// MIME types that mark clipboard content as secret. If any of these
 /// appears in the TARGETS list, the content must never be read or stored.
@@ -62,6 +63,9 @@ pub enum Verdict {
     RejectPrivateMode,
     /// Backend metadata is malformed or exceeds a safe bound.
     RejectMalformedMetadata,
+    /// The content itself fails a user filter (kind, length, whitespace or
+    /// an ignore pattern). Only ever returned by `evaluate_content`.
+    RejectFilter,
 }
 
 impl Verdict {
@@ -71,12 +75,57 @@ impl Verdict {
     }
 }
 
+/// User-defined rules judged on the content itself, after the MIME gate
+/// allowed it to be read. Built from `PrivacyConfig` with the patterns
+/// compiled once.
+#[derive(Debug, Clone, Default)]
+pub struct ContentFilters {
+    /// Minimum trimmed length in characters for text-like entries.
+    pub min_text_length: usize,
+    /// Drop text that is only whitespace.
+    pub ignore_whitespace_only: bool,
+    /// Compiled ignore patterns.
+    pub patterns: Vec<regex::Regex>,
+    /// Kinds to record; `None` means every kind.
+    pub kinds: Option<Vec<ContentKind>>,
+}
+
+impl ContentFilters {
+    /// Compile the filters of a configuration. Fails only on a pattern the
+    /// configuration validation would have refused as well.
+    pub fn from_config(config: &PrivacyConfig) -> crate::error::Result<Self> {
+        let patterns = config
+            .ignore_patterns
+            .iter()
+            .map(|p| compile_ignore_pattern(p))
+            .collect::<crate::error::Result<Vec<_>>>()?;
+        let kinds = if config.capture_kinds.is_empty() {
+            None
+        } else {
+            Some(
+                config
+                    .capture_kinds
+                    .iter()
+                    .map(|k| ContentKind::parse(k))
+                    .collect(),
+            )
+        };
+        Ok(Self {
+            min_text_length: config.min_text_length,
+            ignore_whitespace_only: config.ignore_whitespace_only,
+            patterns,
+            kinds,
+        })
+    }
+}
+
 /// Stateless privacy policy evaluator. Construct once at daemon startup
 /// from configuration; cheap to query on every clipboard event.
 #[derive(Debug, Clone)]
 pub struct PrivacyEngine {
     excluded_apps: Vec<String>,
     private_mode: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    filters: ContentFilters,
 }
 
 impl PrivacyEngine {
@@ -96,7 +145,44 @@ impl PrivacyEngine {
         Self {
             excluded_apps: excluded,
             private_mode: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            filters: ContentFilters {
+                min_text_length: 1,
+                ignore_whitespace_only: true,
+                ..ContentFilters::default()
+            },
         }
+    }
+
+    /// Attach content filters (kinds, length, whitespace, ignore patterns).
+    pub fn with_filters(mut self, filters: ContentFilters) -> Self {
+        self.filters = filters;
+        self
+    }
+
+    /// Second gate, judged on the payloads once they have been read: the
+    /// entry's kind, the trimmed text length, whitespace-only text and the
+    /// user's ignore patterns. Metadata-only rules live in `evaluate`.
+    pub fn evaluate_content(&self, data: &ClipboardData) -> Verdict {
+        let kind = data.classify();
+        if let Some(kinds) = &self.filters.kinds {
+            if !kinds.contains(&kind) {
+                return Verdict::RejectFilter;
+            }
+        }
+        let Some(text) = data.text() else {
+            return Verdict::Allow;
+        };
+        let trimmed = text.trim();
+        if self.filters.ignore_whitespace_only && trimmed.is_empty() {
+            return Verdict::RejectFilter;
+        }
+        if trimmed.chars().count() < self.filters.min_text_length {
+            return Verdict::RejectFilter;
+        }
+        if self.filters.patterns.iter().any(|p| p.is_match(trimmed)) {
+            return Verdict::RejectFilter;
+        }
+        Verdict::Allow
     }
 
     /// Toggle private mode (recording pause).
@@ -297,5 +383,82 @@ mod tests {
         eng.set_private_mode(true);
         let d = data(&["x-kde-passwordManagerHint"], Some("keepassxc"));
         assert!(!eng.evaluate(&d).is_allowed());
+    }
+
+    fn text_data(text: &str) -> ClipboardData {
+        ClipboardData {
+            selection: Selection::Clipboard,
+            payloads: vec![MimePayload::new("text/plain", text.as_bytes())],
+            offered_mimes: vec!["text/plain".into()],
+            source_app: None,
+        }
+    }
+
+    #[test]
+    fn default_filters_only_drop_empty_text() {
+        let eng = PrivacyEngine::new(&[]);
+        assert_eq!(eng.evaluate_content(&text_data("x")), Verdict::Allow);
+        assert_eq!(
+            eng.evaluate_content(&text_data("   \n\t")),
+            Verdict::RejectFilter
+        );
+        let image = ClipboardData {
+            selection: Selection::Clipboard,
+            payloads: vec![MimePayload::new("image/png", vec![1, 2, 3])],
+            offered_mimes: vec!["image/png".into()],
+            source_app: None,
+        };
+        assert_eq!(eng.evaluate_content(&image), Verdict::Allow);
+    }
+
+    #[test]
+    fn user_filters_judge_kind_length_and_patterns() {
+        let config = PrivacyConfig {
+            min_text_length: 3,
+            ignore_whitespace_only: true,
+            ignore_patterns: vec!["^\\d{16}$".into(), "(?i)^secret:".into()],
+            capture_kinds: vec!["text".into(), "image".into()],
+            ..PrivacyConfig::default()
+        };
+        let eng =
+            PrivacyEngine::new(&[]).with_filters(ContentFilters::from_config(&config).unwrap());
+        assert_eq!(eng.evaluate_content(&text_data("hello")), Verdict::Allow);
+        assert_eq!(
+            eng.evaluate_content(&text_data("ab")),
+            Verdict::RejectFilter
+        );
+        assert_eq!(
+            eng.evaluate_content(&text_data("1234567890123456")),
+            Verdict::RejectFilter
+        );
+        assert_eq!(
+            eng.evaluate_content(&text_data("Secret: token")),
+            Verdict::RejectFilter
+        );
+        assert_eq!(
+            eng.evaluate_content(&text_data("  1234567890123456  ")),
+            Verdict::RejectFilter,
+            "patterns see the trimmed text"
+        );
+        // A link is not in capture_kinds.
+        assert_eq!(
+            eng.evaluate_content(&text_data("https://example.org/page")),
+            Verdict::RejectFilter
+        );
+        let image = ClipboardData {
+            selection: Selection::Clipboard,
+            payloads: vec![MimePayload::new("image/png", vec![1, 2, 3])],
+            offered_mimes: vec!["image/png".into()],
+            source_app: None,
+        };
+        assert_eq!(eng.evaluate_content(&image), Verdict::Allow);
+        // Turning the whitespace rule off records blanks (min length 0).
+        let lax = PrivacyConfig {
+            min_text_length: 0,
+            ignore_whitespace_only: false,
+            ..PrivacyConfig::default()
+        };
+        let eng = PrivacyEngine::new(&[]).with_filters(ContentFilters::from_config(&lax).unwrap());
+        assert_eq!(eng.evaluate_content(&text_data("   ")), Verdict::Allow);
     }
 }

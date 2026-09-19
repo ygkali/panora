@@ -4,18 +4,31 @@
 //! Preferences dialog. Writes `config.toml` and asks the daemon to reload it
 //! so history limits and application exclusions apply immediately.
 
-use crate::util::{apply_theme, call};
+use crate::util::{apply_theme, call, kind_label};
 use crate::window::{toast, Ui};
 use gtk4 as gtk;
 use libadwaita as adw;
 use libadwaita::prelude::*;
-use panora_core::config::Config;
+use panora_core::config::{compile_ignore_pattern, Config, MAX_IGNORE_PATTERNS};
 use panora_core::ipc::{Request, ResponseData};
+use panora_core::model::ContentKind;
 use std::cell::RefCell;
 use std::rc::Rc;
 
 const LANGUAGES: [&str; 3] = ["system", "tr", "en"];
 const THEMES: [&str; 3] = ["system", "light", "dark"];
+
+/// The kinds a user can switch off, with their `capture_kinds` names.
+/// `binary` is not offered: it is whatever failed to classify, and a user
+/// who turns off images does not mean to lose those too.
+const CAPTURE_KINDS: [(&str, ContentKind); 6] = [
+    ("text", ContentKind::Text),
+    ("richtext", ContentKind::RichText),
+    ("link", ContentKind::Link),
+    ("image", ContentKind::Image),
+    ("files", ContentKind::FileList),
+    ("color", ContentKind::Color),
+];
 
 /// Open the preferences dialog.
 pub fn show(ui: &Rc<Ui>) {
@@ -70,7 +83,7 @@ pub fn show(ui: &Rc<Ui>) {
     let list = gtk::ListBox::new();
     list.add_css_class("boxed-list");
     list.set_selection_mode(gtk::SelectionMode::None);
-    rebuild_excluded(&list, &excluded, s.settings_excluded_remove);
+    rebuild_list(&list, &excluded, s.settings_excluded_remove);
 
     let add_row = adw::EntryRow::builder()
         .title(s.settings_excluded_add_placeholder)
@@ -91,7 +104,7 @@ pub fn show(ui: &Rc<Ui>) {
             }
             drop(apps);
             row.set_text("");
-            rebuild_excluded(&list, &excluded, remove_label);
+            rebuild_list(&list, &excluded, remove_label);
         });
     }
     excluded_group.add(&add_row);
@@ -114,6 +127,102 @@ pub fn show(ui: &Rc<Ui>) {
         excluded_group.add(&warning);
     }
     page.add(&excluded_group);
+
+    // --- content filters ---------------------------------------------
+    let filters = adw::PreferencesGroup::builder()
+        .title(s.settings_filters)
+        .description(s.settings_filters_sub)
+        .build();
+    let min_text_length = adw::SpinRow::with_range(0.0, 100_000.0, 1.0);
+    min_text_length.set_title(s.settings_min_text_length);
+    min_text_length.set_subtitle(s.settings_min_text_length_sub);
+    min_text_length.set_value(config.privacy.min_text_length as f64);
+    filters.add(&min_text_length);
+
+    let ignore_whitespace = adw::SwitchRow::builder()
+        .title(s.settings_ignore_whitespace)
+        .active(config.privacy.ignore_whitespace_only)
+        .build();
+    filters.add(&ignore_whitespace);
+
+    let index_full_text = adw::SwitchRow::builder()
+        .title(s.settings_index_full_text)
+        .subtitle(s.settings_index_full_text_sub)
+        .active(config.history.index_full_text)
+        .build();
+    filters.add(&index_full_text);
+
+    // One switch per kind; every switch on means "no restriction".
+    let kinds_row = adw::ExpanderRow::builder()
+        .title(s.settings_capture_kinds)
+        .subtitle(s.settings_capture_kinds_sub)
+        .build();
+    let kind_switches: Vec<(&'static str, adw::SwitchRow)> = CAPTURE_KINDS
+        .iter()
+        .map(|(name, kind)| {
+            let wanted = config.privacy.capture_kinds.is_empty()
+                || config.privacy.capture_kinds.iter().any(|k| k == name);
+            let row = adw::SwitchRow::builder()
+                .title(kind_label(s, *kind))
+                .active(wanted)
+                .build();
+            kinds_row.add_row(&row);
+            (*name, row)
+        })
+        .collect();
+    filters.add(&kinds_row);
+    page.add(&filters);
+
+    let patterns_group = adw::PreferencesGroup::builder()
+        .title(s.settings_ignore_patterns)
+        .description(s.settings_ignore_patterns_sub)
+        .build();
+    let patterns: Rc<RefCell<Vec<String>>> =
+        Rc::new(RefCell::new(config.privacy.ignore_patterns.clone()));
+    let pattern_list = gtk::ListBox::new();
+    pattern_list.add_css_class("boxed-list");
+    pattern_list.set_selection_mode(gtk::SelectionMode::None);
+    rebuild_list(&pattern_list, &patterns, s.settings_excluded_remove);
+
+    let pattern_row = adw::EntryRow::builder()
+        .title(s.settings_ignore_pattern_placeholder)
+        .show_apply_button(true)
+        .build();
+    {
+        let patterns = patterns.clone();
+        let pattern_list = pattern_list.clone();
+        let remove_label = s.settings_excluded_remove;
+        let invalid = s.settings_ignore_pattern_invalid;
+        pattern_row.connect_apply(move |row| {
+            let pattern = row.text().trim().to_string();
+            if pattern.is_empty() {
+                return;
+            }
+            // Refuse here what the daemon would refuse on reload, so a typo
+            // never turns into a configuration the daemon cannot load.
+            if compile_ignore_pattern(&pattern).is_err() {
+                row.add_css_class("error");
+                row.set_tooltip_text(Some(invalid));
+                return;
+            }
+            row.remove_css_class("error");
+            row.set_tooltip_text(None);
+            let mut list = patterns.borrow_mut();
+            if !list.contains(&pattern) && list.len() < MAX_IGNORE_PATTERNS {
+                list.push(pattern);
+            }
+            drop(list);
+            row.set_text("");
+            rebuild_list(&pattern_list, &patterns, remove_label);
+        });
+        pattern_row.connect_changed(|row| {
+            row.remove_css_class("error");
+            row.set_tooltip_text(None);
+        });
+    }
+    patterns_group.add(&pattern_row);
+    patterns_group.add(&pattern_list);
+    page.add(&patterns_group);
 
     // --- interface ---------------------------------------------------
     let interface = adw::PreferencesGroup::builder()
@@ -176,6 +285,11 @@ pub fn show(ui: &Rc<Ui>) {
         next.history.record_primary = record_primary.is_active();
         next.privacy.start_private = start_private.is_active();
         next.privacy.excluded_apps = excluded.borrow().clone();
+        next.privacy.min_text_length = min_text_length.value().round() as usize;
+        next.privacy.ignore_whitespace_only = ignore_whitespace.is_active();
+        next.privacy.ignore_patterns = patterns.borrow().clone();
+        next.privacy.capture_kinds = selected_kinds(&kind_switches);
+        next.history.index_full_text = index_full_text.is_active();
         next.ui.language = LANGUAGES[language.selected() as usize % LANGUAGES.len()].into();
         next.ui.theme = THEMES[theme.selected() as usize % THEMES.len()].into();
         next.ui.instant_paste = instant_paste.is_active();
@@ -214,28 +328,47 @@ fn index_of(options: &[&str], value: &str) -> u32 {
     options.iter().position(|o| *o == value).unwrap_or(0) as u32
 }
 
-fn rebuild_excluded(
-    list: &gtk::ListBox,
-    excluded: &Rc<RefCell<Vec<String>>>,
-    remove_label: &'static str,
-) {
+/// The `capture_kinds` value the switches describe: empty (everything) when
+/// they are all on, otherwise the kinds left on plus `binary`, which the
+/// dialog never offers and must not silently drop.
+fn selected_kinds(switches: &[(&'static str, adw::SwitchRow)]) -> Vec<String> {
+    let on: Vec<String> = switches
+        .iter()
+        .filter(|(_, row)| row.is_active())
+        .map(|(name, _)| (*name).to_string())
+        .collect();
+    if on.len() == switches.len() {
+        return Vec::new();
+    }
+    on.into_iter()
+        .chain(std::iter::once("binary".into()))
+        .collect()
+}
+
+/// Refill a boxed list with one removable row per item (excluded
+/// applications, ignore patterns).
+fn rebuild_list(list: &gtk::ListBox, items: &Rc<RefCell<Vec<String>>>, remove_label: &'static str) {
     while let Some(child) = list.first_child() {
         list.remove(&child);
     }
-    let apps = excluded.borrow().clone();
-    for app in apps {
-        let row = adw::ActionRow::builder().title(&app).build();
+    let current = items.borrow().clone();
+    for item in current {
+        // Patterns can contain `<` and `&`; the title is text, not markup.
+        let row = adw::ActionRow::builder()
+            .title(&item)
+            .use_markup(false)
+            .build();
         let remove = gtk::Button::from_icon_name("list-remove-symbolic");
         remove.add_css_class("flat");
         remove.set_tooltip_text(Some(remove_label));
         remove.set_valign(gtk::Align::Center);
         {
-            let excluded = excluded.clone();
+            let items = items.clone();
             let list = list.clone();
-            let name = app.clone();
+            let name = item.clone();
             remove.connect_clicked(move |_| {
-                excluded.borrow_mut().retain(|a| a != &name);
-                rebuild_excluded(&list, &excluded, remove_label);
+                items.borrow_mut().retain(|a| a != &name);
+                rebuild_list(&list, &items, remove_label);
             });
         }
         row.add_suffix(&remove);

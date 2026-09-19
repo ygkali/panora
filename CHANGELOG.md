@@ -36,6 +36,16 @@ real-machine verification in `docs/RELEASING.md` is done.
 - Instant paste sends `Ctrl+Shift+V` when the focused window is a terminal
   emulator (X11 and the GNOME extension; `panora_core::apps` knows the
   common ones).
+- Content filters under `[privacy]`: `min_text_length`,
+  `ignore_whitespace_only`, `ignore_patterns` (regular expressions matched
+  against the trimmed text, at most 32 of them) and `capture_kinds` decide
+  what is recorded once the text is known; they also guard `panora-cli
+  store` and the GNOME bridge.
+- Search covers the whole text, not only the 500-character preview: text
+  entries are indexed up to 64 K characters (`history.index_full_text`,
+  on by default) and the index folds case and diacritics, so `istanbul`
+  finds `İstanbul`. Existing databases are migrated to schema 3 with a
+  backup next to them; older entries stay searchable by their preview.
 - Recording pauses while the session is locked (`org.gnome.ScreenSaver` /
   `org.freedesktop.ScreenSaver` `ActiveChanged`); `panora-cli status` shows
   `locked`.

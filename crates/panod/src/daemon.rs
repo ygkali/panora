@@ -9,7 +9,7 @@ use panora_core::config::Config;
 use panora_core::error::{Error, Result};
 use panora_core::ipc::{CapabilityData, StatusData, PROTOCOL_VERSION};
 use panora_core::model::{ClipboardData, ContentKind, Entry, MimePayload, Selection};
-use panora_core::privacy::PrivacyEngine;
+use panora_core::privacy::{ContentFilters, PrivacyEngine};
 use panora_core::storage::{BlobStore, Database, QueryFilter};
 use panora_core::sync::{SyncEvent, SyncProvider};
 use std::collections::HashMap;
@@ -140,7 +140,7 @@ impl Daemon {
         sync: Arc<dyn SyncProvider>,
         device_id: String,
     ) -> Self {
-        let privacy = PrivacyEngine::new(&config.privacy.excluded_apps);
+        let privacy = privacy_engine_for(&config);
         privacy.set_private_mode(config.privacy.start_private);
         Self {
             backend,
@@ -222,7 +222,7 @@ impl Daemon {
     pub fn apply_config(&self, config: Config) -> Result<()> {
         config.validate()?;
         let private_now = self.private_mode();
-        let privacy = PrivacyEngine::new(&config.privacy.excluded_apps);
+        let privacy = privacy_engine_for(&config);
         privacy.set_private_mode(private_now);
         if let Ok(mut slot) = self.privacy.write() {
             *slot = privacy;
@@ -422,6 +422,10 @@ impl Daemon {
             offered_mimes: event.offered_mimes.clone(),
             source_app: event.source_app.clone(),
         };
+        // Gate 3: the user's content filters, now that the text is known.
+        if !self.content_allowed(&data) {
+            return;
+        }
         match self.store(data).await {
             Ok(entry) => self.remember_last_stored(event.selection, entry.id),
             Err(e) => warn!(error = %e, "failed to store clipboard event"),
@@ -438,6 +442,20 @@ impl Daemon {
         if let Ok(mut slot) = self.last_stored.lock() {
             slot.remove(&selection);
         }
+    }
+
+    /// The second privacy gate: kind, length, whitespace and ignore-pattern
+    /// filters, judged once the payloads are in hand.
+    fn content_allowed(&self, data: &ClipboardData) -> bool {
+        let verdict = self
+            .privacy
+            .read()
+            .map(|p| p.evaluate_content(data))
+            .unwrap_or(panora_core::privacy::Verdict::RejectPrivateMode);
+        if !verdict.is_allowed() {
+            debug!(?verdict, "content rejected by the content filters");
+        }
+        verdict.is_allowed()
     }
 
     /// Whether an empty clipboard after the owner left should be refilled.
@@ -542,6 +560,9 @@ impl Daemon {
             return;
         }
 
+        if !self.content_allowed(&data) {
+            return;
+        }
         match self.store(data).await {
             Ok(entry) => self.remember_last_stored(Selection::Clipboard, entry.id),
             Err(e) => warn!(error = %e, "failed to store GNOME bridge clipboard event"),
@@ -599,6 +620,14 @@ impl Daemon {
             &self.device_id,
             lamport,
         )?;
+
+        // Search beyond the 500-character preview: the text itself goes
+        // into the FTS table (same 0600 file as the previews) when enabled.
+        if self.config().history.index_full_text {
+            if let Some(content) = index_text(&text, kind) {
+                self.db.index_content(id, &content)?;
+            }
+        }
 
         // Store payloads as encrypted blobs and attach references.
         for p in &data.payloads {
@@ -872,6 +901,9 @@ impl Daemon {
             debug!(?verdict, "stored content rejected by privacy policy");
             return Err(Error::PrivacyRejected);
         }
+        if !self.content_allowed(&data) {
+            return Err(Error::PrivacyRejected);
+        }
         let entry = self.store(data).await?;
         if copy {
             self.offer_entry(&entry).await?;
@@ -896,6 +928,40 @@ impl Daemon {
         }
         Ok(n)
     }
+}
+
+/// The privacy engine a configuration describes: exclusions plus the
+/// content filters. The patterns were validated with the configuration, so
+/// a compile failure here can only mean a bug; falling back to no filters
+/// keeps capture working rather than dropping everything.
+fn privacy_engine_for(config: &Config) -> PrivacyEngine {
+    let filters = match ContentFilters::from_config(&config.privacy) {
+        Ok(filters) => filters,
+        Err(e) => {
+            warn!(error = %e, "content filters unusable; capturing without them");
+            ContentFilters::default()
+        }
+    };
+    PrivacyEngine::new(&config.privacy.excluded_apps).with_filters(filters)
+}
+
+/// Characters of text indexed for search beyond the preview.
+const FULL_TEXT_INDEX_CHARS: usize = 64 * 1024;
+
+/// The text to index beyond the preview, when there is any: text-like
+/// entries longer than the preview, capped at `FULL_TEXT_INDEX_CHARS`.
+fn index_text(text: &str, kind: ContentKind) -> Option<String> {
+    if !matches!(
+        kind,
+        ContentKind::Text | ContentKind::RichText | ContentKind::Link
+    ) {
+        return None;
+    }
+    let trimmed = text.trim();
+    if trimmed.chars().count() <= PREVIEW_LEN {
+        return None;
+    }
+    Some(trimmed.chars().take(FULL_TEXT_INDEX_CHARS).collect())
 }
 
 /// Current Unix time in seconds.
@@ -1562,6 +1628,93 @@ mod tests {
             daemon.load_thumbnail(id).unwrap().is_some(),
             "kept for next time"
         );
+    }
+
+    #[tokio::test]
+    async fn search_finds_words_beyond_the_preview() {
+        let dir = tempfile::tempdir().unwrap();
+        let (daemon, backend) = test_daemon(&dir);
+        let long = format!("{} zebrafinal", "filler word ".repeat(120));
+        assert!(long.chars().count() > PREVIEW_LEN);
+        offer_text(&backend, &long).await;
+        daemon.handle_event(text_event()).await;
+        let found = daemon
+            .query(&QueryFilter {
+                search: Some("zebrafinal".into()),
+                ..QueryFilter::recent(10)
+            })
+            .unwrap();
+        assert_eq!(found.len(), 1);
+        assert!(found[0].preview.ends_with('…'));
+
+        // With indexing off, only the preview is searchable.
+        let mut config = Config::default();
+        config.history.index_full_text = false;
+        daemon.apply_config(config).unwrap();
+        let other = format!("{} okapifinal", "other filler ".repeat(120));
+        offer_text(&backend, &other).await;
+        daemon.handle_event(text_event()).await;
+        assert!(daemon
+            .query(&QueryFilter {
+                search: Some("okapifinal".into()),
+                ..QueryFilter::recent(10)
+            })
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            daemon
+                .query(&QueryFilter {
+                    search: Some("other".into()),
+                    ..QueryFilter::recent(10)
+                })
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn content_filters_apply_after_the_mime_gate() {
+        let dir = tempfile::tempdir().unwrap();
+        let (daemon, backend) = test_daemon(&dir);
+        let mut config = Config::default();
+        config.privacy.min_text_length = 3;
+        config.privacy.ignore_patterns = vec!["^\\d{16}$".into()];
+        config.privacy.capture_kinds = vec!["text".into()];
+        daemon.apply_config(config).unwrap();
+        for (text, kept) in [
+            ("hello there", true),
+            ("ab", false),
+            ("1234567890123456", false),
+            ("   ", false),
+            ("https://example.org/x", false),
+            ("#ff8800", false),
+            ("plain enough", true),
+        ] {
+            offer_text(&backend, text).await;
+            daemon.handle_event(text_event()).await;
+            let stored = daemon
+                .query(&QueryFilter::recent(10))
+                .unwrap()
+                .iter()
+                .any(|e| e.preview == text.trim());
+            assert_eq!(stored, kept, "{text:?}");
+        }
+        // The same filters guard the bridge and the CLI store path.
+        assert!(matches!(
+            daemon
+                .store_external(
+                    ClipboardData {
+                        selection: Selection::Clipboard,
+                        payloads: vec![MimePayload::new("text/plain", "ab")],
+                        offered_mimes: vec![],
+                        source_app: None,
+                    },
+                    false,
+                )
+                .await,
+            Err(Error::PrivacyRejected)
+        ));
     }
 
     #[tokio::test]

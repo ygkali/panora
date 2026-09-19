@@ -34,6 +34,10 @@ pub struct HistoryConfig {
     /// compositors that drop the selection, such as Sway or Hyprland;
     /// Mutter and KWin keep it themselves), `always`, or `never`.
     pub persist_on_wayland: String,
+    /// Index the text of an entry beyond its 500-character preview (up to
+    /// 64 KiB) so search finds words anywhere in it. The index lives in the
+    /// same 0600 database file as the previews.
+    pub index_full_text: bool,
 }
 
 impl Default for HistoryConfig {
@@ -44,6 +48,7 @@ impl Default for HistoryConfig {
             max_age_days: 30,
             max_mime_bytes: 10 * 1024 * 1024,
             persist_on_wayland: "auto".into(),
+            index_full_text: true,
         }
     }
 }
@@ -56,6 +61,17 @@ pub struct PrivacyConfig {
     pub start_private: bool,
     /// Source application names that should never be recorded.
     pub excluded_apps: Vec<String>,
+    /// Text shorter than this many characters (after trimming) is not
+    /// recorded; 1 records everything that is not empty.
+    pub min_text_length: usize,
+    /// Skip text that is nothing but whitespace.
+    pub ignore_whitespace_only: bool,
+    /// Regular expressions; text matching any of them is not recorded
+    /// (for example `"^\\d{16}$"` for bare card numbers). Rust regex syntax.
+    pub ignore_patterns: Vec<String>,
+    /// Content kinds to record (`text`, `richtext`, `link`, `image`,
+    /// `files`, `color`, `binary`). Empty means all of them.
+    pub capture_kinds: Vec<String>,
 }
 
 impl Default for PrivacyConfig {
@@ -68,9 +84,40 @@ impl Default for PrivacyConfig {
                 "1password".into(),
                 "gnome-secrets".into(),
             ],
+            min_text_length: 1,
+            ignore_whitespace_only: true,
+            ignore_patterns: Vec::new(),
+            capture_kinds: Vec::new(),
         }
     }
 }
+
+/// Upper bounds for the user-defined filters.
+pub const MAX_IGNORE_PATTERNS: usize = 32;
+/// Longest accepted regular expression, in bytes.
+pub const MAX_PATTERN_LEN: usize = 512;
+/// Compiled-size cap for one pattern, so a pathological expression cannot
+/// eat memory.
+pub const PATTERN_SIZE_LIMIT: usize = 1 << 20;
+
+/// Compile one `ignore_patterns` entry the way the daemon will use it: the
+/// length and compiled-size limits apply, so a pattern that passes here is
+/// accepted by `Config::validate` too. The settings window uses it to refuse
+/// a bad pattern before it is saved.
+pub fn compile_ignore_pattern(pattern: &str) -> Result<regex::Regex> {
+    if pattern.len() > MAX_PATTERN_LEN {
+        return Err(Error::Config("ignore_patterns entry too long".into()));
+    }
+    regex::RegexBuilder::new(pattern)
+        .size_limit(PATTERN_SIZE_LIMIT)
+        .build()
+        .map_err(|e| Error::Config(format!("ignore_patterns: {e}")))
+}
+
+/// Content kind names `capture_kinds` accepts.
+pub const CONTENT_KIND_NAMES: &[&str] = &[
+    "text", "richtext", "link", "image", "files", "color", "binary",
+];
 
 /// UI preferences kept intentionally small to avoid runtime state bloat.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -147,6 +194,28 @@ impl Config {
         }
         if self.history.max_age_days > 36_500 {
             return Err(Error::Config("max_age_days must be at most 36500".into()));
+        }
+        if self.privacy.ignore_patterns.len() > MAX_IGNORE_PATTERNS {
+            return Err(Error::Config(format!(
+                "at most {MAX_IGNORE_PATTERNS} ignore_patterns are allowed"
+            )));
+        }
+        for pattern in &self.privacy.ignore_patterns {
+            compile_ignore_pattern(pattern)?;
+        }
+        if self.privacy.min_text_length > 100_000 {
+            return Err(Error::Config("min_text_length is too large".into()));
+        }
+        if let Some(unknown) = self
+            .privacy
+            .capture_kinds
+            .iter()
+            .find(|k| !CONTENT_KIND_NAMES.contains(&k.as_str()))
+        {
+            return Err(Error::Config(format!(
+                "capture_kinds: unknown kind '{unknown}' (expected one of {})",
+                CONTENT_KIND_NAMES.join(", ")
+            )));
         }
         if self.privacy.excluded_apps.len() > 256 {
             return Err(Error::Config("too many excluded applications".into()));
@@ -265,6 +334,18 @@ mod tests {
         cfg.validate().unwrap();
         cfg.history.max_mime_bytes = MAX_MIME_BYTES_LIMIT + 1;
         assert!(cfg.validate().is_err());
+        // Filters: a bad regex, an unknown kind and an absurd length fail.
+        let mut cfg = Config::default();
+        cfg.privacy.ignore_patterns = vec!["^\\d{16}$".into(), "(unclosed".into()];
+        assert!(cfg.validate().is_err());
+        let mut cfg = Config::default();
+        cfg.privacy.capture_kinds = vec!["text".into(), "movie".into()];
+        assert!(cfg.validate().is_err());
+        let mut cfg = Config::default();
+        cfg.privacy.ignore_patterns = vec!["^\\d{16}$".into()];
+        cfg.privacy.capture_kinds = vec!["text".into(), "link".into()];
+        cfg.privacy.min_text_length = 3;
+        cfg.validate().unwrap();
     }
 
     #[test]

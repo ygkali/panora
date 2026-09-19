@@ -141,10 +141,15 @@ max_entries = 1000       # sabitlenmemiş kayıt üst sınırı
 max_age_days = 30        # 0 = süresiz
 max_mime_bytes = 10485760
 persist_on_wayland = "auto"   # auto | always | never: kaynak kapanınca yeniden sun
+index_full_text = true        # arama 500 karakterlik önizlemenin ötesini de bulur
 
 [privacy]
 start_private = false
 excluded_apps = ["keepassxc", "bitwarden", "1password", "gnome-secrets"]
+min_text_length = 1           # daha kısa metin kaydedilmez (karakter)
+ignore_whitespace_only = true
+ignore_patterns = []          # regex; eşleşen metin kaydedilmez, örn. "^\d{16}$"
+capture_kinds = []            # [] = hepsi; ya da text, richtext, link, image, files, color listesi
 
 [ui]
 language = "system"      # system | tr | en

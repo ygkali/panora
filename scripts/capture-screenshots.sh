@@ -43,15 +43,24 @@ shoot() {
   GUI_PID=$!
   # A cold GTK start on a slow machine (CI: icon and font caches) can take
   # well over ten seconds; wait for a top-level window, then let it paint.
+  # xwininfo prints "0 children." on an empty screen, so look for a child
+  # window line ("     0x400001 ...") rather than the word.
   for _ in $(seq 1 120); do
-    if DISPLAY="$DISPLAY_NO" xwininfo -root -children 2>/dev/null | grep -q "child"; then
+    if DISPLAY="$DISPLAY_NO" xwininfo -root -children 2>/dev/null | grep -qE '^ +0x[0-9a-f]+'; then
       break
     fi
     sleep 0.25
   done
-  sleep 2
-  DISPLAY="$DISPLAY_NO" import -window root "$SCRATCH/root.png"
-  convert "$SCRATCH/root.png" -trim +repage "$OUT/$file"
+  # A mapped window can still be unpainted; keep shooting until the trimmed
+  # image is more than a sliver of the black root.
+  for _ in $(seq 1 40); do
+    sleep 0.5
+    DISPLAY="$DISPLAY_NO" import -window root "$SCRATCH/root.png"
+    convert "$SCRATCH/root.png" -trim +repage "$OUT/$file"
+    if [ "$(stat -c %s "$OUT/$file")" -gt 10000 ]; then
+      break
+    fi
+  done
   kill "$GUI_PID" 2>/dev/null || true
   wait "$GUI_PID" 2>/dev/null || true
   echo "wrote $OUT/$file"

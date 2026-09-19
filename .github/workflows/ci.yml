@@ -154,7 +154,7 @@ jobs:
         with:
           node-version: 22
       - run: node scripts/extension-security-check.mjs
-      - run: node --check gnome-extension/extension.js
+      - run: cp gnome-extension/extension.js "$RUNNER_TEMP/extension.mjs" && node --check "$RUNNER_TEMP/extension.mjs"
       - name: Verify no extension network primitives
         run: |
           ! grep -REn 'https?://|\b(fetch|XMLHttpRequest|WebSocket|eval)\s*\(' gnome-extension

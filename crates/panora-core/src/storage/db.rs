@@ -22,21 +22,65 @@ use rusqlite::{params, Connection};
 use std::path::Path;
 
 /// Schema version written to `meta`. Bump it together with `MIGRATIONS`.
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 3;
+
+/// One schema step: SQL run inside a transaction, or Rust for what SQL alone
+/// cannot do (rebuilding the FTS table from the encrypted previews).
+enum Migration {
+    Sql(&'static str),
+    Code(fn(&Database) -> Result<()>),
+}
 
 /// Ordered schema migrations for databases created by older releases, as
-/// `(version_after, sql)`. `init` always creates the current schema, so
+/// `(version_after, step)`. `init` always creates the current schema, so
 /// these only run on an existing file whose stored version is lower; each
 /// one runs in its own transaction and stamps its version with it. The last
 /// entry's version must equal `SCHEMA_VERSION`.
-const MIGRATIONS: &[(i64, &str)] = &[
+const MIGRATIONS: &[(i64, Migration)] = &[
     // 1.3.0: deletions keep their time so an undo window can be measured
     // from the deletion, not from when the entry was last copied.
     (
         2,
-        "ALTER TABLE entries ADD COLUMN deleted_at INTEGER NOT NULL DEFAULT 0",
+        Migration::Sql("ALTER TABLE entries ADD COLUMN deleted_at INTEGER NOT NULL DEFAULT 0"),
     ),
+    // 1.3.0: the search index gains a `content` column (text beyond the
+    // 500-character preview) and a tokenizer that folds diacritics, which
+    // means recreating the FTS table and re-adding every live preview.
+    (3, Migration::Code(rebuild_search_index)),
 ];
+
+/// FTS5 table definition shared by `init` and the version 3 migration.
+const FTS_TABLE_SQL: &str = "CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(
+    preview,
+    content,
+    tokenize='unicode61 remove_diacritics 2'
+)";
+
+/// Recreate the search index with the current definition and refill it
+/// from the live previews. Content beyond the preview is not available here
+/// (it lives in the encrypted blobs), so older entries stay searchable by
+/// their preview only until they are copied again.
+fn rebuild_search_index(db: &Database) -> Result<()> {
+    db.conn.execute_batch("DROP TABLE IF EXISTS entries_fts")?;
+    db.conn.execute_batch(FTS_TABLE_SQL)?;
+    let mut stmt = db
+        .conn
+        .prepare("SELECT id, content_hash, preview FROM entries WHERE deleted = 0")?;
+    let rows: Vec<(i64, String, String)> = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    for (id, hash, sealed) in rows {
+        let preview = db
+            .cipher
+            .open_text_with_aad(Database::preview_aad(&hash).as_bytes(), &sealed)
+            .or_else(|_| db.cipher.open_text(&sealed))?;
+        db.conn.execute(
+            "INSERT INTO entries_fts(rowid, preview) VALUES (?1, ?2)",
+            params![id, preview],
+        )?;
+    }
+    Ok(())
+}
 
 /// Filter for history queries.
 #[derive(Debug, Clone, Default)]
@@ -139,7 +183,12 @@ impl Database {
     /// this build, and otherwise migrated step by step after a `VACUUM INTO`
     /// backup next to it. `migrations` and `target` are parameters only so
     /// the tests can exercise the path with a fake migration.
-    fn prepare(&self, path: Option<&Path>, migrations: &[(i64, &str)], target: i64) -> Result<()> {
+    fn prepare(
+        &self,
+        path: Option<&Path>,
+        migrations: &[(i64, Migration)],
+        target: i64,
+    ) -> Result<()> {
         let stored = self.stored_schema_version()?;
         if stored == 0 {
             self.init()?;
@@ -158,9 +207,13 @@ impl Database {
             if let Some(path) = path {
                 self.backup_before_migration(path, stored)?;
             }
-            for (version, sql) in migrations.iter().filter(|(v, _)| *v > stored) {
+            for (version, step) in migrations.iter().filter(|(v, _)| *v > stored) {
                 let tx = self.conn.unchecked_transaction()?;
-                tx.execute_batch(sql)?;
+                match step {
+                    Migration::Sql(sql) => tx.execute_batch(sql)?,
+                    // Runs on the same connection, hence inside `tx`.
+                    Migration::Code(run) => run(self)?,
+                }
                 tx.execute(
                     "INSERT OR REPLACE INTO meta(key, value) VALUES('schema_version', ?1)",
                     params![version.to_string()],
@@ -339,12 +392,21 @@ impl Database {
                 PRIMARY KEY (entry_id, mime)
             );
 
-            -- FTS index over decrypted previews. Kept in sync by triggers.
-            CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(
-                preview,
-                tokenize='unicode61'
-            );
             ",
+        )?;
+        // FTS index over decrypted previews and, for text entries, the text
+        // beyond the preview; every write path above keeps it in step.
+        self.conn.execute_batch(FTS_TABLE_SQL)?;
+        Ok(())
+    }
+
+    /// Index the text of an entry beyond its preview, so a search matches
+    /// words anywhere in it. Only the FTS table changes; the encrypted
+    /// preview column stays as it is.
+    pub fn index_content(&self, id: i64, content: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE entries_fts SET content = ?2 WHERE rowid = ?1",
+            params![id, content],
         )?;
         Ok(())
     }
@@ -1197,7 +1259,7 @@ mod lifecycle_tests {
         };
         let fake = [(
             SCHEMA_VERSION + 1,
-            "ALTER TABLE entries ADD COLUMN migrated INTEGER NOT NULL DEFAULT 7",
+            Migration::Sql("ALTER TABLE entries ADD COLUMN migrated INTEGER NOT NULL DEFAULT 7"),
         )];
         db.prepare(Some(&path), &fake, SCHEMA_VERSION + 1).unwrap();
         assert_eq!(db.schema_version().unwrap(), SCHEMA_VERSION + 1);
@@ -1241,7 +1303,7 @@ mod lifecycle_tests {
         };
         // Target two versions ahead with only one migration: refuse rather
         // than stamp a schema the file does not have.
-        let short = [(SCHEMA_VERSION + 1, "SELECT 1")];
+        let short = [(SCHEMA_VERSION + 1, Migration::Sql("SELECT 1"))];
         let err = db
             .prepare(Some(&path), &short, SCHEMA_VERSION + 2)
             .unwrap_err();
@@ -1379,5 +1441,78 @@ mod lifecycle_tests {
         assert!(db.purge_tombstones(900).unwrap().is_empty());
         assert!(db.get(id).unwrap().deleted);
         assert!(!db.purge_tombstones(1001).unwrap().is_empty() || db.get(id).is_err());
+    }
+
+    fn search(db: &Database, term: &str) -> Vec<i64> {
+        db.query(&QueryFilter {
+            search: Some(term.into()),
+            ..QueryFilter::recent(20)
+        })
+        .unwrap()
+        .into_iter()
+        .map(|e| e.id)
+        .collect()
+    }
+
+    #[test]
+    fn indexed_content_is_searchable_beyond_the_preview() {
+        let db = Database::open_in_memory(Cipher::new(&MasterKey::generate())).unwrap();
+        insert_one(&db, "short preview of a long note");
+        let id = db.query(&QueryFilter::recent(1)).unwrap()[0].id;
+        assert!(search(&db, "zebra").is_empty());
+        db.index_content(id, "lots of words and, at the very end, zebra")
+            .unwrap();
+        assert_eq!(search(&db, "zebra"), vec![id]);
+        assert_eq!(search(&db, "short"), vec![id], "preview still matches");
+        // Tombstoned entries leave the index; restore brings the preview
+        // back (content is re-indexed when the entry is stored again).
+        db.tombstone(id, 5).unwrap();
+        assert!(search(&db, "zebra").is_empty());
+        db.restore(id).unwrap();
+        assert_eq!(search(&db, "short"), vec![id]);
+    }
+
+    #[test]
+    fn search_folds_case_and_diacritics_including_turkish_dotted_i() {
+        let db = Database::open_in_memory(Cipher::new(&MasterKey::generate())).unwrap();
+        insert_one(&db, "İstanbul'da yağmur yağıyor");
+        let id = db.query(&QueryFilter::recent(1)).unwrap()[0].id;
+        assert_eq!(search(&db, "istanbul"), vec![id]);
+        assert_eq!(search(&db, "yagmur"), vec![id]);
+        assert_eq!(search(&db, "YAĞMUR"), vec![id]);
+    }
+
+    #[test]
+    fn version_2_index_is_rebuilt_with_the_content_column() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history.db");
+        let key = MasterKey::generate();
+        {
+            let db = open_with(&path, &key).unwrap();
+            insert_one(&db, "kept across the rebuild");
+            // Back to what a version 2 file looked like: the old FTS table
+            // without `content`, and the old version stamp.
+            db.conn
+                .execute_batch(
+                    "DROP TABLE entries_fts;
+                     CREATE VIRTUAL TABLE entries_fts USING fts5(preview, tokenize='unicode61');",
+                )
+                .unwrap();
+            let id = db.query(&QueryFilter::recent(1)).unwrap()[0].id;
+            db.conn
+                .execute(
+                    "INSERT INTO entries_fts(rowid, preview) VALUES (?1, ?2)",
+                    params![id, "kept across the rebuild"],
+                )
+                .unwrap();
+            db.set_schema_version(2).unwrap();
+        }
+        let db = open_with(&path, &key).unwrap();
+        assert_eq!(db.schema_version().unwrap(), SCHEMA_VERSION);
+        assert!(path.with_extension("db.bak-v2").exists());
+        let id = db.query(&QueryFilter::recent(1)).unwrap()[0].id;
+        assert_eq!(search(&db, "rebuild"), vec![id], "previews were re-added");
+        db.index_content(id, "and now content too").unwrap();
+        assert_eq!(search(&db, "content"), vec![id]);
     }
 }

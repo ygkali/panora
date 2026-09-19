@@ -36,6 +36,9 @@ argon2 = "0.5"
 rand = "0.8"
 zeroize = { version = "1", features = ["derive"] }
 
+# --- text filters (user-defined ignore patterns) ---
+regex = "1"
+
 # --- serialization / errors ---
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
