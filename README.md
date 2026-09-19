@@ -144,6 +144,7 @@ max_age_days = 30        # 0 = forever
 max_mime_bytes = 10485760
 persist_on_wayland = "auto"   # auto | always | never: re-offer after the source exits
 index_full_text = true        # search matches words beyond the 500-char preview
+max_total_bytes = 536870912   # payload bytes kept; the oldest unpinned entries go first (0 = no limit)
 
 [privacy]
 start_private = false

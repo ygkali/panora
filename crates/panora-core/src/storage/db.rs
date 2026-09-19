@@ -872,6 +872,74 @@ impl Database {
         Ok(ids)
     }
 
+    /// Evict the oldest unpinned entries until the payload bytes of the
+    /// live history fit in `max_bytes`. Pinned entries count towards the
+    /// total but never go; once one entry has to go, everything older goes
+    /// with it. No undo window, like the other retention rules.
+    pub fn enforce_total_bytes(&self, max_bytes: u64) -> Result<Vec<i64>> {
+        let pinned: i64 = self.conn.query_row(
+            "SELECT COALESCE(SUM(size_bytes), 0) FROM entries WHERE deleted = 0 AND pinned = 1",
+            [],
+            |row| row.get(0),
+        )?;
+        let mut used = u64::try_from(pinned).unwrap_or(0);
+        let mut stmt = self.conn.prepare(
+            "SELECT id, size_bytes FROM entries
+             WHERE deleted = 0 AND pinned = 0
+             ORDER BY last_seen_at DESC, id DESC",
+        )?;
+        let rows: Vec<(i64, i64)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let mut evicted = Vec::new();
+        for (id, size) in rows {
+            let size = u64::try_from(size).unwrap_or(0);
+            if !evicted.is_empty() || used.saturating_add(size) > max_bytes {
+                evicted.push(id);
+            } else {
+                used += size;
+            }
+        }
+        for &id in &evicted {
+            self.tombstone(id, 0)?;
+        }
+        Ok(evicted)
+    }
+
+    /// Every blob reference any row (live or tombstoned) still holds.
+    pub fn referenced_blobs(&self) -> Result<std::collections::HashSet<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT DISTINCT blob_ref FROM entry_blobs")?;
+        let refs = stmt
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<std::result::Result<_, _>>()?;
+        Ok(refs)
+    }
+
+    /// Routine upkeep: refresh the planner statistics, fold the WAL back
+    /// into the main file, and reclaim free pages once more than a quarter
+    /// of the file is unused (a full VACUUM rewrites the file, so not on
+    /// every run).
+    pub fn maintain(&self) -> Result<()> {
+        self.conn.execute_batch("PRAGMA optimize")?;
+        let _: (i64, i64, i64) =
+            self.conn
+                .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                })?;
+        let page_count: i64 = self
+            .conn
+            .query_row("PRAGMA page_count", [], |row| row.get(0))?;
+        let freelist: i64 = self
+            .conn
+            .query_row("PRAGMA freelist_count", [], |row| row.get(0))?;
+        if page_count > 0 && freelist * 4 > page_count {
+            self.conn.execute_batch("VACUUM")?;
+        }
+        Ok(())
+    }
+
     /// Clear the history, keeping pinned entries. Returns the cleared ids.
     ///
     /// Pinning means "keep this", which is why `enforce_limit` and
@@ -1518,6 +1586,58 @@ mod lifecycle_tests {
         assert_eq!(search(&db, "istanbul"), vec![id]);
         assert_eq!(search(&db, "yagmur"), vec![id]);
         assert_eq!(search(&db, "YAĞMUR"), vec![id]);
+    }
+
+    #[test]
+    fn total_bytes_cap_keeps_the_newest_and_the_pinned() {
+        let db = Database::open_in_memory(Cipher::new(&MasterKey::generate())).unwrap();
+        let insert = |preview: &str, size: i64, now: i64| -> i64 {
+            let hash = crate::storage::crypto::content_hash(preview.as_bytes());
+            db.upsert_entry(
+                &hash,
+                preview,
+                ContentKind::Text,
+                "text/plain",
+                size,
+                None,
+                Selection::Clipboard,
+                now,
+                "dev",
+                now,
+            )
+            .unwrap()
+        };
+        let oldest = insert("oldest", 100, 1);
+        let pinned = insert("pinned", 200, 2);
+        db.set_pinned(pinned, true).unwrap();
+        let newest = insert("newest", 300, 3);
+        // 200 (pinned) + 300 fit in 550; the oldest 100 would not.
+        assert_eq!(db.enforce_total_bytes(550).unwrap(), vec![oldest]);
+        assert!(db.get(oldest).unwrap().deleted);
+        assert!(!db.get(newest).unwrap().deleted);
+        assert!(!db.get(pinned).unwrap().deleted);
+        // Nothing to do when everything fits.
+        assert!(db.enforce_total_bytes(550).unwrap().is_empty());
+        // Below the pinned size alone, every unpinned entry goes.
+        assert_eq!(db.enforce_total_bytes(150).unwrap(), vec![newest]);
+        assert!(!db.get(pinned).unwrap().deleted);
+    }
+
+    #[test]
+    fn maintenance_runs_and_lists_blob_references() {
+        let dir = tempfile::tempdir().unwrap();
+        let key = MasterKey::generate();
+        let db = open_with(&dir.path().join("history.db"), &key).unwrap();
+        insert_one(&db, "with a blob");
+        let id = db.query(&QueryFilter::recent(1)).unwrap()[0].id;
+        db.attach_blob(id, "text/plain", &"a".repeat(64)).unwrap();
+        db.attach_blob(id, "text/html", &"b".repeat(64)).unwrap();
+        let refs = db.referenced_blobs().unwrap();
+        assert!(refs.contains(&"a".repeat(64)));
+        assert!(refs.contains(&"b".repeat(64)));
+        assert_eq!(refs.len(), 2);
+        db.maintain().unwrap();
+        assert_eq!(db.query(&QueryFilter::recent(1)).unwrap()[0].id, id);
     }
 
     #[test]

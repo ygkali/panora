@@ -38,6 +38,10 @@ pub struct HistoryConfig {
     /// 64 KiB) so search finds words anywhere in it. The index lives in the
     /// same 0600 database file as the previews.
     pub index_full_text: bool,
+    /// Bytes of payloads the history may hold. When exceeded, the oldest
+    /// unpinned entries go first; pinned entries count but stay. Zero means
+    /// no limit.
+    pub max_total_bytes: u64,
 }
 
 impl Default for HistoryConfig {
@@ -49,6 +53,7 @@ impl Default for HistoryConfig {
             max_mime_bytes: 10 * 1024 * 1024,
             persist_on_wayland: "auto".into(),
             index_full_text: true,
+            max_total_bytes: 512 * 1024 * 1024,
         }
     }
 }

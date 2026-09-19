@@ -71,6 +71,12 @@ real-machine verification in `docs/RELEASING.md` is done.
 - Settings: a **System** group with a switch for starting panod with the
   session (`systemctl --user enable/disable panod.service`) and the space
   the history takes on disk.
+- `history.max_total_bytes` (512 MiB) caps the payload bytes kept: the
+  oldest unpinned entries go first, pinned entries count but stay.
+- Hourly upkeep now also runs `PRAGMA optimize`, checkpoints the WAL,
+  vacuums the database once a quarter of it is free pages, and removes
+  blobs no row references (left by a crash between writing a blob and
+  recording it) along with stale temporary files.
 - Recording pauses while the session is locked (`org.gnome.ScreenSaver` /
   `org.freedesktop.ScreenSaver` `ActiveChanged`); `panora-cli status` shows
   `locked`.

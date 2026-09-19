@@ -129,7 +129,7 @@ async fn run_app() -> anyhow::Result<()> {
         ticker.tick().await;
         loop {
             ticker.tick().await;
-            if let Err(e) = maintenance.collect_garbage() {
+            if let Err(e) = maintenance.maintain() {
                 warn!(error = %e, "periodic maintenance failed");
             }
         }

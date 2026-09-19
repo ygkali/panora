@@ -118,6 +118,38 @@ impl BlobStore {
     pub fn total_size(&self) -> u64 {
         walk_size(&self.root)
     }
+
+    /// Every blob hash on disk, for the orphan scan. A temporary file left
+    /// by an interrupted write is removed once it is an hour old.
+    pub fn list(&self) -> Result<Vec<String>> {
+        let mut hashes = Vec::new();
+        for shard in std::fs::read_dir(&self.root)? {
+            let shard = shard?;
+            if !shard.file_type()?.is_dir() {
+                continue;
+            }
+            for file in std::fs::read_dir(shard.path())? {
+                let file = file?;
+                let name = file.file_name();
+                let name = name.to_string_lossy();
+                if validate_hash(&name).is_ok() {
+                    hashes.push(name.into_owned());
+                } else if name.starts_with('.') && name.contains(".tmp-") {
+                    let stale = file
+                        .metadata()
+                        .and_then(|m| m.modified())
+                        .map(|t| {
+                            t.elapsed().unwrap_or_default() > std::time::Duration::from_secs(3600)
+                        })
+                        .unwrap_or(false);
+                    if stale {
+                        let _ = std::fs::remove_file(file.path());
+                    }
+                }
+            }
+        }
+        Ok(hashes)
+    }
 }
 
 fn validate_hash(hash: &str) -> Result<()> {

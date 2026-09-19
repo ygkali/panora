@@ -143,6 +143,7 @@ max_age_days = 30        # 0 = süresiz
 max_mime_bytes = 10485760
 persist_on_wayland = "auto"   # auto | always | never: kaynak kapanınca yeniden sun
 index_full_text = true        # arama 500 karakterlik önizlemenin ötesini de bulur
+max_total_bytes = 536870912   # tutulan içerik baytı; önce en eski sabitlenmemiş kayıtlar gider (0 = sınırsız)
 
 [privacy]
 start_private = false

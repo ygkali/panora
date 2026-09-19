@@ -724,6 +724,12 @@ impl Daemon {
             let cutoff = now - i64::from(config.privacy.sensitive_ttl_minutes) * 60;
             evicted.extend(self.db.expire_sensitive(cutoff)?);
         }
+        if config.history.max_total_bytes > 0 {
+            evicted.extend(
+                self.db
+                    .enforce_total_bytes(config.history.max_total_bytes)?,
+            );
+        }
         // There is no sync peer to replay tombstones to yet; user deletions
         // live just long enough for an undo, evictions go right away.
         self.purge_tombstoned_before(now - UNDO_GRACE_SECS)?;
@@ -731,6 +737,28 @@ impl Daemon {
             debug!(count = evicted.len(), "evicted entries by retention policy");
         }
         Ok(evicted.len())
+    }
+
+    /// The hourly upkeep: retention, database maintenance and a scan for
+    /// blobs no row references (left by a crash between writing a blob and
+    /// recording it). Returns how many orphans were removed.
+    pub fn maintain(&self) -> Result<usize> {
+        self.collect_garbage()?;
+        self.db.maintain()?;
+        let referenced = self.db.referenced_blobs()?;
+        let mut removed = 0usize;
+        for hash in self.blobs.list()? {
+            if !referenced.contains(&hash) {
+                match self.blobs.remove(&hash) {
+                    Ok(()) => removed += 1,
+                    Err(e) => warn!(blob = %hash, error = %e, "orphan blob cleanup failed"),
+                }
+            }
+        }
+        if removed > 0 {
+            info!(removed, "removed orphaned blobs");
+        }
+        Ok(removed)
     }
 
     /// Drop the rows of entries tombstoned before `before`, then the blobs
@@ -1727,6 +1755,51 @@ mod tests {
                 .unwrap()
                 .len(),
             1
+        );
+    }
+
+    #[tokio::test]
+    async fn maintenance_removes_orphaned_blobs_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let (daemon, backend) = test_daemon(&dir);
+        offer_text(&backend, "kept because a row points at it").await;
+        daemon.handle_event(text_event()).await;
+        let entry = daemon.query(&QueryFilter::recent(1)).unwrap().remove(0);
+        let orphan = daemon.blobs.put(b"nobody references this").unwrap();
+        assert!(daemon.blobs.exists(&orphan));
+        assert_eq!(daemon.maintain().unwrap(), 1);
+        assert!(!daemon.blobs.exists(&orphan));
+        assert_eq!(
+            daemon.load_payloads(entry.id).unwrap()[0].data,
+            b"kept because a row points at it"
+        );
+        assert_eq!(daemon.maintain().unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn total_bytes_cap_is_applied_on_store() {
+        let dir = tempfile::tempdir().unwrap();
+        let (daemon, backend) = test_daemon(&dir);
+        let mut config = Config::default();
+        config.history.max_total_bytes = 60;
+        daemon.apply_config(config).unwrap();
+        for text in [
+            "first entry of forty characters exactly!!",
+            "second one is also quite long enough.",
+            "short",
+        ] {
+            offer_text(&backend, text).await;
+            daemon.handle_event(text_event()).await;
+        }
+        let previews: Vec<String> = daemon
+            .query(&QueryFilter::recent(10))
+            .unwrap()
+            .into_iter()
+            .map(|e| e.preview)
+            .collect();
+        assert_eq!(
+            previews,
+            vec!["short", "second one is also quite long enough."]
         );
     }
 
