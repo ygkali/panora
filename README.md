@@ -221,7 +221,8 @@ model; see [SECURITY.md](SECURITY.md), the ADRs in `docs/adr/` and
 
 ## Troubleshooting
 
-`panora-doctor` first. Common cases and the daemon log are described in
+`panora-doctor` first; `panora-doctor --report` writes the file to attach to
+a bug report. Common cases and the daemon log are described in
 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 
 ## Project

@@ -218,7 +218,8 @@ bkz. [SECURITY.md](SECURITY.md), `docs/adr/` ve
 
 ## Sorun giderme
 
-Önce `panora-doctor`. Sık karşılaşılan durumlar ve daemon günlüğü için
+Önce `panora-doctor`; `panora-doctor --report` hata bildirimine eklenecek dosyayı
+yazar. Sık karşılaşılan durumlar ve daemon günlüğü için
 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 
 ## Proje

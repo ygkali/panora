@@ -25,7 +25,7 @@ body:
     id: doctor
     attributes:
       label: panora-doctor output
-      description: Paste the output of `panora-doctor` (or `panora-doctor --json`).
+      description: Run `panora-doctor --report` and attach the file it writes (or paste the output of `panora-doctor`). The report replaces your home directory, user name and host name and holds no clipboard content.
       render: text
     validations:
       required: true

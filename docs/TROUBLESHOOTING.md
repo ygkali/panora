@@ -3,8 +3,10 @@
 Start with `panora-doctor`: it checks the session, the daemon, the socket, the
 backend, the GNOME extension, the D-Bus names, the keyring, the Super+V
 binding and the data directory, and prints a command for everything that is
-not OK. `panora-doctor --json` is what to paste into a bug report; it contains
-no clipboard content.
+not OK. For a bug report run `panora-doctor --report`: it writes one file
+with the checks, versions, the daemon status, the unit state, the panod journal
+and the configuration, with your home directory, user name and host name
+replaced and without any clipboard content. Read it once before attaching it.
 
 ```sh
 systemctl --user status panod.service

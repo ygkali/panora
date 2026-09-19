@@ -46,6 +46,11 @@ real-machine verification in `docs/RELEASING.md` is done.
   on by default) and the index folds case and diacritics, so `istanbul`
   finds `İstanbul`. Existing databases are migrated to schema 3 with a
   backup next to them; older entries stay searchable by their preview.
+- `panora-doctor --report[=FILE]` writes a diagnostic file for bug reports:
+  the checks, versions, session variables, daemon status, unit state, the
+  panod journal, the extension state and the configuration, with the home
+  directory, user name and host name replaced, `ignore_patterns` left out
+  and no clipboard content.
 - Recording pauses while the session is locked (`org.gnome.ScreenSaver` /
   `org.freedesktop.ScreenSaver` `ActiveChanged`); `panora-cli status` shows
   `locked`.

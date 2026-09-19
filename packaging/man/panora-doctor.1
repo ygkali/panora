@@ -3,7 +3,7 @@
 panora-doctor \- diagnose a Panora installation
 .SH SYNOPSIS
 .B panora-doctor
-.RB [ \-\-json ]
+.RB [ \-\-json " | " \-\-report\fR[=\fIFILE\fR]]
 .SH DESCRIPTION
 .B panora-doctor
 checks the operating system, the session type, the installed binaries,
@@ -17,6 +17,17 @@ with a suggested command when something is wrong. It never modifies anything.
 .TP
 .B \-\-json
 Print the checks as one JSON document instead of text.
+.TP
+.BR \-\-report [=\fIFILE\fR]
+Write a diagnostic file for a bug report (default name
+.IB panora-report- DATE .txt
+in the current directory): the checks in English, versions, session
+variables, the daemon status, the unit state, the last 200 lines of the panod
+journal, the extension state and the configuration. The home directory, the
+user name and the host name are replaced, the values of
+.B ignore_patterns
+are left out, and no clipboard content is read. The file is created with mode
+0600; review it before attaching it to an issue.
 .SH EXIT STATUS
 .B 0
 unless the daemon itself is unusable (not running, no socket, or

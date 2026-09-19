@@ -8,6 +8,10 @@
 # anything that is not OK. Exit status is 0 unless the daemon itself is
 # unusable (panod not running or `panora-cli status` failing); warnings never
 # change the exit status. `--json` prints the same checks as a JSON document.
+# `--report[=FILE]` writes a diagnostic file for bug reports: the checks plus
+# versions, session variables, daemon status, unit state, the panod journal,
+# the extension state and the configuration, with the home directory, user
+# name and host name replaced and without any clipboard content.
 #
 # The script never modifies anything: no config writes, no service restarts,
 # no package installs. Every hint is a command the user can run by hand.
@@ -24,7 +28,12 @@ EXT_UUID="panora@ygkali.github.io"
 # ------------------------------------------------------------------ messages
 
 declare -A TR=(
-  ["Usage: panora-doctor [--json]"]="Kullanım: panora-doctor [--json]"
+  ["Usage: panora-doctor [--json | --report[=FILE]]"]="Kullanım: panora-doctor [--json | --report[=DOSYA]]"
+  ["--report writes a diagnostic file for bug reports (English; home directory,"]="--report hata bildirimleri için bir tanı dosyası yazar (İngilizce; ev dizini,"
+  ["user name and host name removed, no clipboard content)."]="kullanıcı adı ve makine adı çıkarılır, pano içeriği yer almaz)."
+  ["Report written to %s"]="Rapor yazıldı: %s"
+  ["It names no user, host or home directory and holds no clipboard content; review it before attaching it to an issue."]="Kullanıcı, makine ve ev dizini adları çıkarıldı, pano içeriği yok; yine de bir hata kaydına eklemeden önce gözden geçirin."
+  ["could not write %s"]="%s yazılamadı"
   ["Checks an installed Panora: operating system, session type, binaries,"]="Kurulu Panora'nın durumunu denetler: işletim sistemi, oturum tipi, ikili"
   ["panod.service, IPC socket, backend, GNOME extension, D-Bus names, Secret"]="dosyalar, panod.service, IPC soketi, backend, GNOME eklentisi, D-Bus"
   ["Service, Super+V conflicts, data directory and configuration."]="adları, Secret Service, Super+V çakışması, veri dizini ve yapılandırma."
@@ -171,11 +180,15 @@ t() {
 say() { t "$@"; printf '\n'; }
 
 JSON=0
+REPORT=0
+REPORT_FILE=""
 for arg in "$@"; do
   case "$arg" in
     --json) JSON=1 ;;
+    --report) REPORT=1 ;;
+    --report=*) REPORT=1; REPORT_FILE="${arg#--report=}" ;;
     -h|--help)
-      say "Usage: panora-doctor [--json]"
+      say "Usage: panora-doctor [--json | --report[=FILE]]"
       echo
       say "Checks an installed Panora: operating system, session type, binaries,"
       say "panod.service, IPC socket, backend, GNOME extension, D-Bus names, Secret"
@@ -183,6 +196,9 @@ for arg in "$@"; do
       echo
       say "The exit status is 1 only when the daemon is unusable; warnings do not"
       say "change it."
+      echo
+      say "--report writes a diagnostic file for bug reports (English; home directory,"
+      say "user name and host name removed, no clipboard content)."
       exit 0 ;;
     *) say "panora-doctor: unknown option: %s" "$arg" >&2; exit 2 ;;
   esac
@@ -248,6 +264,143 @@ with_timeout() {
 }
 
 has() { command -v "$1" >/dev/null 2>&1; }
+
+# ----------------------------------------------------------------- report
+
+# Escape a literal for use as a sed pattern.
+sed_literal() { printf '%s' "$1" | sed -e 's/[][\/.*^$]/\\&/g'; }
+
+# Replace what identifies the machine or the user: the home directory, the
+# user name and the host name. Nothing in the report reads clipboard content.
+redact() {
+  local home user host
+  home="$(sed_literal "$HOME")"
+  user="$(sed_literal "${USER:-$(id -un)}")"
+  host="$(sed_literal "$(hostname 2>/dev/null || true)")"
+  if [[ -n "$host" ]]; then
+    sed -e "s/$home/~/g" -e "s/\b$user\b/<user>/g" -e "s/\b$host\b/<host>/g"
+  else
+    sed -e "s/$home/~/g" -e "s/\b$user\b/<user>/g"
+  fi
+}
+
+report_section() { printf '\n## %s\n\n' "$1"; }
+
+# The command's output, or its exit status when it fails, never an abort.
+run_for_report() {
+  local out rc=0
+  out="$(with_timeout "$@" 2>&1)" || rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    printf '(%s exited with %s)\n' "$1" "$rc"
+  fi
+  printf '%s\n' "${out:-(no output)}"
+}
+
+# ignore_patterns are regular expressions the user wrote to keep things out
+# of the history; they can spell out what those things are, so only their
+# presence is reported.
+redact_config() {
+  # A "]" inside a quoted pattern ("[a-z]") does not end the array, so the
+  # strings are blanked before looking for the closing bracket.
+  awk '
+    function closes(line,  t) {
+      t = line
+      gsub(/"([^"\\]|\\.)*"/, "", t)
+      gsub(/\047[^\047]*\047/, "", t)
+      return t ~ /\]/
+    }
+    /^[[:space:]]*ignore_patterns[[:space:]]*=/ {
+      print "ignore_patterns = \"<redacted>\""
+      if (!closes($0)) skip = 1
+      next
+    }
+    skip { if (closes($0)) skip = 0; next }
+    { print }
+  '
+}
+
+write_report() {
+  local file="${REPORT_FILE:-panora-report-$(date +%Y%m%d-%H%M%S).txt}"
+  local config="${XDG_CONFIG_HOME:-$HOME/.config}/panora/config.toml"
+  local data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/panora"
+  if ! : > "$file" 2>/dev/null; then
+    say "could not write %s" "$file" >&2
+    return 1
+  fi
+  chmod 600 "$file" 2>/dev/null || true
+  {
+    echo "# Panora diagnostic report"
+    echo
+    echo "generated: $(date -u +%Y-%m-%dT%H:%M:%SZ) by panora-doctor --report"
+    echo "The home directory, user name and host name are replaced; no clipboard content is included."
+    echo "Review the file before attaching it to an issue."
+
+    report_section "panora-doctor"
+    PANORA_LANG=en "$0" 2>&1 || true
+
+    report_section "versions"
+    for bin in panora-cli panod panora-gui; do
+      if has "$bin"; then run_for_report "$bin" --version; else echo "$bin: not on PATH"; fi
+    done
+    if has dpkg-query; then
+      for pkg in panora libgtk-4-1 libadwaita-1-0 gnome-shell mutter; do
+        dpkg-query -W -f='${Package} ${Version}\n' "$pkg" 2>/dev/null || echo "$pkg: not installed"
+      done
+    fi
+    if [[ -r /etc/os-release ]]; then
+      (. /etc/os-release && echo "os: ${PRETTY_NAME:-unknown}")
+    fi
+    echo "kernel: $(uname -r)"
+    if has gnome-shell; then run_for_report gnome-shell --version; fi
+
+    report_section "session"
+    for var in XDG_SESSION_TYPE XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP DESKTOP_SESSION GDK_BACKEND LANG LC_ALL LC_MESSAGES; do
+      printf '%s=%s\n' "$var" "${!var:-}"
+    done
+    for var in DISPLAY WAYLAND_DISPLAY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS; do
+      if [[ -n "${!var:-}" ]]; then echo "$var: set"; else echo "$var: unset"; fi
+    done
+
+    report_section "daemon status (panora-cli --json status)"
+    if has panora-cli; then run_for_report panora-cli --json status; else echo "panora-cli: not on PATH"; fi
+
+    report_section "panod.service"
+    if has systemctl; then
+      run_for_report systemctl --user show panod.service \
+        -p LoadState,ActiveState,SubState,Result,NRestarts,ExecMainStartTimestamp,ExecMainStatus
+      run_for_report systemctl --user status panod.service --no-pager -n 0
+    else
+      echo "systemctl: not available"
+    fi
+
+    report_section "panod journal (last 200 lines)"
+    if has journalctl; then
+      run_for_report journalctl --user -u panod.service -n 200 --no-pager -o short-iso
+    else
+      echo "journalctl: not available"
+    fi
+
+    report_section "GNOME Shell extension"
+    if has gnome-extensions; then
+      run_for_report gnome-extensions info "$EXT_UUID"
+    else
+      echo "gnome-extensions: not available"
+    fi
+
+    report_section "configuration ($config)"
+    if [[ -f "$config" ]]; then redact_config < "$config"; else echo "(absent; defaults in use)"; fi
+
+    report_section "data directory ($data_dir)"
+    if [[ -d "$data_dir" ]]; then run_for_report ls -la "$data_dir"; else echo "(absent)"; fi
+  } 2>&1 | redact > "$file"
+  say "Report written to %s" "$file"
+  say "It names no user, host or home directory and holds no clipboard content; review it before attaching it to an issue."
+}
+
+if [[ "$REPORT" -eq 1 ]]; then
+  write_report
+  exit $?
+fi
 
 # ------------------------------------------------------------- bus helpers
 
