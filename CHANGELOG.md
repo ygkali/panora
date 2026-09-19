@@ -84,6 +84,8 @@ real-machine verification in `docs/RELEASING.md` is done.
   `docs/ROADMAP.md` with every planned task identified.
 
 ### Changed
+- Dependencies: gtk4-rs 0.11 / libadwaita-rs 0.9 (same GTK and libadwaita
+  runtime requirements), rusqlite 0.40 with bundled SQLite 3.53 and toml 1.
 - **Identifiers moved to the GitHub namespace.** Application id
   `io.panora.Panora` → `io.github.ygkali.Panora`, bus names
   `io.panora.GnomeBridge1` / `io.panora.GnomeShell1` →

@@ -7,14 +7,14 @@ the crates distributed under it. Panora itself is GPL-3.0-only (see LICENSE).
 
 ## Overview
 
-- **MIT License** (MIT): 239 crates
+- **MIT License** (MIT): 236 crates
 - **Apache License 2.0** (Apache-2.0): 4 crates
 - **GNU General Public License v3.0 only** (GPL-3.0-only): 4 crates
-- **BSD 2-Clause "Simplified" License** (BSD-2-Clause): 1 crate
 - **BSD 3-Clause "New" or "Revised" License** (BSD-3-Clause): 1 crate
 - **MIT No Attribution** (MIT-0): 1 crate
 - **Mozilla Public License 2.0** (MPL-2.0): 1 crate
 - **Unicode License v3** (Unicode-3.0): 1 crate
+- **zlib License** (Zlib): 1 crate
 
 ## Apache License 2.0 (Apache-2.0)
 
@@ -443,7 +443,7 @@ limitations under the License.
 
 Used by:
 
-- blake3 1.8.6 (https://github.com/BLAKE3-team/BLAKE3)
+- blake3 1.8.7 (https://github.com/BLAKE3-team/BLAKE3)
 
 ```text
 Apache License
@@ -519,42 +519,6 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-
-```
-
-## BSD 2-Clause "Simplified" License (BSD-2-Clause)
-
-Used by:
-
-- arrayref 0.3.9 (https://github.com/droundy/arrayref)
-
-```text
-Copyright (c) 2015 David Roundy <roundyd@physics.oregonstate.edu>
-All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are
-met:
-
-1. Redistributions of source code must retain the above copyright
-   notice, this list of conditions and the following disclaimer.
-
-2. Redistributions in binary form must reproduce the above copyright
-   notice, this list of conditions and the following disclaimer in the
-   documentation and/or other materials provided with the
-   distribution.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ```
 
@@ -1005,7 +969,7 @@ SOFTWARE.
 
 Used by:
 
-- cfg-if 1.0.4 (https://github.com/rust-lang/cfg-if)
+- cfg-if 1.0.5 (https://github.com/rust-lang/cfg-if)
 - socket2 0.6.5 (https://github.com/rust-lang/socket2)
 
 ```text
@@ -1041,7 +1005,7 @@ DEALINGS IN THE SOFTWARE.
 
 Used by:
 
-- mio 1.2.2 (https://github.com/tokio-rs/mio)
+- mio 1.2.3 (https://github.com/tokio-rs/mio)
 
 ```text
 Copyright (c) 2014 Carl Lerche and other MIO contributors
@@ -1105,8 +1069,8 @@ DEALINGS IN THE SOFTWARE.
 
 Used by:
 
-- bitflags 2.13.1 (https://github.com/bitflags/bitflags)
-- log 0.4.33 (https://github.com/rust-lang/log)
+- bitflags 2.13.2 (https://github.com/bitflags/bitflags)
+- log 0.4.34 (https://github.com/rust-lang/log)
 - num-bigint-dig 0.9.1 (https://github.com/dignifiedquire/num-bigint)
 - num-bigint 0.4.8 (https://github.com/rust-num/num-bigint)
 - num-complex 0.4.6 (https://github.com/rust-num/num-complex)
@@ -1117,6 +1081,7 @@ Used by:
 - num 0.4.3 (https://github.com/rust-num/num)
 - regex-automata 0.4.18 (https://github.com/rust-lang/regex)
 - regex-syntax 0.8.11 (https://github.com/rust-lang/regex)
+- regex 1.13.1 (https://github.com/rust-lang/regex)
 
 ```text
 Copyright (c) 2014 The Rust Project Developers
@@ -1151,7 +1116,7 @@ DEALINGS IN THE SOFTWARE.
 
 Used by:
 
-- uuid 1.26.0 (https://github.com/uuid-rs/uuid)
+- uuid 1.26.1 (https://github.com/uuid-rs/uuid)
 
 ```text
 Copyright (c) 2014 The Rust Project Developers
@@ -1187,11 +1152,11 @@ DEALINGS IN THE SOFTWARE.
 
 Used by:
 
-- libsqlite3-sys 0.30.1 (https://github.com/rusqlite/rusqlite)
-- rusqlite 0.32.1 (https://github.com/rusqlite/rusqlite)
+- libsqlite3-sys 0.38.2 (https://github.com/rusqlite/rusqlite)
+- rusqlite 0.40.2 (https://github.com/rusqlite/rusqlite)
 
 ```text
-Copyright (c) 2014-2021 The rusqlite developers
+Copyright (c) 2014 The rusqlite developers
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -1558,7 +1523,6 @@ DEALINGS IN THE SOFTWARE.
 
 Used by:
 
-- hashbrown 0.14.5 (https://github.com/rust-lang/hashbrown)
 - hashbrown 0.17.1 (https://github.com/rust-lang/hashbrown)
 
 ```text
@@ -1693,7 +1657,7 @@ SOFTWARE.
 
 Used by:
 
-- indexmap 2.14.0 (https://github.com/indexmap-rs/indexmap)
+- indexmap 2.14.2 (https://github.com/indexmap-rs/indexmap)
 
 ```text
 Copyright (c) 2016--2017
@@ -2073,45 +2037,10 @@ DEALINGS IN THE SOFTWARE.
 
 Used by:
 
-- smallvec 1.15.2 (https://github.com/servo/rust-smallvec)
+- smallvec 1.16.1 (https://github.com/servo/rust-smallvec)
 
 ```text
 Copyright (c) 2018 The Servo Project Developers
-
-Permission is hereby granted, free of charge, to any
-person obtaining a copy of this software and associated
-documentation files (the "Software"), to deal in the
-Software without restriction, including without
-limitation the rights to use, copy, modify, merge,
-publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software
-is furnished to do so, subject to the following
-conditions:
-
-The above copyright notice and this permission notice
-shall be included in all copies or substantial portions
-of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
-ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
-TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
-SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
-IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
-
-```
-
-## MIT License (MIT)
-
-Used by:
-
-- ahash 0.8.12 (https://github.com/tkaitchuck/ahash)
-
-```text
-Copyright (c) 2018 Tom Kaitchuck
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
@@ -2794,10 +2723,44 @@ DEALINGS IN THE SOFTWARE.
 Used by:
 
 - cpufeatures 0.2.17 (https://github.com/RustCrypto/utils)
-- cpufeatures 0.3.0 (https://github.com/RustCrypto/utils)
 
 ```text
 Copyright (c) 2020-2025 The RustCrypto Project Developers
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+```
+
+## MIT License (MIT)
+
+Used by:
+
+- cpufeatures 0.3.1 (https://github.com/RustCrypto/utils)
+
+```text
+Copyright (c) 2020-2026 The RustCrypto Project Developers
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
@@ -2987,14 +2950,12 @@ Used by:
 - colorchoice 1.0.5 (https://github.com/rust-cli/anstyle.git)
 - is_terminal_polyfill 1.70.2 (https://github.com/polyfill-rs/is_terminal_polyfill)
 - roff 1.1.1 (https://github.com/rust-cli/roff-rs)
-- serde_spanned 0.6.9 (https://github.com/toml-rs/toml)
-- toml 0.8.23 (https://github.com/toml-rs/toml)
-- toml_datetime 0.6.11 (https://github.com/toml-rs/toml)
+- serde_spanned 1.1.1 (https://github.com/toml-rs/toml)
+- toml 1.1.6+spec-1.1.0 (https://github.com/toml-rs/toml)
 - toml_datetime 1.1.1+spec-1.1.0 (https://github.com/toml-rs/toml)
-- toml_edit 0.22.27 (https://github.com/toml-rs/toml)
-- toml_edit 0.25.13+spec-1.1.0 (https://github.com/toml-rs/toml)
+- toml_edit 0.25.15+spec-1.1.0 (https://github.com/toml-rs/toml)
 - toml_parser 1.1.3+spec-1.1.0 (https://github.com/toml-rs/toml)
-- toml_write 0.1.2 (https://github.com/toml-rs/toml)
+- toml_writer 1.1.2+spec-1.1.0 (https://github.com/toml-rs/toml)
 
 ```text
 Copyright (c) Individual contributors
@@ -3093,7 +3054,7 @@ DEALINGS IN THE SOFTWARE.
 
 Used by:
 
-- rand 0.8.7 (https://github.com/rust-random/rand)
+- rand 0.8.8 (https://github.com/rust-random/rand)
 - rand 0.9.5 (https://github.com/rust-random/rand)
 - rand_chacha 0.3.1 (https://github.com/rust-random/rand)
 - rand_core 0.6.4 (https://github.com/rust-random/rand)
@@ -3169,8 +3130,8 @@ DEALINGS IN THE SOFTWARE.
 
 Used by:
 
-- zerocopy-derive 0.8.56 (https://github.com/google/zerocopy)
-- zerocopy 0.8.56 (https://github.com/google/zerocopy)
+- zerocopy-derive 0.8.57 (https://github.com/google/zerocopy)
+- zerocopy 0.8.57 (https://github.com/google/zerocopy)
 
 ```text
 Copyright 2023 The Fuchsia Authors
@@ -3774,7 +3735,7 @@ Used by:
 - async-task 4.7.1 (https://github.com/smol-rs/async-task)
 - async-trait 0.1.92 (https://github.com/dtolnay/async-trait)
 - atomic-waker 1.1.2 (https://github.com/smol-rs/atomic-waker)
-- blocking 1.6.2 (https://github.com/smol-rs/blocking)
+- blocking 1.7.0 (https://github.com/smol-rs/blocking)
 - concurrent-queue 2.5.0 (https://github.com/smol-rs/concurrent-queue)
 - endi 1.1.1 (https://github.com/zeenix/endi)
 - event-listener-strategy 0.5.4 (https://github.com/smol-rs/event-listener-strategy)
@@ -3792,7 +3753,7 @@ Used by:
 - proc-macro-crate 3.5.0 (https://github.com/bkchr/proc-macro-crate)
 - proc-macro2 1.0.107 (https://github.com/dtolnay/proc-macro2)
 - quote 1.0.47 (https://github.com/dtolnay/quote)
-- rustix 1.1.4 (https://github.com/bytecodealliance/rustix)
+- rustix 1.1.5 (https://github.com/bytecodealliance/rustix)
 - serde 1.0.229 (https://github.com/serde-rs/serde)
 - serde_bytes 0.11.19 (https://github.com/serde-rs/bytes)
 - serde_core 1.0.229 (https://github.com/serde-rs/serde)
@@ -3800,10 +3761,10 @@ Used by:
 - serde_json 1.0.151 (https://github.com/serde-rs/json)
 - serde_repr 0.1.21 (https://github.com/dtolnay/serde-repr)
 - syn 2.0.119 (https://github.com/dtolnay/syn)
-- syn 3.0.3 (https://github.com/dtolnay/syn)
+- syn 3.0.6 (https://github.com/dtolnay/syn)
 - thiserror-impl 2.0.20 (https://github.com/dtolnay/thiserror)
 - thiserror 2.0.20 (https://github.com/dtolnay/thiserror)
-- unicode-ident 1.0.24 (https://github.com/dtolnay/unicode-ident)
+- unicode-ident 1.0.26 (https://github.com/dtolnay/unicode-ident)
 - zmij 1.0.23 (https://github.com/dtolnay/zmij)
 - zvariant_utils 4.2.0 (https://github.com/z-galaxy/zbus/)
 
@@ -3838,7 +3799,6 @@ DEALINGS IN THE SOFTWARE.
 
 Used by:
 
-- winnow 0.7.15 (https://github.com/winnow-rs/winnow)
 - winnow 1.0.4 (https://github.com/winnow-rs/winnow)
 
 ```text
@@ -3867,29 +3827,29 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 Used by:
 
-- cairo-rs 0.20.12 (https://github.com/gtk-rs/gtk-rs-core)
-- cairo-sys-rs 0.20.10 (https://github.com/gtk-rs/gtk-rs-core)
-- gdk-pixbuf-sys 0.20.10 (https://github.com/gtk-rs/gtk-rs-core)
-- gdk-pixbuf 0.20.10 (https://github.com/gtk-rs/gtk-rs-core)
-- gdk4-sys 0.9.6 (https://github.com/gtk-rs/gtk4-rs)
-- gdk4 0.9.6 (https://github.com/gtk-rs/gtk4-rs)
-- gio-sys 0.20.10 (https://github.com/gtk-rs/gtk-rs-core)
-- gio 0.20.12 (https://github.com/gtk-rs/gtk-rs-core)
-- glib-macros 0.20.12 (https://github.com/gtk-rs/gtk-rs-core)
-- glib-sys 0.20.10 (https://github.com/gtk-rs/gtk-rs-core)
-- glib 0.20.12 (https://github.com/gtk-rs/gtk-rs-core)
-- gobject-sys 0.20.10 (https://github.com/gtk-rs/gtk-rs-core)
-- graphene-rs 0.20.10 (https://github.com/gtk-rs/gtk-rs-core)
-- graphene-sys 0.20.10 (https://github.com/gtk-rs/gtk-rs-core)
-- gsk4-sys 0.9.6 (https://github.com/gtk-rs/gtk4-rs)
-- gsk4 0.9.6 (https://github.com/gtk-rs/gtk4-rs)
-- gtk4-macros 0.9.5 (https://github.com/gtk-rs/gtk4-rs)
-- gtk4-sys 0.9.6 (https://github.com/gtk-rs/gtk4-rs)
-- gtk4 0.9.7 (https://github.com/gtk-rs/gtk4-rs)
-- libadwaita-sys 0.7.2 (https://gitlab.gnome.org/World/Rust/libadwaita-rs)
-- libadwaita 0.7.2 (https://gitlab.gnome.org/World/Rust/libadwaita-rs)
-- pango-sys 0.20.10 (https://github.com/gtk-rs/gtk-rs-core)
-- pango 0.20.12 (https://github.com/gtk-rs/gtk-rs-core)
+- cairo-rs 0.22.9 (https://github.com/gtk-rs/gtk-rs-core)
+- cairo-sys-rs 0.22.9 (https://github.com/gtk-rs/gtk-rs-core)
+- gdk-pixbuf-sys 0.22.9 (https://github.com/gtk-rs/gtk-rs-core)
+- gdk-pixbuf 0.22.0 (https://github.com/gtk-rs/gtk-rs-core)
+- gdk4-sys 0.11.4 (https://github.com/gtk-rs/gtk4-rs)
+- gdk4 0.11.4 (https://github.com/gtk-rs/gtk4-rs)
+- gio-sys 0.22.9 (https://github.com/gtk-rs/gtk-rs-core)
+- gio 0.22.10 (https://github.com/gtk-rs/gtk-rs-core)
+- glib-macros 0.22.9 (https://github.com/gtk-rs/gtk-rs-core)
+- glib-sys 0.22.9 (https://github.com/gtk-rs/gtk-rs-core)
+- glib 0.22.10 (https://github.com/gtk-rs/gtk-rs-core)
+- gobject-sys 0.22.9 (https://github.com/gtk-rs/gtk-rs-core)
+- graphene-rs 0.22.8 (https://github.com/gtk-rs/gtk-rs-core)
+- graphene-sys 0.22.9 (https://github.com/gtk-rs/gtk-rs-core)
+- gsk4-sys 0.11.4 (https://github.com/gtk-rs/gtk4-rs)
+- gsk4 0.11.4 (https://github.com/gtk-rs/gtk4-rs)
+- gtk4-macros 0.11.4 (https://github.com/gtk-rs/gtk4-rs)
+- gtk4-sys 0.11.4 (https://github.com/gtk-rs/gtk4-rs)
+- gtk4 0.11.4 (https://github.com/gtk-rs/gtk4-rs)
+- libadwaita-sys 0.9.2 (https://gitlab.gnome.org/World/Rust/libadwaita-rs)
+- libadwaita 0.9.2 (https://gitlab.gnome.org/World/Rust/libadwaita-rs)
+- pango-sys 0.22.9 (https://github.com/gtk-rs/gtk-rs-core)
+- pango 0.22.9 (https://github.com/gtk-rs/gtk-rs-core)
 
 ```text
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -4010,6 +3970,7 @@ THE SOFTWARE.
 
 Used by:
 
+- aho-corasick 1.1.5 (https://github.com/BurntSushi/aho-corasick)
 - byteorder-lite 0.1.0 (https://github.com/image-rs/byteorder-lite)
 - memchr 2.8.3 (https://github.com/BurntSushi/memchr)
 
@@ -4137,7 +4098,7 @@ SOFTWARE.
 
 Used by:
 
-- crossbeam-utils 0.8.22 (https://github.com/crossbeam-rs/crossbeam)
+- crossbeam-utils 0.8.23 (https://github.com/crossbeam-rs/crossbeam)
 
 ```text
 The MIT License (MIT)
@@ -4332,7 +4293,7 @@ THE SOFTWARE.
 
 Used by:
 
-- hashlink 0.9.1 (https://github.com/kyren/hashlink)
+- hashlink 0.12.2 (https://github.com/djc/hashlink)
 
 ```text
 This work is derived in part from the `linked-hash-map` crate, Copyright (c)
@@ -4774,7 +4735,7 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
 
 Used by:
 
-- unicode-ident 1.0.24 (https://github.com/dtolnay/unicode-ident)
+- unicode-ident 1.0.26 (https://github.com/dtolnay/unicode-ident)
 
 ```text
 UNICODE LICENSE V3
@@ -4817,5 +4778,33 @@ not be used in advertising or otherwise to promote the sale, use or other
 dealings in these Data Files or Software without prior written
 authorization of the copyright holder.
 
+```
+
+## zlib License (Zlib)
+
+Used by:
+
+- foldhash 0.2.0 (https://github.com/orlp/foldhash)
+
+```text
+Copyright (c) 2024 Orson Peters
+
+This software is provided 'as-is', without any express or implied warranty. In
+no event will the authors be held liable for any damages arising from the use of
+this software.
+
+Permission is granted to anyone to use this software for any purpose, including
+commercial applications, and to alter it and redistribute it freely, subject to
+the following restrictions:
+
+1. The origin of this software must not be misrepresented; you must not claim
+    that you wrote the original software. If you use this software in a product,
+    an acknowledgment in the product documentation would be appreciated but is
+    not required.
+
+2. Altered source versions must be plainly marked as such, and must not be
+    misrepresented as being the original software.
+
+3. This notice may not be removed or altered from any source distribution.
 ```
 

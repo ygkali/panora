@@ -20,7 +20,7 @@ jobs:
     name: Format & Clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -40,7 +40,7 @@ jobs:
     name: Unit & Integration Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install system deps
@@ -61,7 +61,7 @@ jobs:
     name: Secret Service Integration
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install system deps
@@ -75,7 +75,7 @@ jobs:
     name: Wayland backend on headless sway
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install system deps
@@ -89,7 +89,7 @@ jobs:
     name: Popup renders under Xvfb
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install system deps
@@ -106,7 +106,7 @@ jobs:
             echo "$f: $size bytes"
             test "$size" -gt 10000
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: popup-screenshots
           path: shots/*.png
@@ -115,8 +115,12 @@ jobs:
     name: MSRV (Rust 1.92)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.92
+      - uses: actions/checkout@v7
+      # The version is an input, not the action ref, so a bot bumping the
+      # ref cannot silently raise the floor `Cargo.toml` promises.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.92"
       - uses: Swatinem/rust-cache@v2
       - name: Install system deps
         run: |
@@ -128,7 +132,7 @@ jobs:
     name: Shell Scripts
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: shellcheck
         run: |
           sudo apt-get update
@@ -149,8 +153,8 @@ jobs:
     name: GNOME Extension Security
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - run: node scripts/extension-security-check.mjs
@@ -167,7 +171,7 @@ jobs:
       checks: write
       issues: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -176,7 +180,7 @@ jobs:
     name: cargo-deny (licenses, bans & advisories)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           manifest-path: ./Cargo.toml
@@ -194,7 +198,7 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install system deps
@@ -224,7 +228,7 @@ jobs:
           panora-gui --version
           panora-doctor --json | head -c 400; echo
           man -w panora-cli panod panora-gui panora-doctor
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: panora-deb-${{ matrix.arch }}
           path: dist/panora_*.deb

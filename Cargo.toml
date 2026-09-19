@@ -27,7 +27,7 @@ async-trait = "0.1"
 futures = "0.3"
 
 # --- storage ---
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 blake3 = "1"
 
 # --- crypto ---
@@ -69,7 +69,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 
 # --- config ---
 directories = "5"
-toml = "0.8"
+toml = "1"
 
 # --- CLI ---
 clap = { version = "4", features = ["derive", "wrap_help", "string"] }
