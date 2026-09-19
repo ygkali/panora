@@ -3,6 +3,7 @@
 
 //! Formatting helpers and the IPC bridge used by every dialog.
 
+use gtk4 as gtk;
 use libadwaita as adw;
 use panora_core::error::Result;
 use panora_core::i18n::{fill, Strings};
@@ -10,8 +11,10 @@ use panora_core::ipc::{Request, ResponseData};
 use panora_core::model::ContentKind;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// One IPC round trip on the GTK thread. The daemon is local, so calls take
-/// milliseconds; only image previews are moved to a worker thread.
+/// One IPC round trip, blocking. The daemon is local and answers small
+/// requests in well under a millisecond, so pin, delete, status and the
+/// like call this from the GTK thread; anything that carries a page or a
+/// payload goes through `call_async` instead.
 #[cfg(not(feature = "fixture"))]
 pub fn call(request: &Request) -> Result<ResponseData> {
     panora_core::ipc::client::call(request)
@@ -21,6 +24,31 @@ pub fn call(request: &Request) -> Result<ResponseData> {
 #[cfg(feature = "fixture")]
 pub fn call(request: &Request) -> Result<ResponseData> {
     crate::fixture::call(request)
+}
+
+/// Run `work` on a worker thread and hand its result to `done` on the GTK
+/// main loop. Everything that takes time (a daemon round trip carrying a
+/// page or a payload, an image decode) goes through here so the popup
+/// never waits on it.
+pub fn spawn<T, W, D>(work: W, done: D)
+where
+    T: Send + 'static,
+    W: FnOnce() -> T + Send + 'static,
+    D: FnOnce(T) + 'static,
+{
+    glib::spawn_future_local(async move {
+        if let Ok(value) = gtk::gio::spawn_blocking(work).await {
+            done(value);
+        }
+    });
+}
+
+/// `call` on a worker thread; `done` runs on the GTK main loop.
+pub fn call_async<D>(request: Request, done: D)
+where
+    D: FnOnce(Result<ResponseData>) + 'static,
+{
+    spawn(move || call(&request), done);
 }
 
 /// Current Unix time in seconds.

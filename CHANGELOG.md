@@ -94,6 +94,11 @@ real-machine verification in `docs/RELEASING.md` is done.
   `docs/ROADMAP.md` with every planned task identified.
 
 ### Changed
+- The popup no longer waits on the daemon: history pages, previews, image
+  thumbnails and the details view are fetched and decoded on a worker
+  thread and land on the GTK loop when ready, so typing and scrolling stay
+  smooth with large images in the list. A page that arrives after the
+  query changed is dropped.
 - Dependencies: gtk4-rs 0.11 / libadwaita-rs 0.9 (same GTK and libadwaita
   runtime requirements), rusqlite 0.40 with bundled SQLite 3.53 and toml 1.
 - **Identifiers moved to the GitHub namespace.** Application id

@@ -3,8 +3,8 @@
 
 //! Full-content view for one entry: complete text, image, format list.
 
-use crate::util::{call, format_size, kind_label};
-use crate::window::{color_swatch, recall, recall_as, texture_from_bytes, toast, Ui};
+use crate::util::{call, format_size, kind_label, spawn};
+use crate::window::{color_swatch, decode_scaled, recall, recall_as, toast, DecodedImage, Ui};
 use gtk4 as gtk;
 use libadwaita as adw;
 use libadwaita::prelude::*;
@@ -12,16 +12,40 @@ use panora_core::ipc::{Request, ResponseData};
 use panora_core::model::{ContentKind, Entry, MimePayload, TEXT_MIMES};
 use std::rc::Rc;
 
-/// Open the details dialog for `entry`.
+/// Open the details dialog for `entry`. The payload can be megabytes and an
+/// image needs a decode; both happen on a worker thread and the dialog
+/// opens when they are ready.
 pub fn show(ui: &Rc<Ui>, entry: &Entry) {
+    let ui = ui.clone();
+    let entry = entry.clone();
+    let id = entry.id;
+    let wants_image = matches!(entry.kind, ContentKind::Image);
+    spawn(
+        move || {
+            let payloads = match call(&Request::Preview {
+                id,
+                thumbnail: false,
+            }) {
+                Ok(ResponseData::Payloads(payloads)) => payloads,
+                _ => Vec::new(),
+            };
+            let image = if wants_image {
+                payloads
+                    .iter()
+                    .find(|p| p.mime.starts_with("image/"))
+                    .and_then(|p| decode_scaled(&p.data, 1024, 1024))
+            } else {
+                None
+            };
+            (payloads, image)
+        },
+        move |(payloads, image)| present(&ui, &entry, payloads, image),
+    );
+}
+
+/// Build and present the dialog once the content is in hand.
+fn present(ui: &Rc<Ui>, entry: &Entry, payloads: Vec<MimePayload>, image: Option<DecodedImage>) {
     let s = ui.s;
-    let payloads = match call(&Request::Preview {
-        id: entry.id,
-        thumbnail: false,
-    }) {
-        Ok(ResponseData::Payloads(payloads)) => payloads,
-        _ => Vec::new(),
-    };
     let text = plain_text(&payloads);
 
     let dialog = adw::Dialog::builder()
@@ -50,10 +74,8 @@ pub fn show(ui: &Rc<Ui>, entry: &Entry) {
             picture.set_content_fit(gtk::ContentFit::Contain);
             picture.set_vexpand(true);
             picture.add_css_class("details-image");
-            if let Some(image) = payloads.iter().find(|p| p.mime.starts_with("image/")) {
-                if let Some(texture) = texture_from_bytes(&image.data, 1024, 1024) {
-                    picture.set_paintable(Some(&texture));
-                }
+            if let Some(image) = &image {
+                picture.set_paintable(Some(&image.texture()));
             }
             body.append(&picture);
         }

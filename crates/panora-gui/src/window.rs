@@ -3,7 +3,7 @@
 
 //! The history popup: search, filter chips, card grid, keyboard handling.
 
-use crate::util::{call, format_size, kind_icon, kind_label, relative_time};
+use crate::util::{call, call_async, format_size, kind_icon, kind_label, relative_time, spawn};
 use crate::{details, settings, App};
 use gdk_pixbuf::PixbufLoader;
 use gtk::gdk;
@@ -15,7 +15,6 @@ use panora_core::ipc::{health, HealthItem, QueryRequest, Request, ResponseData};
 use panora_core::model::{ContentKind, Entry};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
-use std::sync::mpsc::{self, TryRecvError};
 use std::time::Duration;
 
 /// Debounce window for search keystrokes, so typing does not hammer the daemon.
@@ -106,6 +105,11 @@ pub struct Ui {
     revision: Cell<u64>,
     /// No further pages after the last one fetched.
     exhausted: Cell<bool>,
+    /// Bumped per query; a result that comes back for an older generation
+    /// was superseded and is dropped.
+    query_generation: Cell<u64>,
+    /// A further page is on its way.
+    loading_more: Cell<bool>,
     /// The window has held keyboard focus at least once; only then does a
     /// focus loss mean "the user went elsewhere".
     was_active: Cell<bool>,
@@ -301,6 +305,8 @@ pub fn build(app: &adw::Application, state: &Rc<App>) {
         suppress_private: Cell::new(false),
         revision: Cell::new(0),
         exhausted: Cell::new(true),
+        query_generation: Cell::new(0),
+        loading_more: Cell::new(false),
         was_active: Cell::new(false),
     });
 
@@ -799,11 +805,26 @@ fn current_query(ui: &Ui, offset: usize) -> Request {
     })
 }
 
-/// Query the daemon and rebuild the grid, empty state or error state.
+/// Query the daemon and rebuild the grid, empty state or error state. The
+/// round trip runs on a worker thread; a query issued while an earlier one
+/// is still out supersedes it, so only the newest result is shown.
 pub fn refresh(ui: &Rc<Ui>) {
     // Record the revision we are about to render so the live-refresh poller
     // does not rebuild the grid a second time right after this.
     sync_status(ui);
+    let generation = ui.query_generation.get().wrapping_add(1);
+    ui.query_generation.set(generation);
+    let request = current_query(ui, 0);
+    let ui = ui.clone();
+    call_async(request, move |result| {
+        if ui.query_generation.get() == generation {
+            show_page(&ui, result);
+        }
+    });
+}
+
+/// Replace the grid with the first page a query returned.
+fn show_page(ui: &Rc<Ui>, result: panora_core::error::Result<ResponseData>) {
     let previous = current_child(ui).map(|c| c.index());
     let grid_focused = ui.flow.focus_child().is_some();
     while let Some(child) = ui.flow.first_child() {
@@ -815,7 +836,7 @@ pub fn refresh(ui: &Rc<Ui>) {
 
     let query = ui.search.text().trim().to_string();
     let filter = ui.filter.get();
-    let entries = match call(&current_query(ui, 0)) {
+    let entries = match result {
         Ok(ResponseData::Entries(entries)) => entries,
         Ok(_) => Vec::new(),
         Err(panora_core::Error::Ipc(message)) if !message.starts_with("daemon unavailable") => {
@@ -892,23 +913,34 @@ fn update_subtitle(ui: &Rc<Ui>) {
     ));
 }
 
-/// Fetch the next page and append it to the grid.
+/// Fetch the next page and append it to the grid. One page at a time; a
+/// page that arrives after the query changed is dropped.
 fn load_next_page(ui: &Rc<Ui>) {
-    if ui.exhausted.get() {
+    if ui.exhausted.get() || ui.loading_more.get() {
         return;
     }
+    ui.loading_more.set(true);
+    let generation = ui.query_generation.get();
     let offset = ui.entries.borrow().len();
-    match call(&current_query(ui, offset)) {
-        Ok(ResponseData::Entries(entries)) if !entries.is_empty() => {
-            append_entries(ui, entries);
-            update_subtitle(ui);
+    let request = current_query(ui, offset);
+    let ui = ui.clone();
+    call_async(request, move |result| {
+        ui.loading_more.set(false);
+        if ui.query_generation.get() != generation {
+            return;
         }
-        _ => {
-            ui.exhausted.set(true);
-            ui.load_more.set_visible(false);
-            update_subtitle(ui);
+        match result {
+            Ok(ResponseData::Entries(entries)) if !entries.is_empty() => {
+                append_entries(&ui, entries);
+                update_subtitle(&ui);
+            }
+            _ => {
+                ui.exhausted.set(true);
+                ui.load_more.set_visible(false);
+                update_subtitle(&ui);
+            }
         }
-    }
+    });
 }
 
 fn append_entries(ui: &Rc<Ui>, entries: Vec<Entry>) {
@@ -1161,39 +1193,25 @@ pub fn recall_with(ui: &Rc<Ui>, id: i64, mime: Option<&'static str>) {
     // panod sends Ctrl+V, and a blocking call here would delay the unmap.
     let ui = ui.clone();
     glib::timeout_add_local_once(Duration::from_millis(60), move || {
-        let (sender, receiver) = mpsc::channel();
-        std::thread::spawn(move || {
-            let _ = sender.send(call(&Request::Recall {
-                id,
-                paste,
-                mime: mime.map(String::from),
-            }));
-        });
-        glib::timeout_add_local(Duration::from_millis(20), move || {
-            let result = match receiver.try_recv() {
-                Ok(result) => result,
-                Err(TryRecvError::Empty) => return glib::ControlFlow::Continue,
-                Err(TryRecvError::Disconnected) => {
-                    ui.window.close();
-                    return glib::ControlFlow::Break;
+        let request = Request::Recall {
+            id,
+            paste,
+            mime: mime.map(String::from),
+        };
+        call_async(request, move |result| match result {
+            Ok(ResponseData::Recalled { pasted }) => {
+                if paste && !pasted {
+                    notify(&ui, ui.s.toast_paste_failed);
                 }
-            };
-            match result {
-                Ok(ResponseData::Recalled { pasted }) => {
-                    if paste && !pasted {
-                        notify(&ui, ui.s.toast_paste_failed);
-                    }
-                    ui.window.close();
-                }
-                Ok(_) => ui.window.close(),
-                Err(_) => {
-                    ui.window.set_visible(true);
-                    toast(&ui, ui.s.toast_recall_failed);
-                    // Hiding the window stopped the poller; bring it back.
-                    start_live_refresh(&ui);
-                }
+                ui.window.close();
             }
-            glib::ControlFlow::Break
+            Ok(_) => ui.window.close(),
+            Err(_) => {
+                ui.window.set_visible(true);
+                toast(&ui, ui.s.toast_recall_failed);
+                // Hiding the window stopped the poller; bring it back.
+                start_live_refresh(&ui);
+            }
         });
     });
 }
@@ -1302,39 +1320,58 @@ fn selected_entry(ui: &Rc<Ui>) -> Option<Entry> {
     entry_at(ui, current_child(ui)?.index())
 }
 
-/// Fetch an image payload off the GTK thread and hand a texture to `picture`.
+/// Fetch and decode an image thumbnail off the GTK thread and hand the
+/// texture to `picture`.
 pub fn load_image_preview_async(id: i64, picture: gtk::Picture) {
-    let (sender, receiver) = mpsc::channel();
-    std::thread::spawn(move || {
-        let result = call(&Request::Preview {
-            id,
-            thumbnail: true,
-        })
-        .ok();
-        let _ = sender.send(result);
-    });
-
-    glib::timeout_add_local(Duration::from_millis(20), move || {
-        let response = match receiver.try_recv() {
-            Ok(response) => response,
-            Err(TryRecvError::Empty) => return glib::ControlFlow::Continue,
-            Err(TryRecvError::Disconnected) => return glib::ControlFlow::Break,
-        };
-        let Some(ResponseData::Payloads(payloads)) = response else {
-            return glib::ControlFlow::Break;
-        };
-        let Some(payload) = payloads.into_iter().find(|p| p.mime.starts_with("image/")) else {
-            return glib::ControlFlow::Break;
-        };
-        if let Some(texture) = texture_from_bytes(&payload.data, 320, 180) {
-            picture.set_paintable(Some(&texture));
-        }
-        glib::ControlFlow::Break
-    });
+    spawn(
+        move || {
+            let response = call(&Request::Preview {
+                id,
+                thumbnail: true,
+            })
+            .ok()?;
+            let ResponseData::Payloads(payloads) = response else {
+                return None;
+            };
+            let payload = payloads
+                .into_iter()
+                .find(|p| p.mime.starts_with("image/"))?;
+            decode_scaled(&payload.data, 320, 180)
+        },
+        move |image| {
+            if let Some(image) = image {
+                picture.set_paintable(Some(&image.texture()));
+            }
+        },
+    );
 }
 
-/// Decode image bytes into a texture, scaled down to the given box.
-pub fn texture_from_bytes(bytes: &[u8], width: i32, height: i32) -> Option<gdk::Texture> {
+/// Pixels decoded on a worker thread, turned into a texture on the GTK
+/// thread. `glib::Bytes` is immutable and shareable, which is what lets the
+/// decode leave the main loop.
+pub struct DecodedImage {
+    width: i32,
+    height: i32,
+    has_alpha: bool,
+    stride: usize,
+    pixels: glib::Bytes,
+}
+
+impl DecodedImage {
+    /// The texture for `gtk::Picture`; call on the GTK thread.
+    pub fn texture(&self) -> gdk::Texture {
+        let format = if self.has_alpha {
+            gdk::MemoryFormat::R8g8b8a8
+        } else {
+            gdk::MemoryFormat::R8g8b8
+        };
+        gdk::MemoryTexture::new(self.width, self.height, format, &self.pixels, self.stride).upcast()
+    }
+}
+
+/// Decode image bytes, scaled down to fit the given box. Safe to call from
+/// a worker thread: the loader lives and dies there.
+pub fn decode_scaled(bytes: &[u8], width: i32, height: i32) -> Option<DecodedImage> {
     let loader = PixbufLoader::new();
     // Scale to fit the box while keeping the aspect ratio; `set_size` alone
     // would stretch the image to exactly width x height.
@@ -1354,7 +1391,16 @@ pub fn texture_from_bytes(bytes: &[u8], width: i32, height: i32) -> Option<gdk::
         return None;
     }
     let pixbuf = loader.pixbuf()?;
-    Some(gdk::Texture::for_pixbuf(&pixbuf))
+    if pixbuf.bits_per_sample() != 8 || !(3..=4).contains(&pixbuf.n_channels()) {
+        return None;
+    }
+    Some(DecodedImage {
+        width: pixbuf.width(),
+        height: pixbuf.height(),
+        has_alpha: pixbuf.has_alpha(),
+        stride: usize::try_from(pixbuf.rowstride()).ok()?,
+        pixels: pixbuf.read_pixel_bytes(),
+    })
 }
 
 pub fn install_css() {
