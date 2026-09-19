@@ -1,0 +1,40 @@
+name: Feature request
+description: Suggest an improvement or a new capability
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check `docs/ROADMAP.md` first: if the idea is already listed, mention its id (for example `UI-03`) so the discussion lands in one place.
+  - type: input
+    id: roadmap
+    attributes:
+      label: Roadmap id (if any)
+      placeholder: UI-03
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the situation, not the solution, so alternatives can be weighed.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+    validations:
+      required: true
+  - type: dropdown
+    id: privacy
+    attributes:
+      label: Does it touch clipboard content, storage or the network?
+      options:
+        - "No"
+        - "Yes, it reads or stores clipboard content"
+        - "Yes, it needs the network"
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

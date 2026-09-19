@@ -1,0 +1,24 @@
+version = 1
+SPDX-PackageName = "panora"
+SPDX-PackageSupplier = "ygkali <kompansebuyucu@proton.me>"
+SPDX-PackageDownloadLocation = "https://github.com/ygkali/panora"
+
+# Sources carry their own SPDX headers; everything below has none and is
+# covered here.
+[[annotations]]
+path = ["**/*.md", "**/*.toml", "**/*.json", "**/*.yml", "**/*.yaml", "**/*.xml", "**/*.desktop", "**/*.service", "**/*.svg", "**/*.1", "**/*.hbs", "Cargo.lock", ".gitattributes", ".gitignore", "packaging/copyright", ".github/CODEOWNERS", "KUR.sh", "TEST.sh", "KALDIR.sh"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Panora contributors"
+SPDX-License-Identifier = "GPL-3.0-only"
+
+[[annotations]]
+path = ["packaging/io.github.ygkali.Panora.metainfo.xml"]
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Panora contributors"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["THIRD_PARTY_LICENSES.md"]
+precedence = "override"
+SPDX-FileCopyrightText = "The respective crate authors"
+SPDX-License-Identifier = "GPL-3.0-only"
