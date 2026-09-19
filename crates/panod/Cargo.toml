@@ -30,6 +30,7 @@ x11rb.workspace = true
 zbus.workspace = true
 blake3.workspace = true
 futures.workspace = true
+image.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 oo7.workspace = true

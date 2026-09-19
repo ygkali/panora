@@ -6,7 +6,7 @@
 | X11 PRIMARY | Evet (opt-in) | `history.record_primary = true`; aynı XFIXES yolu |
 | X11 geri çağırma | Evet | panod selection owner olur; TARGETS/TIMESTAMP + tüm biçimler + metin takma adları (`UTF8_STRING`, `STRING`, `TEXT`); 256 KiB üstü INCR |
 | X11 kalıcılık | Evet | `SelectionWindowDestroy`/`SelectionClientClose` → yalnızca son değişiklikten kaydedilen içerik yeniden sunulur; bilinçli temizleme (owner=None) yok sayılır |
-| Wayland kalıcılık | Bileşim yöneticisine bırakılır | `selection(null)` bilinçli temizlemeyle ayırt edilemez; Mutter/KWin içeriği kendileri korur |
+| Wayland kalıcılık | Evet (wlroots), bileşim yöneticisine bırakılır (Mutter/KWin) | `selection(null)` gelince daemon yalnızca son kaydettiği kaydı yeniden sunar; Mutter (`gtk_shell1`) ve KWin (`org_kde_*`) globallerinden tanınır ve içeriği kendileri koruduğu için orada yeniden sunum yapılmaz; `history.persist_on_wayland = auto/always/never` |
 | X11 anında yapıştır | Evet | XTEST `Ctrl+V` |
 | Wayland regular clipboard | Evet | `ext-data-control-v1` (tercih) veya `zwlr-data-control-v1` (wayland-client, alt süreç yok); `selection` olayı MIME listesiyle gelir, payload `receive` ile pipe üzerinden yalnızca izin sonrası okunur |
 | Wayland primary | Evet (opt-in) | `ext` her sürümde, `wlr` v2+ |

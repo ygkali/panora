@@ -156,7 +156,14 @@ async fn requests_round_trip_through_the_blocking_client() {
                     .unwrap(),
                 ResponseData::Empty
             ));
-            let payloads = match call(Request::Preview { id }).await.unwrap().unwrap() {
+            let payloads = match call(Request::Preview {
+                id,
+                thumbnail: false,
+            })
+            .await
+            .unwrap()
+            .unwrap()
+            {
                 ResponseData::Payloads(payloads) => payloads,
                 other => panic!("unexpected {other:?}"),
             };

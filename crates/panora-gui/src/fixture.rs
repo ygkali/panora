@@ -194,7 +194,7 @@ pub fn call(request: &Request) -> Result<ResponseData> {
                 },
                 locked: false,
             }),
-            Request::Preview { id } => ResponseData::Payloads(
+            Request::Preview { id, .. } => ResponseData::Payloads(
                 store
                     .entries
                     .iter()

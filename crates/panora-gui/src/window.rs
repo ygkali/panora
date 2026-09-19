@@ -1217,7 +1217,11 @@ fn selected_entry(ui: &Rc<Ui>) -> Option<Entry> {
 pub fn load_image_preview_async(id: i64, picture: gtk::Picture) {
     let (sender, receiver) = mpsc::channel();
     std::thread::spawn(move || {
-        let result = call(&Request::Preview { id }).ok();
+        let result = call(&Request::Preview {
+            id,
+            thumbnail: true,
+        })
+        .ok();
         let _ = sender.send(result);
     });
 

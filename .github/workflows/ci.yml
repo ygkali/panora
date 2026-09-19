@@ -71,6 +71,20 @@ jobs:
       - name: Master key round trip through gnome-keyring
         run: bash scripts/keyring-test.sh
 
+  wayland:
+    name: Wayland backend on headless sway
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev sway wl-clipboard gnome-keyring dbus-daemon
+      - name: Capture, recall, private mode, persistence through data-control
+        run: bash scripts/wayland-e2e.sh
+
   gui-smoke:
     name: Popup renders under Xvfb
     runs-on: ubuntu-latest
@@ -81,7 +95,7 @@ jobs:
       - name: Install system deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev xvfb dbus-x11 imagemagick \
+          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev xvfb dbus-x11 x11-utils imagemagick \
             adwaita-icon-theme librsvg2-common
       - name: Render the popup from the fixture data
         run: bash scripts/capture-screenshots.sh shots

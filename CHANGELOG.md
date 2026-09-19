@@ -22,6 +22,17 @@ real-machine verification in `docs/RELEASING.md` is done.
   new entry (through the same privacy gate) and puts it on the clipboard;
   `panora-cli pick` and `list/search --format TEMPLATE` print one line per
   entry for dmenu/rofi/fuzzel style pickers.
+- Clipboard persistence on Wayland: when the source application exits on
+  a compositor that drops the selection (Sway, Hyprland, other wlroots
+  desktops), panod re-offers the entry it just recorded, as it always did
+  on X11. Mutter and KWin are detected from their globals and left alone;
+  `history.persist_on_wayland = auto | always | never` overrides.
+- Image entries carry a PNG thumbnail (longest side 320 px, made on
+  capture or on first request) so the popup no longer transfers and decodes
+  full images per row; thumbnails are never offered on the clipboard.
+- `scripts/wayland-e2e.sh` runs panod against a headless sway compositor
+  with a throwaway keyring and checks capture, recall, HTML, private mode,
+  persistence and store/restore through wl-copy/wl-paste; CI runs it.
 - Instant paste sends `Ctrl+Shift+V` when the focused window is a terminal
   emulator (X11 and the GNOME extension; `panora_core::apps` knows the
   common ones).

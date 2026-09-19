@@ -61,6 +61,9 @@ zbus = { version = "5", features = ["tokio"] }
 # RustCrypto instead of linking OpenSSL.
 oo7 = { version = "0.6", default-features = false, features = ["tokio", "native_crypto"] }
 
+# --- images (thumbnails for the popup; decoders only, no encoders beyond PNG) ---
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff"] }
+
 # --- config ---
 directories = "5"
 toml = "0.8"

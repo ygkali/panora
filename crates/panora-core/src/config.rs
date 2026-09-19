@@ -29,6 +29,11 @@ pub struct HistoryConfig {
     pub max_age_days: u32,
     /// Maximum bytes read for one MIME payload.
     pub max_mime_bytes: usize,
+    /// On Wayland, re-offer the last recorded entry when the clipboard goes
+    /// empty because its source application exited: `auto` (only on
+    /// compositors that drop the selection, such as Sway or Hyprland;
+    /// Mutter and KWin keep it themselves), `always`, or `never`.
+    pub persist_on_wayland: String,
 }
 
 impl Default for HistoryConfig {
@@ -38,6 +43,7 @@ impl Default for HistoryConfig {
             max_entries: 1000,
             max_age_days: 30,
             max_mime_bytes: 10 * 1024 * 1024,
+            persist_on_wayland: "auto".into(),
         }
     }
 }
@@ -130,6 +136,14 @@ impl Config {
             return Err(Error::Config(format!(
                 "max_mime_bytes must be between 1 and {MAX_MIME_BYTES_LIMIT} (40 MiB)"
             )));
+        }
+        if !matches!(
+            self.history.persist_on_wayland.as_str(),
+            "auto" | "always" | "never"
+        ) {
+            return Err(Error::Config(
+                "persist_on_wayland must be auto, always or never".into(),
+            ));
         }
         if self.history.max_age_days > 36_500 {
             return Err(Error::Config("max_age_days must be at most 36500".into()));

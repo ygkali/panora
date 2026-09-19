@@ -34,10 +34,11 @@ connection, and never reads what a password manager copied.
 - **Every format is kept.** Text, HTML/RTF, URI/file lists, PNG/JPEG/WebP/
   BMP/TIFF/GIF/SVG images and colour codes are stored together and offered
   again at once (text + HTML, image); large payloads go through INCR on X11.
-- **Clipboard persistence on X11.** When the source application exits, the
-  daemon re-offers only what it just recorded, so a password manager clearing
-  the clipboard is never undone. On Wayland the compositor keeps the content
-  (Mutter, KWin).
+- **Clipboard persistence.** When the source application exits, the daemon
+  re-offers only what it just recorded, so a password manager clearing the
+  clipboard is never undone. On X11 always; on Wayland where the compositor
+  drops the selection (Sway, Hyprland and other wlroots desktops), while
+  Mutter and KWin keep it themselves (`history.persist_on_wayland`).
 - **Encrypted at rest.** Payloads are content-addressed blobs encrypted with
   XChaCha20-Poly1305, previews are AEAD-bound in SQLite, FTS5 prefix search
   narrows as you type. The master key lives in your Secret Service keyring
@@ -140,6 +141,7 @@ record_primary = false   # also record mouse selections (PRIMARY)
 max_entries = 1000       # unpinned entries kept
 max_age_days = 30        # 0 = forever
 max_mime_bytes = 10485760
+persist_on_wayland = "auto"   # auto | always | never: re-offer after the source exits
 
 [privacy]
 start_private = false

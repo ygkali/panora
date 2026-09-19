@@ -33,10 +33,11 @@ lisanslıdır.
   ve birlikte geri sunulur (metin + HTML, görsel); büyük payload'lar X11'de
   INCR ile aktarılır. GNOME ≤ 47 köprüsünde geri çağırma tek biçimle sınırlıdır
   (aşağıdaki tabloya bakın).
-- **Pano kalıcılığı (X11).** Kaynak uygulama kapanınca daemon yalnızca o an
+- **Pano kalıcılığı.** Kaynak uygulama kapanınca daemon yalnızca o an
   kaydettiği içeriği yeniden sunar; parola yöneticilerinin bilinçli
-  temizlemeleri geri alınmaz. Wayland'de kalıcılık bileşim yöneticisine
-  (Mutter, KWin) bırakılır.
+  temizlemeleri geri alınmaz. X11'de her zaman; Wayland'de seçimi düşüren
+  bileşim yöneticilerinde (Sway, Hyprland ve diğer wlroots masaüstleri),
+  Mutter ve KWin içeriği kendileri korur (`history.persist_on_wayland`).
 - **Şifreli depolama.** Payload'lar XChaCha20-Poly1305 ile içerik adresli
   BLOB olarak, önizlemeler AEAD ile bağlanmış şekilde SQLite'ta saklanır;
   FTS5 önek araması yazdıkça daralır. Ana anahtar Secret Service'ten şifreli
@@ -139,6 +140,7 @@ record_primary = false   # fareyle seçilen metni (PRIMARY) de kaydet
 max_entries = 1000       # sabitlenmemiş kayıt üst sınırı
 max_age_days = 30        # 0 = süresiz
 max_mime_bytes = 10485760
+persist_on_wayland = "auto"   # auto | always | never: kaynak kapanınca yeniden sun
 
 [privacy]
 start_private = false

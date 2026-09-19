@@ -317,7 +317,16 @@ pub async fn handle_request(request: Request, daemon: &Daemon) -> Response {
             }
             Request::Toggle => gnome::activate_gui().await.map(|_| ResponseData::Empty),
             Request::Status => daemon.status().map(ResponseData::Status),
-            Request::Preview { id } => daemon.load_payloads(id).map(ResponseData::Payloads),
+            Request::Preview { id, thumbnail } => {
+                if thumbnail {
+                    daemon
+                        .thumbnail_or_full(id)
+                        .await
+                        .map(ResponseData::Payloads)
+                } else {
+                    daemon.load_payloads(id).map(ResponseData::Payloads)
+                }
+            }
             Request::ReloadConfig => daemon.reload_config().map(|_| ResponseData::Empty),
             Request::Restore { id } => daemon.restore(id).await.map(|_| ResponseData::Empty),
             Request::Store {

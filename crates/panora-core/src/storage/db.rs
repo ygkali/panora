@@ -456,6 +456,16 @@ impl Database {
         Ok(())
     }
 
+    /// Drop one blob reference of an entry (the blob itself is the caller's
+    /// to remove once nothing else references it).
+    pub fn detach_blob(&self, entry_id: i64, mime: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM entry_blobs WHERE entry_id = ?1 AND mime = ?2",
+            params![entry_id, mime],
+        )?;
+        Ok(())
+    }
+
     /// List blob references of an entry: (mime, blob_ref) pairs.
     pub fn blobs_of(&self, entry_id: i64) -> Result<Vec<(String, String)>> {
         let mut stmt = self

@@ -15,7 +15,10 @@ use std::rc::Rc;
 /// Open the details dialog for `entry`.
 pub fn show(ui: &Rc<Ui>, entry: &Entry) {
     let s = ui.s;
-    let payloads = match call(&Request::Preview { id: entry.id }) {
+    let payloads = match call(&Request::Preview {
+        id: entry.id,
+        thumbnail: false,
+    }) {
         Ok(ResponseData::Payloads(payloads)) => payloads,
         _ => Vec::new(),
     };

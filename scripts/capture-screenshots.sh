@@ -13,7 +13,7 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${1:-$ROOT_DIR/docs/screenshots}"
 cd "$ROOT_DIR"
 
-for tool in Xvfb import cargo; do
+for tool in Xvfb import xwininfo cargo; do
   command -v "$tool" >/dev/null 2>&1 || { echo "capture-screenshots: '$tool' not found" >&2; exit 2; }
 done
 
@@ -41,7 +41,15 @@ shoot() {
   env -u WAYLAND_DISPLAY GDK_BACKEND=x11 DISPLAY="$DISPLAY_NO" XDG_CONFIG_HOME="$SCRATCH/config" \
     GSK_RENDERER=cairo dbus-run-session -- "$GUI" >/dev/null 2>&1 &
   GUI_PID=$!
-  sleep 4
+  # A cold GTK start on a slow machine (CI: icon and font caches) can take
+  # well over ten seconds; wait for a top-level window, then let it paint.
+  for _ in $(seq 1 120); do
+    if DISPLAY="$DISPLAY_NO" xwininfo -root -children 2>/dev/null | grep -q "child"; then
+      break
+    fi
+    sleep 0.25
+  done
+  sleep 2
   DISPLAY="$DISPLAY_NO" import -window root "$SCRATCH/root.png"
   convert "$SCRATCH/root.png" -trim +repage "$OUT/$file"
   kill "$GUI_PID" 2>/dev/null || true

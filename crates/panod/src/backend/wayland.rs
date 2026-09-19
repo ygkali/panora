@@ -59,6 +59,11 @@ const RECEIVE_CAP: usize = 256 * 1024 * 1024;
 #[derive(Debug, Clone, Copy)]
 pub struct WaylandBackend {
     primary: bool,
+    /// The compositor drops the selection when its source client exits
+    /// (wlroots family), so re-offering the last entry is worth doing.
+    /// Mutter and KWin keep the content themselves, and a null selection
+    /// from them can only mean an intentional clear.
+    persist: bool,
 }
 
 impl WaylandBackend {
@@ -70,10 +75,12 @@ impl WaylandBackend {
         let session = Session::new()?;
         info!(
             protocol = session.manager.protocol(),
+            persist = !session.compositor_keeps_selection,
             "wayland data-control available"
         );
         Ok(Self {
             primary: session.manager.supports_primary(),
+            persist: !session.compositor_keeps_selection,
         })
     }
 }
@@ -88,10 +95,9 @@ impl ClipboardBackend for WaylandBackend {
         Capabilities {
             primary: self.primary,
             images: true,
-            // Left to the compositor: Mutter and KWin keep clipboard content
-            // after the source exits; a null selection cannot be told apart
-            // from an intentional clear, so panod never re-offers here.
-            persist: false,
+            // Auto-detected from the compositor (see the field); the daemon
+            // lets `history.persist_on_wayland` override it either way.
+            persist: self.persist,
             synthetic_paste: true,
             // The data-control protocols expose no client identity, so the
             // `excluded_apps` list cannot fire on this backend.
@@ -484,6 +490,23 @@ struct Session {
     seat: wl_seat::WlSeat,
     device: Device,
     state: State,
+    /// Mutter (`gtk_shell1`) and KWin (`org_kde_*`, `kde_*` globals) keep
+    /// clipboard content after the source exits; every other compositor is
+    /// assumed to drop it, like wlroots does.
+    compositor_keeps_selection: bool,
+}
+
+/// Whether a compositor with these globals keeps the selection alive after
+/// its source client goes away. Mutter is recognised by `gtk_shell1`, KWin
+/// by its Plasma shell and output-management globals. Generic `org_kde_kwin_*`
+/// names are deliberately not used: wlroots implements several of them
+/// (server decorations, idle) and drops the selection all the same.
+fn keeps_selection(interfaces: impl Iterator<Item = String>) -> bool {
+    interfaces.into_iter().any(|name| {
+        name == "gtk_shell1"
+            || name.starts_with("org_kde_plasma_")
+            || name.starts_with("kde_output_")
+    })
 }
 
 impl Session {
@@ -492,6 +515,9 @@ impl Session {
         let (globals, queue): (GlobalList, EventQueue<State>) =
             registry_queue_init(&conn).map_err(wlerr)?;
         let qh = queue.handle();
+        let compositor_keeps_selection = globals
+            .contents()
+            .with_list(|list| keeps_selection(list.iter().map(|g| g.interface.clone())));
         let manager = if let Ok(m) =
             globals.bind::<ext_manager::ExtDataControlManagerV1, State, ()>(&qh, 1..=1, ())
         {
@@ -519,6 +545,7 @@ impl Session {
             seat,
             device,
             state: State::default(),
+            compositor_keeps_selection,
         })
     }
 
@@ -614,11 +641,16 @@ fn watch_loop(mut session: Session, selection: Selection, sender: mpsc::Sender<C
                 continue;
             }
             let event = match change.mimes {
-                // A null selection is both "owner exited" and "explicitly
-                // cleared" (password managers do the latter on purpose), so
-                // nothing is re-offered here; compositors with clipboard
-                // persistence (Mutter, KWin) keep content on their own.
-                None => continue,
+                // A null selection is "owner exited" on wlroots and "cleared
+                // on purpose" everywhere. The daemon decides what to do with
+                // it: it re-offers only the entry it stored from the very
+                // last change, and only where the backend or the user's
+                // `persist_on_wayland` setting says the compositor drops
+                // content on exit.
+                None => {
+                    debug!("wayland selection cleared");
+                    ClipboardEvent::owner_gone(selection)
+                }
                 Some(mimes) => {
                     if mimes.iter().any(|m| m == RECALL_MARKER_MIME) {
                         debug!("wayland: ignoring our own recall offer");
@@ -821,6 +853,31 @@ fn payload_for<'a>(payloads: &'a [MimePayload], mime: &str) -> Option<&'a MimePa
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compositor_persistence_is_read_off_the_globals() {
+        // sway advertises two org_kde_kwin_* globals and still drops the
+        // selection when the source exits.
+        let sway = [
+            "wl_compositor",
+            "zwlr_layer_shell_v1",
+            "org_kde_kwin_server_decoration_manager",
+            "org_kde_kwin_idle",
+            "ext_data_control_manager_v1",
+        ];
+        assert!(!keeps_selection(sway.iter().map(|s| s.to_string())));
+        let mutter = ["wl_compositor", "gtk_shell1", "ext_data_control_manager_v1"];
+        assert!(keeps_selection(mutter.iter().map(|s| s.to_string())));
+        let kwin = [
+            "wl_compositor",
+            "org_kde_plasma_shell",
+            "org_kde_kwin_idle",
+            "zwlr_data_control_manager_v1",
+        ];
+        assert!(keeps_selection(kwin.iter().map(|s| s.to_string())));
+        let plasma6 = ["kde_output_device_v2", "ext_data_control_manager_v1"];
+        assert!(keeps_selection(plasma6.iter().map(|s| s.to_string())));
+    }
 
     #[test]
     fn text_aliases_resolve_to_best_text_payload() {

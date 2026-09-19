@@ -72,6 +72,11 @@ pub enum Request {
     Preview {
         /// Entry id.
         id: i64,
+        /// For image entries, return only a small PNG thumbnail (generated
+        /// on capture, or on first request) instead of the full payloads.
+        /// Entries without an image ignore the flag.
+        #[serde(default)]
+        thumbnail: bool,
     },
     /// Re-read `config.toml` and apply history/privacy limits live.
     ReloadConfig,

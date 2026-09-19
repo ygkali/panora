@@ -91,6 +91,45 @@ pub struct Daemon {
 /// tombstone and blobs are purged for good.
 pub const UNDO_GRACE_SECS: i64 = 30;
 
+/// Blob MIME under which an image entry's list thumbnail is kept. Never
+/// offered on the clipboard, never counted as a payload.
+pub const THUMBNAIL_MIME: &str = "application/x-panora-thumbnail";
+/// Longest side of a thumbnail, in pixels; the popup draws them at 320×132.
+const THUMBNAIL_MAX_SIDE: u32 = 320;
+
+/// Decode an image payload off the async thread and shrink it to a PNG of
+/// at most `THUMBNAIL_MAX_SIDE` on its longest side. Decoding is bounded
+/// (dimensions and allocations) because the bytes come from any application;
+/// anything the decoder cannot handle (SVG, damaged data) yields `None` and
+/// the popup falls back to the full payload.
+async fn render_thumbnail(bytes: Vec<u8>) -> Option<Vec<u8>> {
+    tokio::task::spawn_blocking(move || thumbnail_png(&bytes))
+        .await
+        .ok()
+        .flatten()
+}
+
+fn thumbnail_png(bytes: &[u8]) -> Option<Vec<u8>> {
+    use std::io::Cursor;
+    let mut reader = image::ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(16_384);
+    limits.max_image_height = Some(16_384);
+    limits.max_alloc = Some(256 * 1024 * 1024);
+    reader.limits(limits);
+    let decoded = reader.decode().ok()?;
+    let small = if decoded.width() > THUMBNAIL_MAX_SIDE || decoded.height() > THUMBNAIL_MAX_SIDE {
+        decoded.thumbnail(THUMBNAIL_MAX_SIDE, THUMBNAIL_MAX_SIDE)
+    } else {
+        decoded
+    };
+    let mut out = Cursor::new(Vec::new());
+    small.write_to(&mut out, image::ImageFormat::Png).ok()?;
+    Some(out.into_inner())
+}
+
 impl Daemon {
     /// Assemble a daemon from its parts.
     pub fn new(
@@ -302,7 +341,11 @@ impl Daemon {
     /// payload read, then encrypted storage, then sync notification.
     pub async fn handle_event(&self, event: ClipboardEvent) {
         if event.kind == EventKind::OwnerGone {
-            self.persist_after_owner_gone(event.selection).await;
+            if self.persistence_enabled() {
+                self.persist_after_owner_gone(event.selection).await;
+            } else {
+                self.forget_last_stored(event.selection);
+            }
             return;
         }
         // Whatever happens below, a change that is not stored must not be
@@ -394,6 +437,20 @@ impl Daemon {
     fn forget_last_stored(&self, selection: Selection) {
         if let Ok(mut slot) = self.last_stored.lock() {
             slot.remove(&selection);
+        }
+    }
+
+    /// Whether an empty clipboard after the owner left should be refilled.
+    /// X11 always (it has no persistence at all); on Wayland the backend's
+    /// compositor detection decides unless `persist_on_wayland` overrides it.
+    fn persistence_enabled(&self) -> bool {
+        if self.backend.name() != "wayland" {
+            return true;
+        }
+        match self.config().history.persist_on_wayland.as_str() {
+            "always" => true,
+            "never" => false,
+            _ => self.backend.capabilities().persist,
         }
     }
 
@@ -548,6 +605,19 @@ impl Daemon {
             let blob_ref = self.blobs.put(&p.data)?;
             self.db.attach_blob(id, &p.mime, &blob_ref)?;
         }
+        // Images get a small thumbnail now, so the popup never has to pull
+        // and decode megabytes per row just to draw a list.
+        if kind == ContentKind::Image {
+            if let Some(image) = data.payloads.iter().find(|p| p.mime.starts_with("image/")) {
+                match render_thumbnail(image.data.clone()).await {
+                    Some(png) => {
+                        let blob_ref = self.blobs.put(&png)?;
+                        self.db.attach_blob(id, THUMBNAIL_MIME, &blob_ref)?;
+                    }
+                    None => debug!(id, mime = %image.mime, "no thumbnail for this image"),
+                }
+            }
+        }
 
         self.collect_garbage()?;
         self.bump();
@@ -596,6 +666,10 @@ impl Daemon {
         }
         let mut out = Vec::new();
         for (mime, blob_ref) in self.db.blobs_of(entry_id)? {
+            // The thumbnail is Panora's own; it is never a clipboard format.
+            if mime == THUMBNAIL_MIME {
+                continue;
+            }
             let data = self.blobs.get(&blob_ref)?;
             out.push(MimePayload { mime, data });
         }
@@ -603,6 +677,47 @@ impl Daemon {
         // stable "primary" format first.
         out.sort_by_key(|p| mime_rank(&p.mime));
         Ok(out)
+    }
+
+    /// The stored thumbnail of an image entry, if one exists.
+    pub fn load_thumbnail(&self, entry_id: i64) -> Result<Option<MimePayload>> {
+        for (mime, blob_ref) in self.db.blobs_of(entry_id)? {
+            if mime == THUMBNAIL_MIME {
+                return Ok(Some(MimePayload {
+                    mime,
+                    data: self.blobs.get(&blob_ref)?,
+                }));
+            }
+        }
+        Ok(None)
+    }
+
+    /// What the popup draws for a row: the thumbnail of an image entry
+    /// (made on the spot for entries captured before thumbnails existed, or
+    /// whose format could not be decoded then), or the full payloads.
+    pub async fn thumbnail_or_full(&self, entry_id: i64) -> Result<Vec<MimePayload>> {
+        let entry = self.db.get(entry_id)?;
+        if entry.deleted {
+            return Err(Error::NotFound(entry_id));
+        }
+        if entry.kind != ContentKind::Image {
+            return self.load_payloads(entry_id);
+        }
+        if let Some(thumbnail) = self.load_thumbnail(entry_id)? {
+            return Ok(vec![thumbnail]);
+        }
+        let full = self.load_payloads(entry_id)?;
+        let Some(image) = full.iter().find(|p| p.mime.starts_with("image/")) else {
+            return Ok(full);
+        };
+        match render_thumbnail(image.data.clone()).await {
+            Some(png) => {
+                let blob_ref = self.blobs.put(&png)?;
+                self.db.attach_blob(entry_id, THUMBNAIL_MIME, &blob_ref)?;
+                Ok(vec![MimePayload::new(THUMBNAIL_MIME, png)])
+            }
+            None => Ok(full),
+        }
     }
 
     /// Offer an entry on the CLIPBOARD selection. Entries captured from
@@ -1307,6 +1422,148 @@ mod tests {
         assert_eq!(daemon.db().count().unwrap(), 1);
     }
 
+    /// A real PNG of the given size, so the thumbnail path decodes something.
+    fn png_of(width: u32, height: u32) -> Vec<u8> {
+        let image = image::RgbaImage::from_fn(width, height, |x, y| {
+            image::Rgba([(x % 256) as u8, (y % 256) as u8, 90, 255])
+        });
+        let mut out = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(image)
+            .write_to(&mut out, image::ImageFormat::Png)
+            .unwrap();
+        out.into_inner()
+    }
+
+    fn png_size(bytes: &[u8]) -> (u32, u32) {
+        let decoded = image::load_from_memory(bytes).unwrap();
+        (decoded.width(), decoded.height())
+    }
+
+    #[tokio::test]
+    async fn image_entries_get_a_thumbnail_that_never_reaches_the_clipboard() {
+        let dir = tempfile::tempdir().unwrap();
+        let (daemon, backend) = test_daemon(&dir);
+        let big = png_of(1600, 400);
+        backend
+            .offer(
+                Selection::Clipboard,
+                ClipboardData {
+                    selection: Selection::Clipboard,
+                    payloads: vec![MimePayload::new("image/png", big.clone())],
+                    offered_mimes: vec!["image/png".into()],
+                    source_app: None,
+                },
+            )
+            .await
+            .unwrap();
+        daemon
+            .handle_event(ClipboardEvent::changed(
+                Selection::Clipboard,
+                vec!["image/png".into()],
+                None,
+            ))
+            .await;
+        let id = daemon.query(&QueryFilter::recent(1)).unwrap()[0].id;
+
+        let thumbnail = daemon.load_thumbnail(id).unwrap().expect("thumbnail");
+        assert_eq!(thumbnail.mime, THUMBNAIL_MIME);
+        let (w, h) = png_size(&thumbnail.data);
+        assert_eq!((w, h), (320, 80), "shrunk to the longest side, aspect kept");
+        assert!(thumbnail.data.len() < big.len());
+
+        // Clients asking for the row image get just the thumbnail; the full
+        // payloads and the clipboard never see it.
+        let row = daemon.thumbnail_or_full(id).await.unwrap();
+        assert_eq!(row.len(), 1);
+        assert_eq!(row[0].mime, THUMBNAIL_MIME);
+        let full = daemon.load_payloads(id).unwrap();
+        assert_eq!(full.len(), 1);
+        assert_eq!(full[0].mime, "image/png");
+        assert_eq!(full[0].data, big);
+        daemon.recall(id, false, None).await.unwrap();
+        let offered = backend.read_targets(Selection::Clipboard).await.unwrap();
+        assert_eq!(offered, vec!["image/png".to_string()]);
+
+        // Small images are kept as they are; text entries answer with their
+        // payloads.
+        backend
+            .offer(
+                Selection::Clipboard,
+                ClipboardData {
+                    selection: Selection::Clipboard,
+                    payloads: vec![MimePayload::new("image/png", png_of(64, 48))],
+                    offered_mimes: vec!["image/png".into()],
+                    source_app: None,
+                },
+            )
+            .await
+            .unwrap();
+        daemon
+            .handle_event(ClipboardEvent::changed(
+                Selection::Clipboard,
+                vec!["image/png".into()],
+                None,
+            ))
+            .await;
+        let small_id = daemon.query(&QueryFilter::recent(1)).unwrap()[0].id;
+        let small = daemon.load_thumbnail(small_id).unwrap().unwrap();
+        assert_eq!(png_size(&small.data), (64, 48));
+        offer_text(&backend, "just text").await;
+        daemon.handle_event(text_event()).await;
+        let text_id = daemon.query(&QueryFilter::recent(1)).unwrap()[0].id;
+        assert!(daemon.load_thumbnail(text_id).unwrap().is_none());
+        assert_eq!(
+            daemon.thumbnail_or_full(text_id).await.unwrap()[0].data,
+            b"just text"
+        );
+    }
+
+    #[tokio::test]
+    async fn thumbnails_are_made_on_demand_for_older_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let (daemon, backend) = test_daemon(&dir);
+        backend
+            .offer(
+                Selection::Clipboard,
+                ClipboardData {
+                    selection: Selection::Clipboard,
+                    payloads: vec![MimePayload::new("image/png", png_of(900, 900))],
+                    offered_mimes: vec!["image/png".into()],
+                    source_app: None,
+                },
+            )
+            .await
+            .unwrap();
+        daemon
+            .handle_event(ClipboardEvent::changed(
+                Selection::Clipboard,
+                vec!["image/png".into()],
+                None,
+            ))
+            .await;
+        let id = daemon.query(&QueryFilter::recent(1)).unwrap()[0].id;
+        // Pretend the entry predates thumbnails: drop the blob reference.
+        let thumb_ref = daemon
+            .db()
+            .blobs_of(id)
+            .unwrap()
+            .into_iter()
+            .find(|(m, _)| m == THUMBNAIL_MIME)
+            .unwrap()
+            .1;
+        daemon.db().detach_blob(id, THUMBNAIL_MIME).unwrap();
+        daemon.blobs().remove(&thumb_ref).unwrap();
+        assert!(daemon.load_thumbnail(id).unwrap().is_none());
+
+        let row = daemon.thumbnail_or_full(id).await.unwrap();
+        assert_eq!(row[0].mime, THUMBNAIL_MIME);
+        assert_eq!(png_size(&row[0].data), (320, 320));
+        assert!(
+            daemon.load_thumbnail(id).unwrap().is_some(),
+            "kept for next time"
+        );
+    }
+
     #[tokio::test]
     async fn delete_can_be_undone_until_the_grace_period_ends() {
         let dir = tempfile::tempdir().unwrap();
@@ -1560,6 +1817,106 @@ mod tests {
         let status = daemon.status().unwrap();
         assert_eq!(status.entries, 1);
         assert_eq!(status.protocol, PROTOCOL_VERSION);
+    }
+
+    /// Mock that presents itself as the Wayland backend with a given
+    /// compositor persistence verdict.
+    struct WaylandMock(MockBackend, bool);
+
+    #[async_trait::async_trait]
+    impl ClipboardBackend for WaylandMock {
+        fn name(&self) -> &'static str {
+            "wayland"
+        }
+        fn capabilities(&self) -> panora_core::backend::Capabilities {
+            panora_core::backend::Capabilities {
+                persist: self.1,
+                source_app: false,
+                ..self.0.capabilities()
+            }
+        }
+        async fn watch(&self, s: Selection) -> Result<mpsc::Receiver<ClipboardEvent>> {
+            self.0.watch(s).await
+        }
+        async fn read_targets(&self, s: Selection) -> Result<Vec<String>> {
+            self.0.read_targets(s).await
+        }
+        async fn read(&self, s: Selection, m: &str) -> Result<Vec<u8>> {
+            self.0.read(s, m).await
+        }
+        async fn offer(&self, s: Selection, d: ClipboardData) -> Result<()> {
+            self.0.offer(s, d).await
+        }
+    }
+
+    /// Store one text entry through `backend`, then simulate the owner
+    /// leaving; returns what the (mock) clipboard holds afterwards.
+    async fn after_owner_gone(
+        dir: &tempfile::TempDir,
+        backend: Arc<WaylandMock>,
+        policy: &str,
+    ) -> Option<Vec<u8>> {
+        let cipher = Cipher::new(&MasterKey::generate());
+        let db = Database::open(dir.path().join("history.db"), cipher).unwrap();
+        let blobs = BlobStore::open(
+            dir.path().join("blobs"),
+            Cipher::new(&MasterKey::generate()),
+        )
+        .unwrap();
+        let mut config = Config::default();
+        config.history.persist_on_wayland = policy.into();
+        let daemon = Daemon::new(
+            backend.clone(),
+            db,
+            blobs,
+            config,
+            Arc::new(NoopSync),
+            "wl".into(),
+        );
+        offer_text(&backend.0, "keep me on wayland").await;
+        daemon.handle_event(text_event()).await;
+        // The source exits: the compositor reports an empty selection.
+        backend
+            .0
+            .offer(
+                Selection::Clipboard,
+                ClipboardData {
+                    selection: Selection::Clipboard,
+                    payloads: vec![],
+                    offered_mimes: vec![],
+                    source_app: None,
+                },
+            )
+            .await
+            .unwrap();
+        daemon
+            .handle_event(ClipboardEvent::owner_gone(Selection::Clipboard))
+            .await;
+        backend
+            .0
+            .read(Selection::Clipboard, "text/plain")
+            .await
+            .ok()
+    }
+
+    #[tokio::test]
+    async fn wayland_persistence_follows_the_compositor_and_the_setting() {
+        let expected = b"keep me on wayland".to_vec();
+        for (compositor_drops, policy, restored) in [
+            (true, "auto", true),   // wlroots: re-offer
+            (false, "auto", false), // Mutter/KWin keep it themselves: leave it
+            (false, "always", true),
+            (true, "never", false),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let backend = Arc::new(WaylandMock(MockBackend::new(), compositor_drops));
+            let held = after_owner_gone(&dir, backend, policy).await;
+            assert_eq!(
+                held.is_some_and(|bytes| bytes == expected),
+                restored,
+                "drops={compositor_drops} policy={policy}"
+            );
+        }
     }
 
     /// Mock that claims to depend on the GNOME bridge (GNOME <= 47 Wayland).

@@ -352,7 +352,10 @@ fn to_invocation(command: Command) -> Invocation {
         }
         Command::Copy { id, paste, mime } => plain(Request::Recall { id, paste, mime }),
         Command::Preview { id, mime, out } => Invocation {
-            request: Request::Preview { id },
+            request: Request::Preview {
+                id,
+                thumbnail: false,
+            },
             mime,
             out,
             format: None,
@@ -618,7 +621,7 @@ mod tests {
         ));
         let cli = parse(&["preview", "3", "--mime", "image/png", "--out", "x.png"]).unwrap();
         let inv = to_invocation(cli.command);
-        assert!(matches!(inv.request, Request::Preview { id: 3 }));
+        assert!(matches!(inv.request, Request::Preview { id: 3, .. }));
         assert_eq!(inv.mime.as_deref(), Some("image/png"));
         assert_eq!(inv.out.as_deref(), Some(std::path::Path::new("x.png")));
     }
