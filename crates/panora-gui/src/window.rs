@@ -102,7 +102,15 @@ pub struct Ui {
     revision: Cell<u64>,
     /// No further pages after the last one fetched.
     exhausted: Cell<bool>,
+    /// The window has held keyboard focus at least once; only then does a
+    /// focus loss mean "the user went elsewhere".
+    was_active: Cell<bool>,
 }
+
+/// How many rows get a Ctrl+N shortcut and show its number.
+const QUICK_PICK_ROWS: usize = 9;
+/// Rows a PageUp/PageDown press moves the selection by.
+const PAGE_STEP: i32 = 8;
 
 /// Build and present the popup.
 pub fn build(app: &adw::Application, state: &Rc<App>) {
@@ -282,6 +290,7 @@ pub fn build(app: &adw::Application, state: &Rc<App>) {
         suppress_private: Cell::new(false),
         revision: Cell::new(0),
         exhausted: Cell::new(true),
+        was_active: Cell::new(false),
     });
 
     build_chips(&ui, &chips);
@@ -349,6 +358,28 @@ pub fn build(app: &adw::Application, state: &Rc<App>) {
     sync_status(&ui);
     refresh(&ui);
     start_live_refresh(&ui);
+
+    // Win+V behaviour: the panel goes away when the user switches to
+    // another window. It has to have been active once first, so a slow
+    // compositor (or a headless run without a window manager) does not
+    // close it before it ever had focus; in-window dialogs keep it open,
+    // and the hide-before-recall step is not a focus loss either.
+    {
+        let ui = ui.clone();
+        window.connect_is_active_notify(move |window| {
+            if window.is_active() {
+                ui.was_active.set(true);
+                return;
+            }
+            if ui.was_active.get()
+                && ui.app.config.borrow().ui.close_on_focus_loss
+                && window.is_visible()
+                && window.visible_dialog().is_none()
+            {
+                window.close();
+            }
+        });
+    }
 
     window.present();
     search.grab_focus();
@@ -496,8 +527,55 @@ fn install_shortcuts(ui: &Rc<Ui>) {
         }
         let ctrl = state.contains(gdk::ModifierType::CONTROL_MASK);
         let shift = state.contains(gdk::ModifierType::SHIFT_MASK);
+        let alt = state.contains(gdk::ModifierType::ALT_MASK);
         let is_delete = key == gdk::Key::Delete || key == gdk::Key::KP_Delete;
         let is_enter = key == gdk::Key::Return || key == gdk::Key::KP_Enter;
+
+        // Ctrl+1 … Ctrl+9: the Nth row without walking to it.
+        if ctrl && !shift {
+            if let Some(n) = key.to_unicode().and_then(|c| c.to_digit(10)) {
+                if (1..=QUICK_PICK_ROWS as u32).contains(&n) {
+                    if let Some(entry) = entry_at(&ui, n as i32 - 1) {
+                        recall_with(&ui, entry.id, None);
+                    }
+                    return glib::Propagation::Stop;
+                }
+            }
+        }
+        // Shift+Enter: the plain text of the selected (or first) row only.
+        if is_enter && shift {
+            let entry = if search_focused(&ui) {
+                entry_at(&ui, 0)
+            } else {
+                selected_entry(&ui)
+            };
+            if let Some(entry) = entry {
+                recall_with(&ui, entry.id, Some("text/plain"));
+            }
+            return glib::Propagation::Stop;
+        }
+        if !search_focused(&ui)
+            && matches!(
+                key,
+                gdk::Key::Home | gdk::Key::End | gdk::Key::Page_Up | gdk::Key::Page_Down
+            )
+        {
+            let count = ui.entries.borrow().len() as i32;
+            if count > 0 {
+                let current = current_child(&ui).map(|c| c.index()).unwrap_or(0);
+                let target = match key {
+                    gdk::Key::Home => 0,
+                    gdk::Key::End => count - 1,
+                    gdk::Key::Page_Up => (current - PAGE_STEP).max(0),
+                    _ => (current + PAGE_STEP).min(count - 1),
+                };
+                if let Some(child) = ui.flow.child_at_index(target) {
+                    child.grab_focus();
+                    ui.flow.select_child(&child);
+                }
+            }
+            return glib::Propagation::Stop;
+        }
 
         if key == gdk::Key::Escape {
             // First Escape drops an active search, the second closes the popup.
@@ -559,6 +637,21 @@ fn install_shortcuts(ui: &Rc<Ui>) {
                 }
             }
             return glib::Propagation::Stop;
+        }
+        // Typing while the list has focus starts a search, so the panel
+        // behaves the same whichever widget happens to hold the cursor.
+        if !search_focused(&ui) && !ctrl && !alt {
+            if let Some(ch) = key
+                .to_unicode()
+                .filter(|c| !c.is_control() && !c.is_whitespace())
+            {
+                let mut text = ui.search.text().to_string();
+                text.push(ch);
+                ui.search.grab_focus();
+                ui.search.set_text(&text);
+                ui.search.set_position(-1);
+                return glib::Propagation::Stop;
+            }
         }
         glib::Propagation::Proceed
     });
@@ -731,8 +824,9 @@ fn load_next_page(ui: &Rc<Ui>) {
 
 fn append_entries(ui: &Rc<Ui>, entries: Vec<Entry>) {
     let more = entries.len() >= PAGE_LIMIT;
-    for entry in &entries {
-        let child = build_card(ui, entry);
+    let offset = ui.entries.borrow().len();
+    for (i, entry) in entries.iter().enumerate() {
+        let child = build_card(ui, entry, offset + i);
         ui.flow.insert(&child, -1);
     }
     ui.entries.borrow_mut().extend(entries);
@@ -773,7 +867,7 @@ fn name_for_a11y(widget: &impl IsA<gtk::Widget>, label: &str) {
 /// Actions stay in the layout at `opacity: 0` rather than being added and
 /// removed, so nothing shifts under the pointer when a row lights up, and a
 /// keyboard user can still Tab into them (`:focus-within` reveals them).
-fn build_card(ui: &Rc<Ui>, entry: &Entry) -> gtk::FlowBoxChild {
+fn build_card(ui: &Rc<Ui>, entry: &Entry, index: usize) -> gtk::FlowBoxChild {
     let s = ui.s;
     let card = gtk::Box::new(gtk::Orientation::Vertical, 8);
     card.add_css_class("history-card");
@@ -797,6 +891,15 @@ fn build_card(ui: &Rc<Ui>, entry: &Entry) -> gtk::FlowBoxChild {
 
     let bottom = gtk::Box::new(gtk::Orientation::Horizontal, 4);
     bottom.set_valign(gtk::Align::End);
+
+    // The first rows carry their Ctrl+N number, quietly, at the start of
+    // the metadata line.
+    if index < QUICK_PICK_ROWS {
+        let number = gtk::Label::new(Some(&(index + 1).to_string()));
+        number.add_css_class("card-index");
+        number.set_tooltip_text(Some(&format!("Ctrl+{}", index + 1)));
+        bottom.append(&number);
+    }
 
     // The kind is an icon here, not a shouted badge: the preview already
     // shows what the entry is, and the badge only repeated it in 9px caps.
@@ -956,6 +1059,12 @@ fn preview_label(text: &str, lines: i32) -> gtk::Label {
 /// The window is hidden first so focus (and the optional paste) lands in
 /// the application the user came from.
 pub fn recall(ui: &Rc<Ui>, id: i64) {
+    recall_with(ui, id, None);
+}
+
+/// `recall` restricted to one format when `mime` is given (Shift+Enter puts
+/// only the plain text of a rich-text entry on the clipboard).
+pub fn recall_with(ui: &Rc<Ui>, id: i64, mime: Option<&'static str>) {
     let paste = ui.app.config.borrow().ui.instant_paste;
     ui.window.set_visible(false);
     // Let the main loop process the unmap first, then talk to the daemon on
@@ -968,7 +1077,7 @@ pub fn recall(ui: &Rc<Ui>, id: i64) {
             let _ = sender.send(call(&Request::Recall {
                 id,
                 paste,
-                mime: None,
+                mime: mime.map(String::from),
             }));
         });
         glib::timeout_add_local(Duration::from_millis(20), move || {
@@ -1049,7 +1158,22 @@ pub fn toggle_pin(ui: &Rc<Ui>, id: i64, pinned: bool) {
 pub fn delete_entry(ui: &Rc<Ui>, id: i64) {
     match call(&Request::Delete { id }) {
         Ok(_) => {
-            toast(ui, ui.s.toast_deleted);
+            // The daemon keeps the tombstone and blobs for a grace period,
+            // so the toast can offer a real undo.
+            let undo_toast = adw::Toast::builder()
+                .title(ui.s.toast_deleted)
+                .button_label(ui.s.toast_undo)
+                .timeout(5)
+                .build();
+            let undo = ui.clone();
+            undo_toast.connect_button_clicked(move |_| match call(&Request::Restore { id }) {
+                Ok(_) => {
+                    toast(&undo, undo.s.toast_restored);
+                    refresh(&undo);
+                }
+                Err(_) => toast(&undo, undo.s.toast_restore_failed),
+            });
+            ui.toasts.add_toast(undo_toast);
             refresh(ui);
         }
         Err(_) => toast(ui, ui.s.toast_delete_failed),
@@ -1194,6 +1318,13 @@ pub fn install_css() {
          /* 0.7 alpha keeps these above the 3:1 non-text contrast floor
             (WCAG 1.4.11) in both light and dark. */
          .kind-icon { color: alpha(@card_fg_color, 0.7); }
+         .card-index {
+             font-size: 0.75em;
+             font-weight: 700;
+             font-feature-settings: \"tnum\";
+             min-width: 14px;
+             color: alpha(@card_fg_color, 0.55);
+         }
 
          .preview-text { color: @card_fg_color; }
          /* No px font-size: .caption-heading tracks the user's text scale. */

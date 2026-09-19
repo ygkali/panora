@@ -155,7 +155,27 @@ pub fn call(request: &Request) -> Result<ResponseData> {
                 store.private = *enabled;
                 ResponseData::Empty
             }
-            Request::Toggle | Request::ReloadConfig => ResponseData::Empty,
+            Request::Toggle | Request::ReloadConfig | Request::Restore { .. } => {
+                ResponseData::Empty
+            }
+            Request::Store { payloads, .. } => {
+                let text = payloads
+                    .first()
+                    .map(|p| String::from_utf8_lossy(&p.data).into_owned())
+                    .unwrap_or_default();
+                let id = store.entries.iter().map(|e| e.id).max().unwrap_or(0) + 1;
+                let entry = entry(
+                    id,
+                    ContentKind::Text,
+                    &text,
+                    "text/plain",
+                    text.len() as i64,
+                    0,
+                );
+                store.entries.insert(0, entry.clone());
+                store.revision += 1;
+                ResponseData::Entries(vec![entry])
+            }
             Request::Status => ResponseData::Status(StatusData {
                 backend: "fixture".into(),
                 entries: store.entries.len() as i64,
@@ -172,6 +192,7 @@ pub fn call(request: &Request) -> Result<ResponseData> {
                     source_app: true,
                     needs_bridge: false,
                 },
+                locked: false,
             }),
             Request::Preview { id } => ResponseData::Payloads(
                 store

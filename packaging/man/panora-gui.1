@@ -22,12 +22,18 @@ rely on.
 .B Ctrl+F
 Focus the search box.
 .TP
-.B Up, Down, Left, Right
+.B Up, Down, Left, Right, Home, End, Page Up, Page Down
 Move between entries.
 .TP
 .B Enter
 Put the selected entry on the clipboard (and paste it when instant paste is
 enabled), then close.
+.TP
+.B Shift+Enter
+Put only the plain text of the selected entry on the clipboard.
+.TP
+.B Ctrl+1 \&... Ctrl+9
+Put the Nth entry on the clipboard; the first nine rows show their number.
 .TP
 .B Space
 Open the details view (full text, full-size image, formats).
@@ -36,7 +42,10 @@ Open the details view (full text, full-size image, formats).
 Pin or unpin the selected entry.
 .TP
 .B Delete
-Delete the selected entry.
+Delete the selected entry; the toast offers an undo for 30 seconds.
+.TP
+.B Any printable key
+Start (or continue) a search from wherever the focus is.
 .TP
 .B Ctrl+Shift+P
 Toggle private mode.
@@ -46,6 +55,12 @@ Open settings.
 .TP
 .B Esc
 Clear the search; close when the search is empty.
+.SH BEHAVIOUR
+The panel closes when keyboard focus moves to another window, like the
+Windows Win+V flyout; the
+.B Close when focus leaves
+setting turns that off. Instant paste sends Ctrl+V, or Ctrl+Shift+V when the
+focused window is a terminal emulator.
 .SH OPTIONS
 .TP
 .B \-\-version

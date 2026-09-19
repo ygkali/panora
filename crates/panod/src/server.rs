@@ -38,6 +38,7 @@ async fn run_app() -> anyhow::Result<()> {
         .with_env_filter(std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()))
         .compact()
         .init();
+    harden_process();
 
     let config =
         Config::load().map_err(|e| anyhow::anyhow!("config {}: {e}", config_path().display()))?;
@@ -106,6 +107,13 @@ async fn run_app() -> anyhow::Result<()> {
     drop(fatal_tx);
     let mut fatal_rx = fatal_rx;
 
+    let lock_watcher = daemon.clone();
+    tokio::task::spawn_local(async move {
+        if let Err(e) = watch_screen_lock(lock_watcher).await {
+            warn!(error = %e, "screen lock watcher unavailable; recording continues on the lock screen");
+        }
+    });
+
     let maintenance = daemon.clone();
     tokio::task::spawn_local(async move {
         let mut ticker = tokio::time::interval(MAINTENANCE_INTERVAL);
@@ -132,6 +140,55 @@ async fn run_app() -> anyhow::Result<()> {
     };
     let _ = tokio::fs::remove_file(&path).await;
     outcome
+}
+
+/// The master key and decrypted payloads live in this process; a core dump
+/// or a ptrace from another process of the same user would hand them over.
+/// `PR_SET_DUMPABLE = 0` refuses both (ADR 0003); the unit adds
+/// `LimitCORE=0` on top.
+fn harden_process() {
+    use rustix::process::{set_dumpable_behavior, DumpableBehavior};
+    if let Err(e) = set_dumpable_behavior(DumpableBehavior::NotDumpable) {
+        warn!(error = %e, "could not mark the process non-dumpable");
+    }
+}
+
+/// Pause recording while the session is locked. GNOME emits
+/// `org.gnome.ScreenSaver.ActiveChanged(b)`, KDE and others the
+/// `org.freedesktop.ScreenSaver` twin; both are matched by interface and
+/// member only, so the object path each desktop picks does not matter.
+async fn watch_screen_lock(daemon: Rc<Daemon>) -> zbus::Result<()> {
+    use futures::StreamExt as _;
+    let connection = zbus::Connection::session().await?;
+    let bus = zbus::fdo::DBusProxy::new(&connection).await?;
+    for interface in ["org.gnome.ScreenSaver", "org.freedesktop.ScreenSaver"] {
+        let rule = zbus::MatchRule::builder()
+            .msg_type(zbus::message::Type::Signal)
+            .interface(interface)?
+            .member("ActiveChanged")?
+            .build();
+        bus.add_match_rule(rule).await?;
+    }
+    let mut stream = zbus::MessageStream::from(&connection);
+    while let Some(message) = stream.next().await {
+        let message = message?;
+        let header = message.header();
+        let is_lock_signal = header.message_type() == zbus::message::Type::Signal
+            && header
+                .member()
+                .is_some_and(|m| m.as_str() == "ActiveChanged")
+            && header
+                .interface()
+                .is_some_and(|i| i.as_str().ends_with(".ScreenSaver"));
+        if !is_lock_signal {
+            continue;
+        }
+        match message.body().deserialize::<bool>() {
+            Ok(active) => daemon.set_locked(active),
+            Err(e) => warn!(error = %e, "unexpected ActiveChanged body"),
+        }
+    }
+    Ok(())
 }
 
 /// SIGINT (terminal) or SIGTERM (systemd stop).
@@ -262,6 +319,23 @@ pub async fn handle_request(request: Request, daemon: &Daemon) -> Response {
             Request::Status => daemon.status().map(ResponseData::Status),
             Request::Preview { id } => daemon.load_payloads(id).map(ResponseData::Payloads),
             Request::ReloadConfig => daemon.reload_config().map(|_| ResponseData::Empty),
+            Request::Restore { id } => daemon.restore(id).await.map(|_| ResponseData::Empty),
+            Request::Store {
+                payloads,
+                source_app,
+                copy,
+            } => {
+                let data = panora_core::model::ClipboardData {
+                    selection: panora_core::model::Selection::Clipboard,
+                    offered_mimes: payloads.iter().map(|p| p.mime.clone()).collect(),
+                    payloads,
+                    source_app,
+                };
+                daemon
+                    .store_external(data, copy)
+                    .await
+                    .map(|entry| ResponseData::Entries(vec![entry]))
+            }
         };
     match result {
         Ok(data) => Response::Success(data),

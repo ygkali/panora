@@ -103,7 +103,7 @@ git clone https://github.com/ygkali/panora.git && cd panora
 sudo apt install ./dist/panora_*.deb
 ```
 
-Rust 1.85 or newer (rustup) is required.
+Rust 1.92 or newer (rustup) is required.
 
 ## Use
 
@@ -112,18 +112,22 @@ Open the panel with **Super+V** (GNOME), `panora`, the launcher entry or
 
 | Key | Action |
 |---|---|
-| `Ctrl+F` | Focus the search box |
-| `↑ ↓ ← →` | Move between entries |
+| `Ctrl+F` | Focus the search box; typing anywhere in the panel also searches |
+| `↑ ↓ ← →`, `Home` `End` `PgUp` `PgDn` | Move between entries |
 | `Enter` | Put the entry on the clipboard (and paste it when instant paste is on), close |
+| `Shift+Enter` | Put only its plain text on the clipboard (drops HTML) |
+| `Ctrl+1` … `Ctrl+9` | Pick the Nth entry; the first nine rows show their number |
 | `Space` | Details: full text, full-size image, formats |
 | `Ctrl+D` | Pin / unpin |
-| `Delete` | Delete the entry |
+| `Delete` | Delete the entry; the toast offers **Undo** for 30 seconds |
 | `Ctrl+Shift+P` | Private mode on / off |
 | `Ctrl+,` | Settings |
 | `Esc` | Clear the search; close when it is empty |
 
-The header bar holds the private-mode switch, **clear history** (pinned
-entries survive) and the menu with **Settings**.
+The panel closes when you switch to another window (like Win+V; a setting
+turns that off). The header bar holds the private-mode switch, **clear
+history** (pinned entries survive) and the menu with **Settings**. While the
+screen is locked nothing is recorded.
 
 ### Settings
 
@@ -144,7 +148,8 @@ excluded_apps = ["keepassxc", "bitwarden", "1password", "gnome-secrets"]
 [ui]
 language = "system"      # system | tr | en
 theme = "system"         # system | light | dark
-instant_paste = false
+instant_paste = false    # Ctrl+V after picking (Ctrl+Shift+V in terminals)
+close_on_focus_loss = true
 ```
 
 ### Command line
@@ -154,14 +159,21 @@ panora-cli list [query] [--kind image] [--pinned] [--limit 20] [--offset 20]
 panora-cli search <text>
 panora-cli copy <id> [--paste] [--mime text/plain]
 panora-cli preview <id> [--mime image/png] [--out photo.png]
-panora-cli pin|unpin|delete <id>
+panora-cli pin|unpin|delete|restore <id>
 panora-cli clear | private on|off | status | toggle | reload
+panora-cli store [FILE] [--mime TYPE] [--app NAME] [--no-copy]   # record text from a file or stdin
+panora-cli pick [--format '{id}\t{kind}\t{preview}']              # one line per entry for pickers
 panora-cli --json status
 panora-cli completions bash|zsh|fish
 ```
 
 Exit status: 0 success, 1 daemon error, 2 usage error, 3 daemon not running,
-4 no such entry. `man panora-cli` has the details.
+4 no such entry. `man panora-cli` has the details. A launcher integration is
+one line:
+
+```sh
+panora-cli pick | fuzzel --dmenu | cut -f1 | xargs panora-cli copy --paste
+```
 
 ## Desktop support
 

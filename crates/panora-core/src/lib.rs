@@ -15,6 +15,8 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+/// Application classes with special needs (terminals paste with Ctrl+Shift+V).
+pub mod apps;
 /// Clipboard backend abstraction (trait + event types).
 pub mod backend;
 /// Configuration loading and defaults.

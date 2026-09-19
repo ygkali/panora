@@ -400,8 +400,10 @@ impl Reader {
             return Ok(Vec::new());
         }
         let cookies: Vec<_> = value
-            .chunks_exact(4)
-            .map(|b| Atom::from_ne_bytes([b[0], b[1], b[2], b[3]]))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|b| Atom::from_ne_bytes(*b))
             .filter(|&a| a != x11rb::NONE)
             .map(|a| c.conn.get_atom_name(a))
             .collect::<std::result::Result<_, _>>()
@@ -544,8 +546,8 @@ impl Watcher {
             return Ok(Vec::new());
         }
         let mut names = Vec::new();
-        for chunk in value.chunks_exact(4) {
-            let atom = Atom::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+        for chunk in value.as_chunks::<4>().0 {
+            let atom = Atom::from_ne_bytes(*chunk);
             if atom == x11rb::NONE {
                 continue;
             }
@@ -901,35 +903,48 @@ impl Owner {
     }
 }
 
-/// Send Ctrl+V to the focused window through XTEST.
+/// Send a paste keystroke to the focused window through XTEST: Ctrl+V, or
+/// Ctrl+Shift+V when the focused window is a terminal emulator, where
+/// Ctrl+V is a control character.
 fn xtest_paste() -> Result<()> {
-    let (conn, screen_num) = x11rb::connect(None).map_err(x11err)?;
-    let root = conn
-        .setup()
-        .roots
-        .get(screen_num)
-        .ok_or_else(|| Error::Backend("x11: no screen".into()))?
-        .root;
+    let client = Client::new()?;
+    let conn = &client.conn;
+    let root = client.root;
     conn.xtest_get_version(2, 2)
         .map_err(x11err)?
         .reply()
         .map_err(|_| Error::Backend("x11: XTEST extension unavailable".into()))?;
-    let control = keycode_for(&conn, 0xffe3)
+    let terminal = focused_app(&client).is_some_and(|app| panora_core::apps::is_terminal(&app));
+    let control = keycode_for(conn, 0xffe3)
         .ok_or_else(|| Error::Backend("x11: no keycode for Control_L".into()))?;
     let v =
-        keycode_for(&conn, 0x0076).ok_or_else(|| Error::Backend("x11: no keycode for v".into()))?;
+        keycode_for(conn, 0x0076).ok_or_else(|| Error::Backend("x11: no keycode for v".into()))?;
+    let shift = if terminal {
+        Some(
+            keycode_for(conn, 0xffe1)
+                .ok_or_else(|| Error::Backend("x11: no keycode for Shift_L".into()))?,
+        )
+    } else {
+        None
+    };
     const PRESS: u8 = 2;
     const RELEASE: u8 = 3;
-    for (kind, code) in [
-        (PRESS, control),
-        (PRESS, v),
-        (RELEASE, v),
-        (RELEASE, control),
-    ] {
+    let mut sequence = vec![(PRESS, control)];
+    if let Some(shift) = shift {
+        sequence.push((PRESS, shift));
+    }
+    sequence.push((PRESS, v));
+    sequence.push((RELEASE, v));
+    if let Some(shift) = shift {
+        sequence.push((RELEASE, shift));
+    }
+    sequence.push((RELEASE, control));
+    for (kind, code) in sequence {
         conn.xtest_fake_input(kind, code, x11rb::CURRENT_TIME, root, 0, 0, 0)
             .map_err(x11err)?;
     }
     conn.flush().map_err(x11err)?;
+    debug!(terminal, "synthetic paste sent");
     Ok(())
 }
 

@@ -84,7 +84,35 @@ const PASTE_POLL_MS = 25;
 // Latin "v" (Cyrillic, Greek, ...), where notify_keyval() would log
 // "No keycode found for keyval" and send nothing.
 const KEY_LEFTCTRL = 29;
+const KEY_LEFTSHIFT = 42;
 const KEY_V = 47;
+
+// Terminal emulators paste with Ctrl+Shift+V. Mirrors panora-core's
+// apps::is_terminal(): exact class/app id, the last segment of a reverse-DNS
+// id, or anything containing "terminal" / ending in "term".
+const TERMINAL_APPS = new Set([
+    'alacritty', 'blackbox', 'com.mitchellh.ghostty', 'com.raggesilver.blackbox',
+    'console', 'contour', 'dev.warp.warp', 'foot', 'footclient', 'ghostty',
+    'guake', 'hyper', 'kgx', 'kitty', 'konsole', 'org.codeberg.dnkl.foot',
+    'org.gnome.console', 'org.gnome.ptyxis', 'org.gnome.terminal', 'org.kde.konsole',
+    'org.kde.yakuake', 'org.wezfurlong.wezterm', 'ptyxis', 'rio', 'rxvt', 'sakura',
+    'st', 'st-256color', 'tabby', 'tilda', 'tilix', 'urxvt', 'uxterm', 'warp',
+    'wave', 'wezterm', 'xterm', 'yakuake',
+]);
+
+function isTerminalApp(id) {
+    let name = String(id || '').trim().toLowerCase();
+    if (name.endsWith('.desktop'))
+        name = name.slice(0, -'.desktop'.length);
+    if (name === '')
+        return false;
+    const last = name.split('.').pop();
+    for (const candidate of [name, last]) {
+        if (TERMINAL_APPS.has(candidate) || candidate.includes('terminal') || candidate.endsWith('term'))
+            return true;
+    }
+    return false;
+}
 
 const HELPER_IFACE = `
 <node>
@@ -440,7 +468,7 @@ export default class PanoraExtension extends Extension {
             }
             this._pendingPastes.delete(pending);
             try {
-                this._sendCtrlV();
+                this._sendPaste();
                 invocation.return_value(null);
             } catch (error) {
                 invocation.return_dbus_error(`${HELPER_NAME}.Error.Paste`, String(error.message ?? error));
@@ -462,20 +490,36 @@ export default class PanoraExtension extends Extension {
         return app !== null && app.get_id() === APP_DESKTOP_ID;
     }
 
-    _sendCtrlV() {
+    // Terminals treat Ctrl+V as a control character and paste with
+    // Ctrl+Shift+V; the focused window decides which combination goes out.
+    _focusIsTerminal() {
+        const window = global.display.focus_window;
+        if (!window)
+            return false;
+        const app = Shell.WindowTracker.get_default().get_window_app(window);
+        const id = app ? app.get_id() : (window.get_wm_class() || '');
+        return isTerminalApp(id);
+    }
+
+    _sendPaste() {
         if (!this._virtualKeyboard) {
             const seat = global.backend.get_default_seat();
             this._virtualKeyboard = seat.create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
         }
         const keyboard = this._virtualKeyboard;
+        const shift = this._focusIsTerminal();
         // Events are queued in order on the seat; no extra delay is needed
         // between press and release. Wayland clients get them from the
         // compositor seat, X11 clients through Xwayland (or XTest on the
         // X11 backend), so the same code covers both window types.
         const now = () => GLib.get_monotonic_time();
         keyboard.notify_key(now(), KEY_LEFTCTRL, Clutter.KeyState.PRESSED);
+        if (shift)
+            keyboard.notify_key(now(), KEY_LEFTSHIFT, Clutter.KeyState.PRESSED);
         keyboard.notify_key(now(), KEY_V, Clutter.KeyState.PRESSED);
         keyboard.notify_key(now(), KEY_V, Clutter.KeyState.RELEASED);
+        if (shift)
+            keyboard.notify_key(now(), KEY_LEFTSHIFT, Clutter.KeyState.RELEASED);
         keyboard.notify_key(now(), KEY_LEFTCTRL, Clutter.KeyState.RELEASED);
     }
 

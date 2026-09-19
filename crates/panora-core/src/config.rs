@@ -76,6 +76,9 @@ pub struct UiConfig {
     pub instant_paste: bool,
     /// Colour scheme; `system`, `light`, or `dark`.
     pub theme: String,
+    /// Close the popup when keyboard focus moves to another window, the way
+    /// the Windows Win+V flyout does.
+    pub close_on_focus_loss: bool,
 }
 
 impl Default for UiConfig {
@@ -84,6 +87,7 @@ impl Default for UiConfig {
             language: "system".into(),
             instant_paste: false,
             theme: "system".into(),
+            close_on_focus_loss: true,
         }
     }
 }

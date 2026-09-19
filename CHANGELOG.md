@@ -10,6 +10,30 @@ Everything below ships as **1.3.0**, the first public release, once the
 real-machine verification in `docs/RELEASING.md` is done.
 
 ### Added
+- Popup: the panel closes when focus moves to another window (Win+V
+  behaviour, `ui.close_on_focus_loss`), `Shift+Enter` puts only the plain
+  text on the clipboard, `Ctrl+1`…`Ctrl+9` pick the first nine rows (which
+  show their number), `Home`/`End`/`PgUp`/`PgDn` jump in the list, typing
+  anywhere starts a search, and deleting shows a toast with **Undo**.
+- Undo for deletions: a deleted entry keeps its tombstone and blobs for 30
+  seconds; `panora-cli restore <id>` and the toast bring it back. Retention
+  evictions and *clear* stay final.
+- `panora-cli store [FILE]` records text from a file or standard input as a
+  new entry (through the same privacy gate) and puts it on the clipboard;
+  `panora-cli pick` and `list/search --format TEMPLATE` print one line per
+  entry for dmenu/rofi/fuzzel style pickers.
+- Instant paste sends `Ctrl+Shift+V` when the focused window is a terminal
+  emulator (X11 and the GNOME extension; `panora_core::apps` knows the
+  common ones).
+- Recording pauses while the session is locked (`org.gnome.ScreenSaver` /
+  `org.freedesktop.ScreenSaver` `ActiveChanged`); `panora-cli status` shows
+  `locked`.
+- panod marks itself non-dumpable (`PR_SET_DUMPABLE=0`) and the unit adds
+  `LimitCORE=0`, an empty capability set, `ProtectProc=invisible`,
+  `PrivateDevices`, `ProtectClock`, `ProtectHostname`, `UMask=0077` and a
+  `@system-service` syscall filter; `systemd-analyze security` scores it
+  1.8 (was 4.x). A test asserts that no clipboard content ever reaches the
+  daemon log.
 - Application icon (scalable and symbolic), AppStream metadata, man pages
   for every binary and bash/zsh/fish completions, all installed by the
   `.deb`; the package also carries a DEP-5 `copyright`, a Debian-format
@@ -76,6 +100,10 @@ real-machine verification in `docs/RELEASING.md` is done.
 - The `max_mime_bytes` ceiling is 40 MiB (was 256 MiB): anything larger
   could be stored but never previewed or exported through the 64 MiB IPC
   reply cap.
+- Database schema version 2 adds `deleted_at`; existing files are backed up
+  (`history.db.bak-v1`) and migrated on the first start.
+- The minimum supported Rust is 1.92 (what the dependency tree needs);
+  `install.sh` installs rustup when the system toolchain is older.
 - The Debian package `Recommends: gnome-keyring | kwalletmanager` and
   `Suggests: wtype, ydotool, xclip, wl-clipboard`.
 - Docs: ADR 0001 and 0002 carry addenda for what was never built

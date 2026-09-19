@@ -26,6 +26,22 @@ Environment=RUST_LOG=info
 
 # --- sandboxing (ADR 0003) ---
 NoNewPrivileges=yes
+# The master key and decrypted payloads live in this process: no core
+# dumps (panod also marks itself non-dumpable), no capabilities, no /proc
+# view of other processes, no devices, no clock or hostname changes.
+LimitCORE=0
+CapabilityBoundingSet=
+ProtectProc=invisible
+ProcSubset=pid
+PrivateDevices=yes
+ProtectClock=yes
+ProtectHostname=yes
+UMask=0077
+# Only the system-service call set; anything privileged or resource-tweaking
+# fails with EPERM instead of killing the daemon.
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
 # No PrivateTmp: panod itself never touches /tmp, but the optional ydotool
 # paste helper connects to /tmp/.ydotool_socket and would not see it.
 ProtectSystem=strict

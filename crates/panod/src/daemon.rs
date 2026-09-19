@@ -82,7 +82,14 @@ pub struct Daemon {
     /// Bumped by `apply_config`; the capture loop subscribes so a changed
     /// `record_primary` opens or drops the PRIMARY watch without a restart.
     config_epoch: tokio::sync::watch::Sender<u64>,
+    /// The session is locked (screensaver active). Nothing copied on the
+    /// lock screen is recorded; unlike private mode this is not user state.
+    locked: std::sync::atomic::AtomicBool,
 }
+
+/// How long a deleted entry can be brought back with `restore` before its
+/// tombstone and blobs are purged for good.
+pub const UNDO_GRACE_SECS: i64 = 30;
 
 impl Daemon {
     /// Assemble a daemon from its parts.
@@ -108,6 +115,20 @@ impl Daemon {
             last_stored: Mutex::new(HashMap::new()),
             last_recall: Mutex::new(None),
             config_epoch: tokio::sync::watch::channel(0).0,
+            locked: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    /// Whether the session is locked and recording paused because of it.
+    pub fn locked(&self) -> bool {
+        self.locked.load(Ordering::Relaxed)
+    }
+
+    /// Pause (or resume) recording while the screensaver is active.
+    pub fn set_locked(&self, locked: bool) {
+        if self.locked.swap(locked, Ordering::Relaxed) != locked {
+            info!(locked, "session lock state changed");
+            self.bump();
         }
     }
 
@@ -201,6 +222,7 @@ impl Daemon {
                 source_app: caps.source_app,
                 needs_bridge: caps.needs_bridge,
             },
+            locked: self.locked(),
         })
     }
 
@@ -286,6 +308,10 @@ impl Daemon {
         // Whatever happens below, a change that is not stored must not be
         // "restored" later by the persistence path.
         self.forget_last_stored(event.selection);
+        if self.locked() {
+            debug!("session locked; change not recorded");
+            return;
+        }
         if event.selection == Selection::Primary && !self.config().history.record_primary {
             return;
         }
@@ -410,6 +436,10 @@ impl Daemon {
             // with every format; storing the single bridge payload too would
             // create a second, poorer entry.
             debug!("GNOME bridge payload ignored: native backend is active");
+            return;
+        }
+        if self.locked() {
+            debug!("session locked; GNOME bridge payload not recorded");
             return;
         }
         let probe = ClipboardData {
@@ -538,18 +568,24 @@ impl Daemon {
             let cutoff = now - (i64::from(config.history.max_age_days) * 86_400);
             evicted.extend(self.db.enforce_age(cutoff)?);
         }
-        // v1 has no sync peer to replay tombstones to, so they are purged
-        // right away; the column stays for the future sync module.
-        let orphaned = self.db.purge_tombstones(i64::MAX)?;
-        for blob_ref in orphaned {
-            if let Err(e) = self.blobs.remove(&blob_ref) {
-                warn!(blob = %blob_ref, error = %e, "blob cleanup failed");
-            }
-        }
+        // There is no sync peer to replay tombstones to yet; user deletions
+        // live just long enough for an undo, evictions go right away.
+        self.purge_tombstoned_before(now - UNDO_GRACE_SECS)?;
         if !evicted.is_empty() {
             debug!(count = evicted.len(), "evicted entries by retention policy");
         }
         Ok(evicted.len())
+    }
+
+    /// Drop the rows of entries tombstoned before `before`, then the blobs
+    /// nothing references any more.
+    pub fn purge_tombstoned_before(&self, before: i64) -> Result<()> {
+        for blob_ref in self.db.purge_tombstones(before)? {
+            if let Err(e) = self.blobs.remove(&blob_ref) {
+                warn!(blob = %blob_ref, error = %e, "blob cleanup failed");
+            }
+        }
+        Ok(())
     }
 
     /// Load an entry's payloads back from the blob store.
@@ -666,7 +702,7 @@ impl Daemon {
         if entry.deleted {
             return Err(Error::NotFound(id));
         }
-        self.db.tombstone(id)?;
+        self.db.tombstone(id, unix_now())?;
         self.collect_garbage()?;
         self.bump();
         self.sync
@@ -676,6 +712,57 @@ impl Daemon {
             })
             .await;
         Ok(())
+    }
+
+    /// Undo a deletion while the tombstone is still within
+    /// `UNDO_GRACE_SECS`; afterwards the row is gone and this is `NotFound`.
+    pub async fn restore(&self, id: i64) -> Result<Entry> {
+        self.db.restore(id)?;
+        self.bump();
+        let entry = self.db.get(id)?;
+        self.sync
+            .on_event(SyncEvent::EntryUpserted(entry.clone()))
+            .await;
+        Ok(entry)
+    }
+
+    /// Record content a client handed over (`panora-cli store`) as if it
+    /// had been copied. The privacy gate, size limit and lock state apply
+    /// exactly as for a capture; `copy` also offers the entry on the
+    /// clipboard.
+    pub async fn store_external(&self, mut data: ClipboardData, copy: bool) -> Result<Entry> {
+        if self.locked() {
+            return Err(Error::PrivacyRejected);
+        }
+        data.payloads.retain(|payload| !payload.data.is_empty());
+        if data.payloads.is_empty() {
+            return Err(Error::Backend("nothing to store".into()));
+        }
+        let limit = self.config().history.max_mime_bytes;
+        if let Some(payload) = data.payloads.iter().find(|p| p.data.len() > limit) {
+            return Err(Error::TooLarge {
+                size: payload.data.len(),
+                limit,
+            });
+        }
+        if data.offered_mimes.is_empty() {
+            data.offered_mimes = data.payloads.iter().map(|p| p.mime.clone()).collect();
+        }
+        let verdict = self
+            .privacy
+            .read()
+            .map(|p| p.evaluate(&data))
+            .unwrap_or(panora_core::privacy::Verdict::RejectPrivateMode);
+        if !verdict.is_allowed() {
+            debug!(?verdict, "stored content rejected by privacy policy");
+            return Err(Error::PrivacyRejected);
+        }
+        let entry = self.store(data).await?;
+        if copy {
+            self.offer_entry(&entry).await?;
+            self.remember_last_stored(Selection::Clipboard, entry.id);
+        }
+        Ok(entry)
     }
 
     /// Clear the history, keeping pinned entries. Returns the number cleared.
@@ -1218,6 +1305,168 @@ mod tests {
         daemon.apply_config(config).unwrap();
         daemon.handle_event(event).await;
         assert_eq!(daemon.db().count().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn delete_can_be_undone_until_the_grace_period_ends() {
+        let dir = tempfile::tempdir().unwrap();
+        let (daemon, backend) = test_daemon(&dir);
+        offer_text(&backend, "oops, deleted").await;
+        daemon.handle_event(text_event()).await;
+        let id = daemon.query(&QueryFilter::recent(1)).unwrap()[0].id;
+        daemon.delete(id).await.unwrap();
+        assert!(daemon.query(&QueryFilter::recent(10)).unwrap().is_empty());
+        assert!(daemon.load_payloads(id).is_err());
+
+        // Within the grace period the row and its blobs are still there.
+        let restored = daemon.restore(id).await.unwrap();
+        assert_eq!(restored.preview, "oops, deleted");
+        assert_eq!(daemon.load_payloads(id).unwrap()[0].data, b"oops, deleted");
+        let found = daemon
+            .query(&QueryFilter {
+                search: Some("oops".into()),
+                ..QueryFilter::recent(10)
+            })
+            .unwrap();
+        assert_eq!(found.len(), 1, "restored entries are searchable again");
+
+        // Once the grace period has passed (simulated by purging everything
+        // tombstoned "before the end of time"), the undo is refused and
+        // nothing lingers on disk.
+        daemon.delete(id).await.unwrap();
+        daemon.purge_tombstoned_before(i64::MAX).unwrap();
+        assert!(daemon.restore(id).await.is_err());
+        assert_eq!(count_files(&dir.path().join("blobs")), 0);
+    }
+
+    #[tokio::test]
+    async fn external_store_goes_through_the_privacy_gate() {
+        let dir = tempfile::tempdir().unwrap();
+        let (daemon, backend) = test_daemon(&dir);
+        let data = |text: &str, app: Option<&str>| ClipboardData {
+            selection: Selection::Clipboard,
+            payloads: vec![MimePayload::new("text/plain", text.as_bytes())],
+            offered_mimes: Vec::new(),
+            source_app: app.map(str::to_string),
+        };
+        let entry = daemon
+            .store_external(data("from a script", None), true)
+            .await
+            .unwrap();
+        assert_eq!(entry.preview, "from a script");
+        assert_eq!(
+            backend
+                .read(Selection::Clipboard, "text/plain")
+                .await
+                .unwrap(),
+            b"from a script",
+            "copy=true offers the content"
+        );
+        assert!(matches!(
+            daemon
+                .store_external(data("secret", Some("KeePassXC")), false)
+                .await,
+            Err(Error::PrivacyRejected)
+        ));
+        daemon.set_private_mode(true);
+        assert!(daemon
+            .store_external(data("while private", None), false)
+            .await
+            .is_err());
+        daemon.set_private_mode(false);
+        let mut config = Config::default();
+        config.history.max_mime_bytes = 8;
+        daemon.apply_config(config).unwrap();
+        assert!(matches!(
+            daemon
+                .store_external(data("far too long for eight bytes", None), false)
+                .await,
+            Err(Error::TooLarge { .. })
+        ));
+        assert_eq!(daemon.db().count().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn locked_session_pauses_recording_without_touching_private_mode() {
+        let dir = tempfile::tempdir().unwrap();
+        let (daemon, backend) = test_daemon(&dir);
+        daemon.set_locked(true);
+        assert!(daemon.status().unwrap().locked);
+        assert!(!daemon.private_mode());
+        offer_text(&backend, "typed on the lock screen").await;
+        daemon.handle_event(text_event()).await;
+        assert_eq!(daemon.db().count().unwrap(), 0);
+        daemon.set_locked(false);
+        assert!(!daemon.status().unwrap().locked);
+        offer_text(&backend, "back at the desk").await;
+        daemon.handle_event(text_event()).await;
+        assert_eq!(daemon.db().count().unwrap(), 1);
+    }
+
+    /// Collects everything the daemon logs during a test.
+    struct LogSink(Arc<Mutex<Vec<u8>>>);
+
+    impl std::io::Write for LogSink {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn logs_never_carry_clipboard_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let (daemon, backend) = test_daemon(&dir);
+        let sink = Arc::new(Mutex::new(Vec::new()));
+        let writer = sink.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .with_writer(move || LogSink(writer.clone()))
+            .finish();
+        let secret = "MARKER-7f3a9c-must-never-be-logged";
+        {
+            let _guard = tracing::subscriber::set_default(subscriber);
+            offer_text(&backend, secret).await;
+            daemon.handle_event(text_event()).await;
+            // Paths that log at warn/debug: rejection, oversize, recall,
+            // delete, an external store and a reload.
+            daemon
+                .handle_event(ClipboardEvent::changed(
+                    Selection::Clipboard,
+                    vec!["x-kde-passwordManagerHint".into(), "text/plain".into()],
+                    Some("keepassxc".into()),
+                ))
+                .await;
+            let mut config = Config::default();
+            config.history.max_mime_bytes = 4;
+            daemon.apply_config(config).unwrap();
+            offer_text(&backend, &format!("{secret}-oversized")).await;
+            daemon.handle_event(text_event()).await;
+            daemon.apply_config(Config::default()).unwrap();
+            let id = daemon.query(&QueryFilter::recent(1)).unwrap()[0].id;
+            daemon.recall(id, true, None).await.unwrap();
+            let _ = daemon
+                .store_external(
+                    ClipboardData {
+                        selection: Selection::Clipboard,
+                        payloads: vec![MimePayload::new("text/plain", secret.as_bytes())],
+                        offered_mimes: vec!["x-kde-passwordManagerHint".into()],
+                        source_app: None,
+                    },
+                    false,
+                )
+                .await;
+            daemon.delete(id).await.unwrap();
+        }
+        let logs = String::from_utf8_lossy(&sink.lock().unwrap()).into_owned();
+        assert!(!logs.is_empty(), "the daemon must have logged something");
+        assert!(
+            !logs.contains("MARKER-7f3a9c"),
+            "clipboard content leaked into the log:\n{logs}"
+        );
     }
 
     /// Poll `condition` for up to two seconds.

@@ -15,7 +15,8 @@ use clap_complete::Shell;
 use panora_core::config::Config;
 use panora_core::error::Error;
 use panora_core::i18n::{fill, Language, Strings};
-use panora_core::ipc::{client, QueryRequest, Request, ResponseData};
+use panora_core::ipc::{client, QueryRequest, Request, ResponseData, MAX_FRAME_BYTES};
+use panora_core::model::{Entry, MimePayload};
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -54,6 +55,9 @@ enum Command {
     List {
         /// Full-text search phrase; every word is a prefix
         query: Option<String>,
+        /// Line template instead of the default listing (see `pick --help`)
+        #[arg(long, value_name = "TEMPLATE")]
+        format: Option<String>,
         #[command(flatten)]
         filter: FilterArgs,
     },
@@ -61,6 +65,9 @@ enum Command {
     Search {
         /// Search phrase; every word is a prefix ("mer" finds "merhaba")
         text: String,
+        /// Line template instead of the default listing (see `pick --help`)
+        #[arg(long, value_name = "TEMPLATE")]
+        format: Option<String>,
         #[command(flatten)]
         filter: FilterArgs,
     },
@@ -117,6 +124,39 @@ enum Command {
     Toggle,
     /// Re-read config.toml and apply it without restarting the daemon
     Reload,
+    /// Bring back an entry deleted in the last 30 seconds
+    Restore {
+        /// Entry id
+        id: i64,
+    },
+    /// Record text from a file or standard input as a new entry
+    Store {
+        /// File to read; "-" or nothing reads standard input (48 KiB at most)
+        file: Option<PathBuf>,
+        /// MIME type of the content
+        #[arg(long, default_value = "text/plain;charset=utf-8", value_name = "TYPE")]
+        mime: String,
+        /// Application name the entry is attributed to
+        #[arg(long, value_name = "NAME")]
+        app: Option<String>,
+        /// Only record it; do not put it on the clipboard
+        #[arg(long)]
+        no_copy: bool,
+    },
+    /// Print entries one per line for dmenu, rofi, fuzzel or wofi
+    ///
+    /// Example: panora-cli pick | fuzzel --dmenu | cut -f1 | xargs panora-cli copy --paste
+    Pick {
+        /// Line template: {id} {kind} {preview} {app} {age} {size} {pinned}; \t and \n are escapes
+        #[arg(
+            long,
+            default_value = "{id}\\t{kind}\\t{preview}",
+            value_name = "TEMPLATE"
+        )]
+        format: String,
+        #[command(flatten)]
+        filter: FilterArgs,
+    },
     /// Print a shell completion script to standard output
     Completions {
         /// Shell to generate for
@@ -189,7 +229,13 @@ struct Invocation {
     mime: Option<String>,
     /// `preview --out`: write the payload to a file instead of stdout.
     out: Option<PathBuf>,
+    /// `list`/`search`/`pick --format`: one line per entry from a template.
+    format: Option<String>,
 }
+
+/// Largest payload `store` accepts: it travels base64-encoded inside one
+/// request frame of `MAX_FRAME_BYTES`, with room for the JSON around it.
+const STORE_MAX_BYTES: usize = MAX_FRAME_BYTES / 4 * 3 - 1024;
 
 /// A failure with the exit status it maps to.
 struct Failure {
@@ -252,6 +298,24 @@ fn run(cli: Cli, s: &Strings) -> Result<(), Failure> {
             write_man_pages(&dir).map_err(|e| format!("cannot write man pages: {e}"))?;
             return Ok(());
         }
+        Command::Store {
+            file,
+            mime,
+            app,
+            no_copy,
+        } => {
+            let data = read_store_input(file.as_deref())?;
+            Invocation {
+                request: Request::Store {
+                    payloads: vec![MimePayload::new(mime, data)],
+                    source_app: app,
+                    copy: !no_copy,
+                },
+                mime: None,
+                out: None,
+                format: None,
+            }
+        }
         other => to_invocation(other),
     };
     let data = client::call(&invocation.request)?;
@@ -264,16 +328,36 @@ fn to_invocation(command: Command) -> Invocation {
         request,
         mime: None,
         out: None,
+        format: None,
+    };
+    let listing = |request, format| Invocation {
+        request,
+        mime: None,
+        out: None,
+        format,
     };
     match command {
-        Command::List { query, filter } => plain(Request::List(query_request(query, filter))),
-        Command::Search { text, filter } => plain(Request::List(query_request(Some(text), filter))),
+        Command::List {
+            query,
+            format,
+            filter,
+        } => listing(Request::List(query_request(query, filter)), format),
+        Command::Search {
+            text,
+            format,
+            filter,
+        } => listing(Request::List(query_request(Some(text), filter)), format),
+        Command::Pick { format, filter } => {
+            listing(Request::List(query_request(None, filter)), Some(format))
+        }
         Command::Copy { id, paste, mime } => plain(Request::Recall { id, paste, mime }),
         Command::Preview { id, mime, out } => Invocation {
             request: Request::Preview { id },
             mime,
             out,
+            format: None,
         },
+        Command::Restore { id } => plain(Request::Restore { id }),
         Command::Pin { id } => plain(Request::Pin { id, pinned: true }),
         Command::Unpin { id } => plain(Request::Pin { id, pinned: false }),
         Command::Delete { id } => plain(Request::Delete { id }),
@@ -284,10 +368,71 @@ fn to_invocation(command: Command) -> Invocation {
         Command::Status => plain(Request::Status),
         Command::Toggle => plain(Request::Toggle),
         Command::Reload => plain(Request::ReloadConfig),
-        Command::Completions { .. } | Command::Man { .. } => {
+        Command::Completions { .. } | Command::Man { .. } | Command::Store { .. } => {
             unreachable!("handled before reaching the daemon")
         }
     }
+}
+
+/// Read the content for `store` from a file or standard input, bounded by
+/// what one IPC frame can carry.
+fn read_store_input(file: Option<&std::path::Path>) -> Result<Vec<u8>, Failure> {
+    use std::io::Read as _;
+    let mut data = Vec::new();
+    match file {
+        Some(path) if path != std::path::Path::new("-") => {
+            let handle = std::fs::File::open(path)
+                .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+            std::io::Read::take(handle, STORE_MAX_BYTES as u64 + 1)
+                .read_to_end(&mut data)
+                .map_err(|e| e.to_string())?;
+        }
+        _ => {
+            std::io::stdin()
+                .lock()
+                .take(STORE_MAX_BYTES as u64 + 1)
+                .read_to_end(&mut data)
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    if data.len() > STORE_MAX_BYTES {
+        return Err(format!(
+            "store accepts at most {} bytes (one IPC frame); copy larger content from an application",
+            STORE_MAX_BYTES
+        )
+        .into());
+    }
+    if data.is_empty() {
+        return Err("nothing to store".into());
+    }
+    Ok(data)
+}
+
+/// Expand a `pick`/`--format` template for one entry.
+fn format_entry(template: &str, entry: &Entry, now: i64) -> String {
+    let preview = entry.preview.replace('\n', " ⏎ ");
+    let age = {
+        let seconds = (now - entry.last_seen_at).max(0);
+        if seconds < 60 {
+            format!("{seconds}s")
+        } else if seconds < 3600 {
+            format!("{}m", seconds / 60)
+        } else if seconds < 86_400 {
+            format!("{}h", seconds / 3600)
+        } else {
+            format!("{}d", seconds / 86_400)
+        }
+    };
+    template
+        .replace("\\t", "\t")
+        .replace("\\n", "\n")
+        .replace("{id}", &entry.id.to_string())
+        .replace("{kind}", entry.kind.as_str())
+        .replace("{preview}", &preview)
+        .replace("{app}", entry.source_app.as_deref().unwrap_or(""))
+        .replace("{age}", &age)
+        .replace("{size}", &entry.size_bytes.to_string())
+        .replace("{pinned}", if entry.pinned { "*" } else { "" })
 }
 
 fn query_request(search: Option<String>, filter: FilterArgs) -> QueryRequest {
@@ -330,7 +475,15 @@ fn print_response(
     }
     match data {
         ResponseData::Entries(entries) => {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
             for entry in entries {
+                if let Some(template) = &invocation.format {
+                    println!("{}", format_entry(template, &entry, now));
+                    continue;
+                }
                 let pin = if entry.pinned { "*" } else { " " };
                 let preview = entry.preview.replace('\n', " ⏎ ");
                 println!(
@@ -511,6 +664,54 @@ mod tests {
                 pinned: false
             }
         ));
+    }
+
+    #[test]
+    fn pick_and_format_render_templates() {
+        let cli = parse(&["pick"]).unwrap();
+        let inv = to_invocation(cli.command);
+        assert_eq!(inv.format.as_deref(), Some("{id}\\t{kind}\\t{preview}"));
+        let cli = parse(&["list", "--format", "{id}: {preview} ({age}, {pinned})"]).unwrap();
+        let inv = to_invocation(cli.command);
+        let entry = Entry {
+            id: 7,
+            content_hash: String::new(),
+            preview: "two\nlines".into(),
+            kind: panora_core::model::ContentKind::Text,
+            primary_mime: "text/plain".into(),
+            size_bytes: 9,
+            source_app: Some("firefox".into()),
+            created_at: 0,
+            last_seen_at: 1_000,
+            pinned: true,
+            selection: panora_core::model::Selection::Clipboard,
+            device_id: String::new(),
+            lamport: 1,
+            deleted: false,
+        };
+        assert_eq!(
+            format_entry(inv.format.as_deref().unwrap(), &entry, 1_000 + 3 * 3600),
+            "7: two ⏎ lines (3h, *)"
+        );
+        assert_eq!(
+            format_entry("{id}\\t{app}\\t{size}", &entry, 1_000),
+            "7\tfirefox\t9"
+        );
+        assert!(matches!(
+            to_invocation(parse(&["restore", "3"]).unwrap().command).request,
+            Request::Restore { id: 3 }
+        ));
+        let cli = parse(&[
+            "store",
+            "--mime",
+            "text/plain",
+            "--app",
+            "script",
+            "--no-copy",
+            "-",
+        ])
+        .unwrap();
+        assert!(matches!(cli.command, Command::Store { no_copy: true, .. }));
     }
 
     #[test]

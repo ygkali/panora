@@ -210,6 +210,71 @@ async fn requests_round_trip_through_the_blocking_client() {
 }
 
 #[tokio::test]
+async fn store_and_restore_go_through_the_socket() {
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let server = start(None);
+            let stored = raw_call(
+                &server.socket,
+                &encode(&Request::Store {
+                    payloads: vec![MimePayload::new("text/plain", "from stdin")],
+                    source_app: Some("script".into()),
+                    copy: true,
+                })
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+            let entry = match stored.into_result().unwrap() {
+                ResponseData::Entries(mut entries) => entries.remove(0),
+                other => panic!("unexpected {other:?}"),
+            };
+            assert_eq!(entry.preview, "from stdin");
+            assert_eq!(entry.source_app.as_deref(), Some("script"));
+            assert_eq!(
+                server
+                    .backend
+                    .read(Selection::Clipboard, "text/plain")
+                    .await
+                    .unwrap(),
+                b"from stdin"
+            );
+
+            let id = entry.id;
+            raw_call(&server.socket, &encode(&Request::Delete { id }).unwrap())
+                .await
+                .unwrap()
+                .into_result()
+                .unwrap();
+            assert_eq!(server.daemon.db().count().unwrap(), 0);
+            raw_call(&server.socket, &encode(&Request::Restore { id }).unwrap())
+                .await
+                .unwrap()
+                .into_result()
+                .unwrap();
+            assert_eq!(server.daemon.db().count().unwrap(), 1);
+
+            // A password-manager flagged store is refused with a message.
+            let refused = raw_call(
+                &server.socket,
+                &encode(&Request::Store {
+                    payloads: vec![MimePayload::new("text/plain", "hunter2")],
+                    source_app: Some("keepassxc".into()),
+                    copy: false,
+                })
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+            assert!(
+                matches!(refused, Response::Failure { message } if message.contains("privacy"))
+            );
+        })
+        .await;
+}
+
+#[tokio::test]
 async fn oversized_frame_is_rejected_before_parsing() {
     let local = tokio::task::LocalSet::new();
     local

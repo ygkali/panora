@@ -103,7 +103,7 @@ git clone https://github.com/ygkali/panora.git && cd panora
 sudo apt install ./dist/panora_*.deb
 ```
 
-Rust 1.85 veya daha yenisi (rustup) gerekir.
+Rust 1.92 veya daha yenisi (rustup) gerekir.
 
 ## Kullanım
 
@@ -112,18 +112,22 @@ ile açın; ikinci çağrı kapatır.
 
 | Kısayol | İşlev |
 |---|---|
-| `Ctrl+F` | Arama alanına git |
-| `↑ ↓ ← →` | Kayıtlar arasında gez |
+| `Ctrl+F` | Arama alanına git; panelde herhangi bir harf yazmak da arar |
+| `↑ ↓ ← →`, `Home` `End` `PgUp` `PgDn` | Kayıtlar arasında gez |
 | `Enter` | Seçili kaydı panoya koy (ayar açıksa yapıştır) ve kapat |
+| `Shift+Enter` | Yalnızca düz metnini panoya koy (HTML'i bırakır) |
+| `Ctrl+1` … `Ctrl+9` | N. kaydı seç; ilk dokuz satır numarasını gösterir |
 | `Space` | Ayrıntı: tam metin, tam boy görsel, biçimler |
 | `Ctrl+D` | Sabitle / sabitlemeyi kaldır |
-| `Delete` | Kaydı sil |
+| `Delete` | Kaydı sil; bildirim 30 saniye **Geri al** sunar |
 | `Ctrl+Shift+P` | Özel modu aç / kapat |
 | `Ctrl+,` | Ayarlar |
 | `Esc` | Aramayı temizle; arama boşsa kapat |
 
-Başlık çubuğunda özel mod anahtarı, **geçmişi temizle** (sabitliler kalır)
-ve **Ayarlar** menüsü bulunur.
+Başka bir pencereye geçince panel kapanır (Win+V gibi; ayarlardan
+kapatılabilir). Başlık çubuğunda özel mod anahtarı, **geçmişi temizle**
+(sabitliler kalır) ve **Ayarlar** menüsü bulunur. Ekran kilitliyken hiçbir
+şey kaydedilmez.
 
 ### Ayarlar
 
@@ -143,7 +147,8 @@ excluded_apps = ["keepassxc", "bitwarden", "1password", "gnome-secrets"]
 [ui]
 language = "system"      # system | tr | en
 theme = "system"         # system | light | dark
-instant_paste = false
+instant_paste = false    # seçince Ctrl+V (terminallerde Ctrl+Shift+V)
+close_on_focus_loss = true
 ```
 
 ### Komut satırı
@@ -153,14 +158,21 @@ panora-cli list [arama] [--kind image] [--pinned] [--limit 20] [--offset 20]
 panora-cli search <metin>
 panora-cli copy <id> [--paste] [--mime text/plain]
 panora-cli preview <id> [--mime image/png] [--out foto.png]
-panora-cli pin|unpin|delete <id>
+panora-cli pin|unpin|delete|restore <id>
 panora-cli clear | private on|off | status | toggle | reload
+panora-cli store [DOSYA] [--mime TÜR] [--app AD] [--no-copy]   # dosyadan / stdin'den metin kaydet
+panora-cli pick [--format '{id}\t{kind}\t{preview}']           # seçiciler için satır satır liste
 panora-cli --json status
 panora-cli completions bash|zsh|fish
 ```
 
 Çıkış kodları: 0 başarı, 1 daemon hatası, 2 kullanım hatası, 3 daemon
-çalışmıyor, 4 kayıt yok. Ayrıntı için `man panora-cli`.
+çalışmıyor, 4 kayıt yok. Ayrıntı için `man panora-cli`. Bir başlatıcıya
+bağlamak tek satır:
+
+```sh
+panora-cli pick | fuzzel --dmenu | cut -f1 | xargs panora-cli copy --paste
+```
 
 ## Masaüstü uyumluluğu
 

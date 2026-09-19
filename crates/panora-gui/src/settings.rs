@@ -147,6 +147,13 @@ pub fn show(ui: &Rc<Ui>) {
         .build();
     interface.add(&instant_paste);
 
+    let close_on_focus_loss = adw::SwitchRow::builder()
+        .title(s.settings_close_on_focus_loss)
+        .subtitle(s.settings_close_on_focus_loss_sub)
+        .active(config.ui.close_on_focus_loss)
+        .build();
+    interface.add(&close_on_focus_loss);
+
     let hint = gtk::Label::new(Some(s.settings_restart_hint));
     hint.add_css_class("dim-label");
     hint.add_css_class("caption");
@@ -172,6 +179,7 @@ pub fn show(ui: &Rc<Ui>) {
         next.ui.language = LANGUAGES[language.selected() as usize % LANGUAGES.len()].into();
         next.ui.theme = THEMES[theme.selected() as usize % THEMES.len()].into();
         next.ui.instant_paste = instant_paste.is_active();
+        next.ui.close_on_focus_loss = close_on_focus_loss.is_active();
         save(ui, next);
     });
     dialog.present(Some(&ui.window));

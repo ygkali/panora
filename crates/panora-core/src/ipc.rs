@@ -75,6 +75,26 @@ pub enum Request {
     },
     /// Re-read `config.toml` and apply history/privacy limits live.
     ReloadConfig,
+    /// Bring back an entry deleted moments ago, while its tombstone is still
+    /// inside the undo grace period.
+    Restore {
+        /// Entry id.
+        id: i64,
+    },
+    /// Record content handed over by a client (`panora-cli store`) as if it
+    /// had been copied: the same privacy gate applies, and `copy` also puts
+    /// it on the clipboard.
+    Store {
+        /// Payloads in preference order; the first one is the primary format.
+        payloads: Vec<MimePayload>,
+        /// Application name the entry is attributed to (matched against the
+        /// exclusion list like any capture).
+        #[serde(default)]
+        source_app: Option<String>,
+        /// Also offer the content on the clipboard.
+        #[serde(default)]
+        copy: bool,
+    },
 }
 
 /// Serializable query parameters.
@@ -195,6 +215,10 @@ pub struct StatusData {
     /// What the active backend can do.
     #[serde(default)]
     pub capabilities: CapabilityData,
+    /// The session is locked (screensaver active); recording is paused
+    /// until it unlocks, independently of private mode.
+    #[serde(default)]
+    pub locked: bool,
 }
 
 /// Encode a value as one newline-terminated JSON frame.

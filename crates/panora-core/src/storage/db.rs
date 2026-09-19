@@ -22,14 +22,21 @@ use rusqlite::{params, Connection};
 use std::path::Path;
 
 /// Schema version written to `meta`. Bump it together with `MIGRATIONS`.
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 
 /// Ordered schema migrations for databases created by older releases, as
 /// `(version_after, sql)`. `init` always creates the current schema, so
 /// these only run on an existing file whose stored version is lower; each
 /// one runs in its own transaction and stamps its version with it. The last
 /// entry's version must equal `SCHEMA_VERSION`.
-const MIGRATIONS: &[(i64, &str)] = &[];
+const MIGRATIONS: &[(i64, &str)] = &[
+    // 1.3.0: deletions keep their time so an undo window can be measured
+    // from the deletion, not from when the entry was last copied.
+    (
+        2,
+        "ALTER TABLE entries ADD COLUMN deleted_at INTEGER NOT NULL DEFAULT 0",
+    ),
+];
 
 /// Filter for history queries.
 #[derive(Debug, Clone, Default)]
@@ -315,6 +322,8 @@ impl Database {
                 device_id     TEXT NOT NULL DEFAULT '',
                 lamport       INTEGER NOT NULL DEFAULT 0,
                 deleted       INTEGER NOT NULL DEFAULT 0,
+                -- when the tombstone was set; drives the undo grace period
+                deleted_at    INTEGER NOT NULL DEFAULT 0,
                 UNIQUE(content_hash, selection)
             );
 
@@ -615,13 +624,14 @@ impl Database {
         Ok(())
     }
 
-    /// Mark an entry deleted (tombstone). Blob cleanup is the caller's
-    /// job (it owns the blob store). Returns blob refs to delete.
-    pub fn tombstone(&self, id: i64) -> Result<Vec<String>> {
+    /// Mark an entry deleted (tombstone) at time `now`. Blob cleanup is the
+    /// caller's job (it owns the blob store). Returns blob refs to delete.
+    pub fn tombstone(&self, id: i64, now: i64) -> Result<Vec<String>> {
         let blobs: Vec<String> = self.blobs_of(id)?.into_iter().map(|(_, r)| r).collect();
-        let changed = self
-            .conn
-            .execute("UPDATE entries SET deleted = 1 WHERE id = ?1", params![id])?;
+        let changed = self.conn.execute(
+            "UPDATE entries SET deleted = 1, deleted_at = ?2 WHERE id = ?1",
+            params![id, now],
+        )?;
         if changed == 0 {
             return Err(Error::NotFound(id));
         }
@@ -630,13 +640,35 @@ impl Database {
         Ok(blobs)
     }
 
-    /// Permanently purge tombstoned entries older than `before` (unix ts).
+    /// Undo a deletion: the tombstone is lifted and the entry is searchable
+    /// again. Its blobs are still on disk as long as the tombstone has not
+    /// been purged, which is what the grace period in the daemon guarantees.
+    pub fn restore(&self, id: i64) -> Result<()> {
+        let entry = self.get(id)?;
+        if !entry.deleted {
+            return Ok(());
+        }
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
+            "UPDATE entries SET deleted = 0, deleted_at = 0 WHERE id = ?1",
+            params![id],
+        )?;
+        tx.execute("DELETE FROM entries_fts WHERE rowid = ?1", params![id])?;
+        tx.execute(
+            "INSERT INTO entries_fts(rowid, preview) VALUES (?1, ?2)",
+            params![id, entry.preview],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Permanently purge entries tombstoned before `before` (unix ts).
     /// Returns the blob refs that no longer have any reference and can be
     /// removed from the blob store.
     pub fn purge_tombstones(&self, before: i64) -> Result<Vec<String>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT id FROM entries WHERE deleted = 1 AND last_seen_at < ?1")?;
+            .prepare("SELECT id FROM entries WHERE deleted = 1 AND deleted_at < ?1")?;
         let ids: Vec<i64> = stmt
             .query_map(params![before], |row| row.get(0))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -700,7 +732,8 @@ impl Database {
     }
 
     /// Evict oldest unpinned entries beyond `max_entries`. Returns the
-    /// ids and blob refs of evicted entries for blob cleanup.
+    /// evicted ids. Retention is not a user action, so these tombstones get
+    /// no undo window (`deleted_at = 0`) and go at the next purge.
     pub fn enforce_limit(&self, max_entries: usize) -> Result<Vec<i64>> {
         let mut stmt = self.conn.prepare(
             "SELECT id FROM entries
@@ -712,12 +745,13 @@ impl Database {
             .query_map(params![max_entries as i64], |row| row.get(0))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         for &id in &ids {
-            self.tombstone(id)?;
+            self.tombstone(id, 0)?;
         }
         Ok(ids)
     }
 
-    /// Evict unpinned entries older than `before` (unix ts).
+    /// Evict unpinned entries last seen before `before` (unix ts); no undo
+    /// window, like `enforce_limit`.
     pub fn enforce_age(&self, before: i64) -> Result<Vec<i64>> {
         let mut stmt = self.conn.prepare(
             "SELECT id FROM entries WHERE deleted = 0 AND pinned = 0 AND last_seen_at < ?1",
@@ -726,7 +760,7 @@ impl Database {
             .query_map(params![before], |row| row.get(0))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         for &id in &ids {
-            self.tombstone(id)?;
+            self.tombstone(id, 0)?;
         }
         Ok(ids)
     }
@@ -743,8 +777,10 @@ impl Database {
         let ids: Vec<i64> = stmt
             .query_map([], |row| row.get(0))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
+        // Clearing is confirmed in a dialog first, so it is final: no undo
+        // window either.
         for &id in &ids {
-            self.tombstone(id)?;
+            self.tombstone(id, 0)?;
         }
         Ok(ids)
     }
@@ -886,7 +922,7 @@ mod tests {
         let db = db();
         let id = insert(&db, "to delete", ContentKind::Text, 1);
         db.attach_blob(id, "text/plain", "blobref1").unwrap();
-        let blobs = db.tombstone(id).unwrap();
+        let blobs = db.tombstone(id, 150).unwrap();
         assert_eq!(blobs, vec!["blobref1"]);
         assert_eq!(db.count().unwrap(), 0);
         assert!(db.query(&QueryFilter::recent(10)).unwrap().is_empty());
@@ -905,7 +941,7 @@ mod tests {
         let db = db();
         let id = insert(&db, "purge me", ContentKind::Text, 100);
         db.attach_blob(id, "text/plain", "ref-x").unwrap();
-        db.tombstone(id).unwrap();
+        db.tombstone(id, 150).unwrap();
         let refs = db.purge_tombstones(200).unwrap();
         assert_eq!(refs, vec!["ref-x"]);
         assert!(db.get(id).is_err());
@@ -1033,7 +1069,7 @@ mod tests {
         let db = db();
         let id = insert(&db, "come back", ContentKind::Text, 1);
         db.set_pinned(id, true).unwrap();
-        db.tombstone(id).unwrap();
+        db.tombstone(id, 150).unwrap();
         let again = insert(&db, "come back", ContentKind::Text, 5);
         assert_eq!(again, id);
         let e = db.get(id).unwrap();
@@ -1058,7 +1094,7 @@ mod tests {
         db.attach_blob(a, "text/html", "only-a").unwrap();
         db.attach_blob(b, "text/plain", "shared").unwrap();
         assert_eq!(db.blob_ref_count("shared").unwrap(), 2);
-        db.tombstone(a).unwrap();
+        db.tombstone(a, 150).unwrap();
         let orphaned = db.purge(&[a]).unwrap();
         assert_eq!(orphaned, vec!["only-a"]);
         assert_eq!(db.blob_ref_count("shared").unwrap(), 1);
@@ -1257,5 +1293,81 @@ mod lifecycle_tests {
         let path = dir.path().join("history.db");
         std::fs::write(&path, b"this is not a database at all, not even close").unwrap();
         assert!(open_with(&path, &MasterKey::generate()).is_err());
+    }
+
+    #[test]
+    fn version_1_file_gains_deleted_at_through_the_real_migration() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history.db");
+        let key = MasterKey::generate();
+        {
+            // Turn a fresh file into what 1.2.0 wrote: no deleted_at column,
+            // schema version 1, one entry.
+            let db = open_with(&path, &key).unwrap();
+            insert_one(&db, "from the old release");
+            db.conn
+                .execute("ALTER TABLE entries DROP COLUMN deleted_at", [])
+                .unwrap();
+            db.set_schema_version(1).unwrap();
+        }
+        let db = open_with(&path, &key).unwrap();
+        assert_eq!(db.schema_version().unwrap(), SCHEMA_VERSION);
+        let deleted_at: i64 = db
+            .conn
+            .query_row("SELECT deleted_at FROM entries LIMIT 1", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(deleted_at, 0);
+        assert_eq!(db.count().unwrap(), 1);
+        assert!(path.with_extension("db.bak-v1").exists());
+        // The migrated file works end to end: tombstone, restore, purge.
+        let id = db.query(&QueryFilter::recent(1)).unwrap()[0].id;
+        db.tombstone(id, 500).unwrap();
+        assert_eq!(db.count().unwrap(), 0);
+        db.restore(id).unwrap();
+        assert_eq!(db.count().unwrap(), 1);
+    }
+
+    #[test]
+    fn restore_lifts_a_tombstone_and_reindexes_the_preview() {
+        let db = Database::open_in_memory(Cipher::new(&MasterKey::generate())).unwrap();
+        insert_one(&db, "undo candidate zqxtoken");
+        let id = db.query(&QueryFilter::recent(1)).unwrap()[0].id;
+        db.tombstone(id, 100).unwrap();
+        assert!(db
+            .query(&QueryFilter {
+                search: Some("zqx".into()),
+                ..QueryFilter::recent(10)
+            })
+            .unwrap()
+            .is_empty());
+        db.restore(id).unwrap();
+        let found = db
+            .query(&QueryFilter {
+                search: Some("zqx".into()),
+                ..QueryFilter::recent(10)
+            })
+            .unwrap();
+        assert_eq!(found.len(), 1);
+        assert!(!found[0].deleted);
+        // Restoring a live entry is a no-op, a purged one is gone for good.
+        db.restore(id).unwrap();
+        db.tombstone(id, 100).unwrap();
+        db.purge_tombstones(200).unwrap();
+        assert!(matches!(db.restore(id), Err(Error::NotFound(_))));
+    }
+
+    #[test]
+    fn purge_uses_the_deletion_time_not_the_copy_time() {
+        let db = Database::open_in_memory(Cipher::new(&MasterKey::generate())).unwrap();
+        insert_one(&db, "copied long ago");
+        let id = db.query(&QueryFilter::recent(1)).unwrap()[0].id;
+        // Copied at t=1, deleted at t=1000: a purge of "deleted before 900"
+        // must keep it even though the copy is older than that.
+        db.tombstone(id, 1000).unwrap();
+        assert!(db.purge_tombstones(900).unwrap().is_empty());
+        assert!(db.get(id).unwrap().deleted);
+        assert!(!db.purge_tombstones(1001).unwrap().is_empty() || db.get(id).is_err());
     }
 }
