@@ -92,7 +92,7 @@ jobs:
             echo "$f: $size bytes"
             test "$size" -gt 10000
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: popup-screenshots
           path: shots/*.png
@@ -210,7 +210,7 @@ jobs:
           panora-gui --version
           panora-doctor --json | head -c 400; echo
           man -w panora-cli panod panora-gui panora-doctor
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: panora-deb-${{ matrix.arch }}
           path: dist/panora_*.deb
