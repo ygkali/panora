@@ -11,6 +11,8 @@ extend-exclude = [
     "po/tr.po",
     "THIRD_PARTY_LICENSES.md",
     "docs/ROADMAP.md",
+    # Contains the Turkish forum drafts.
+    "docs/launch.md",
     "docs/security-*.md",
     "docs/adr/*",
     "docs/screenshots/*",

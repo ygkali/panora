@@ -4,6 +4,7 @@
 |---|---|
 | [ROADMAP.md](ROADMAP.md) | Yayın hazırlığı ve yayın sonrası geliştirme planı; her iş ID'li (R-/B-/CAP-/UI-/…) |
 | [protocol-matrix.md](protocol-matrix.md) | Oturum tipi × özellik desteği matrisi (X11, Wayland, GNOME köprüsü) ve gerçek oturum test notları |
+| [launch.md](launch.md) | Lansman duyuru taslakları (Show HN, r/linux, r/gnome, GNOME Discourse, Fosstodon, TWIG, Türkçe forumlar) |
 | [book/](book/) | mdBook belge sitesinin kaynağı; yayını https://ygkali.github.io/panora/docs/ (İngilizce) |
 | [DESKTOPS.md](DESKTOPS.md) | Masaüstü başına özellik matrisi ve kısayol bağlama (İngilizce) |
 | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Sık karşılaşılan sorunlar ve daemon günlüğü (İngilizce) |

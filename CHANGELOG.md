@@ -104,6 +104,10 @@ real-machine verification in `docs/RELEASING.md` is done.
 - On wlroots compositors and KWin the source application of a copy is
   now known (`wlr-foreign-toplevel-management`): the excluded-application
   and window-title lists work there, and `app:` searches match.
+- `docs/launch.md` holds the announcement drafts for the first release --
+  Show HN, r/linux, r/gnome, GNOME Discourse, Fosstodon, This Week in
+  GNOME and the Turkish forums -- each one leading with what Panora does
+  not do as well as what it does, plus the order to post them in.
 - A documentation site built with mdBook (`docs/book/`, published to
   https://ygkali.github.io/panora/docs/): the user guide, the popup
   shortcuts, the search syntax, a complete `config.toml` reference, the CLI
