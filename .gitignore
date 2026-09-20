@@ -18,3 +18,4 @@ Cargo.lock.bak
 /gnome-extension/package-lock.json
 __pycache__/
 /docs/book/book/
+/a11y-tree.txt

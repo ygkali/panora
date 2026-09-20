@@ -601,12 +601,13 @@ Tüm Rust kaynakları, eklenti, script'ler, paketleme dosyaları, ADR'ler, güve
 
 ## 11. Durum — 2026-09-20
 
-Bu bölüm planın hangi kısmının uygulandığını kaydeder. `fd1d966` (yol haritası) sonrası commit'ler `main` dalında, CI yeşil; dal koruması açık.
+Bu bölüm planın hangi kısmının uygulandığını kaydeder. `fd1d966` (yol haritası) sonrası commit'ler `main` dalında, CI yeşil; dal koruması açık. P0, 1.4.0 listesinin tamamı ve 1.5.0 listesi bitti; kalanların gerekçesi 11.2'de.
 
 ### 11.1 Tamamlanan
 
 - **Yayın engelleri (P0):** R-01 kimlikler (`io.github.ygkali.Panora`, UUID `panora@ygkali.github.io`, bakımcı `ygkali`), R-02 README EN/TR + LICENSE + depo kökü (D-2), R-03 sürüm 1.3.0 + CHANGELOG, R-05 temizlik, R-06 simge/AppStream/ekran görüntüleri, R-07 topluluk dosyaları, R-08 hata düzeltmeleri (B-01, B-02, B-13, B-05 belge), R-09/STO-01 migrasyon çerçevesi (şema v4, `VACUUM INTO` yedek, anahtar parmak izi STO-09), R-10/I18N-03 İngilizce varsayılan betikler, R-11 lintian temiz `.deb`, **R-12 dal koruması** (12 zorunlu CI kontrolü, yöneticiler muaf, force-push ve silme kapalı), CI genişletmesi, PKG-01 release iş akışı (deb ×2, kit, SHA256SUMS, minisign, SBOM), PKG-06, CLI-01, QA-01, QA-02 (headless sway e2e), QA-05, SEC-07, SEC-08, SEC-11.
 - **1.4.0 listesinin tamamı:** UI-01, UI-03, UI-04, UI-11+STO-03 (küçük resimler), UI-12+STO-02 (arama dilbilgisi `kind:` `app:` `pinned:` `before:`/`after:` `re:`, tırnaklı ifade, kalın eşleşme vurgusu; tam metin dizini, aksan/İ katlama), UI-13 (IPC ve görsel çözme işçi iş parçacığında; değişmeyen sayfa yeniden kurulmaz), UI-15, UI-17 (geri al), UI-19 (karşılama), UI-20 (otomatik başlatma, depolama kullanımı, tür bazlı yakalama, hassas TTL, odak davranışı), UI-21 (`Status.health`, `extension_missing` + Etkinleştir), UI-09 (bağlantı: tarayıcıda aç / QR kod; renk: hex/rgb/hsl kopyala; dosya listesi: klasörü aç; görsel: farklı kaydet + piksel boyutu), CAP-05 (uzunluk/boşluk/regex/tür filtreleri **ve** `excluded_window_titles`: X11 `_NET_WM_NAME`, eklenti `PushManyFrom`), CAP-06 (hassas içerik: anahtar/JWT/kart/IBAN/yüksek entropi; mask|drop|store, TTL), CAP-11, INT-09, CLI-04, CLI-07, STO-04 (`max_total_bytes`, `max_images`), STO-05 (bakım + öksüz blob), STO-09, SEC-04, SEC-05, SEC-09, SEC-11, QA-03 (ekran görüntüsü + AT-SPI ağaç dökümü `scripts/a11y-check.sh`), QA-06 (`typos`, `cargo-machete`, `cargo doc -D warnings`, llvm-cov kapsama işi), QA-10 (CodeQL JS+actions, OpenSSF Scorecard, Dependabot grupları), DOC-08 (`panora-doctor --report`).
+- **1.5.0 listesi (bu tur):** CAP-03, UI-02, INT-02/INT-03/INT-04 (`docs/DESKTOPS.md`: masaüstü başına özellik matrisi, wlroots/KWin kaynak uygulama, layer-shell yerleşimi), PKG-02 (imzalı APT deposu: `packaging/apt-repo.sh`, `.github/workflows/apt-repo.yml`), QA-04 (eklenti ESLint: `gnome-extension/eslint.config.mjs`, CI adımı), PKG-10 (`scripts/upgrade-test.sh`: eski sürümün yazdığı geçmişi yeni daemon açıyor, kayıtlar ve dizin korunuyor, şema hedefe göç ediyor, göç öncesi yedek duruyor; şema 2→4 ile yerel olarak doğrulandı), PKG-07 (`docs/DISTRIBUTION.md`: resmi kanallar, test edilen dağıtım listesi, sürümleme ve destek penceresi, paketleyici notları), PKG-05 (`packaging/aur/PKGBUILD` + `.SRCINFO`, `packaging/nix/flake.nix`, `packaging/rpm/panora.spec`; üçü de **test edilmemiş başlangıç noktası** olarak işaretli), I18N-01 ara adım (katalog `po/panora.pot` + `po/tr.po`; `build.rs` aynı `Strings` yapısını üretiyor, eksik/boş/bayat girdi derlemeyi durduruyor), DOC-02 (mdBook sitesi `docs/book/`, gh-pages `/docs` altına; `config.toml` ve CLI referansları, arama dilbilgisi, gizlilik modeli), DOC-07 (`docs/launch.md` duyuru taslakları), INT-01 `prefs.js` (kısayol yakalama diyaloğu + `move-to-pointer`; B-11 kapandı).
 - **Bağımlılıklar:** gtk4-rs 0.11 / libadwaita-rs 0.9, rusqlite 0.40, toml 1, qrcode 0.14.
 
 ### 11.2 Bilinçli olarak dışarıda bırakılan
@@ -614,9 +615,14 @@ Bu bölüm planın hangi kısmının uygulandığını kaydeder. `fd1d966` (yol 
 | Madde | Neden |
 |---|---|
 | R-04 gerçek makine turu, `v1.3.0` etiketi | Zorin OS 18 makinesinde kullanıcı yapacak; etiket CI'da release iş akışını tetikler (`docs/RELEASING.md`). |
-| INT-01 (`prefs.js`, gösterge), CAP-04 (çok biçimli GNOME geri çağırma), INT-07/INT-08, STO-07, PKG-07/PKG-10, QA-04 | Çalışan bir GNOME Shell oturumu gerekir; WSL/CI'da doğrulanamaz. Eklentideki `PushManyFrom` çağrısı da bu turda doğrulanmalı (eski daemon'a `PushMany` ile geri düşer). |
-| UI-20 kısayol düzenleyici, UI-13 `ListView` geçişi | Küçük kalan parçalar; gerekli görülmedi. |
-| I18N-01 gettext, PKG-02 APT deposu, SEC-06 fuzzing, SEC-12 eslint, STO-06 benchmark, CLI-02/CLI-03, UI-14 ve diğer P2/P3 maddeler | 1.5+ hattı; başlanmadı. |
+| PKG-02'nin canlıya alınması | Depo kodu ve iş akışı hazır; GitHub'da `APT_GPG_PRIVATE_KEY` / `APT_GPG_PASSPHRASE` secret'ları ve gh-pages için Pages ayarı kullanıcıya ait. |
+| UI-18 durum göstergesi (StatusNotifierItem) | `ksni` **Unlicense** ile geliyor; `deny.toml` izin listesinde yok ve lisans politikasını tek bir P2 özelliği için genişletmek doğru takas değil. Ayrıca gösterge, sıkılaştırılmış daemon'a yeni bir D-Bus servis yüzeyi ekler ve ne CI'da ne WSL'de bir `StatusNotifierWatcher` var — doğrulanmadan sevk edilirdi. GNOME'da zaten ayrı bir eklenti gerekir. Elle yazılmış `com.canonical.dbusmenu` uygulaması (zbus zaten bağımlı) gerçek bir masaüstü turundan sonra yeniden değerlendirilecek. |
+| INT-01 EGO gönderimi | `prefs.js` bu turda geldi, ama extensions.gnome.org gönderimi `version-name`, `gettext-domain`, inceleme notları ve her GNOME sürümünde duman testi ister; çalışan Shell oturumu olmadan yapılmaz. |
+| CAP-04 (çok biçimli GNOME geri çağırma), INT-07, INT-08, STO-07 | Çalışan bir GNOME Shell oturumu gerekir; WSL/CI'da doğrulanamaz. |
+| PKG-05 paketlerinin denenmesi | `makepkg`, `nix build` ve `rpmbuild` WSL'de yok; dosyalar bilerek "test edilmemiş" etiketiyle duruyor (`packaging/README.md`). |
+| PKG-08 kit üretiminin CI'a taşınması | Kit `make-kit.sh` ile release iş akışında zaten üretiliyor; ayrı bir CI işi ilk release'ten önce kanıtlanacak bir şey eklemiyor. |
+| I18N-01'in tamamı (`gettext-rs`, `.mo` kurulumu, Weblate) | Ara adım yeterli: çevirmen araçları `.po` okuyor, çalışma zamanı bağımlılığı yok. Yeni dil geldiğinde `.mo` yolu değerlendirilecek. |
+| SEC-06 fuzzing, STO-06 benchmark, CLI-02/CLI-03, UI-14, PKG-04 Flatpak | 1.6+ hattı; başlanmadı. |
 
 ### 11.3 Öğrenilenler
 
@@ -625,4 +631,10 @@ Bu bölüm planın hangi kısmının uygulandığını kaydeder. `fd1d966` (yol 
 - `adw::Carousel` içindeki sayfalar diyalog genişliğini almadı; karşılama ekranı `gtk::Stack` kullanır.
 - `ossf/scorecard-action` için `v2` takma adı yok ve `v2.4.0` imajı artık çekilemiyor; tam sürüm etiketi (`v2.4.4`) gerekir.
 - `typos` iki dilli dizgelerde Türkçe sözcükleri yakalar; `_typos.toml` bunları listeler ve Türkçe belgeleri atlar.
+- Derlemeyi üreten kaynak tek olmalı: katalog `.po`'ya taşınırken üretilen dosya, eski elle yazılmış `Strings` ile alan alan karşılaştırıldı; aksi hâlde "aynı çıktı" iddiası doğrulanamazdı.
+- `panod` ekransız başlamaz (`no display`), bu yüzden yükseltme testi Xvfb altında koşuyor; `cargo test --workspace` ise WSLg'nin `DISPLAY`'ini görünce X11 testlerini atlamak yerine yanlış sonuç veriyor — yerel koşularda `DISPLAY` temizlenmeli.
+- `panora-cli preview <id>` biçim başlığı da yazar; boru hattında ham içerik için `--mime` şart.
+- gh-pages'i iki iş akışı paylaşıyor (`apt/` ve `docs/`); her ikisi de dalı çekip yalnız kendi dizinini değiştiriyor ve aynı `concurrency` grubunda çalışıyor.
+- mdBook `{{#include}}` ile depo kökündeki belgeleri çekebiliyor; belge sitesi ikinci bir kopya üretmiyor.
+- `scripts/a11y-check.sh` elindeki **release** ikilisini kullanır; bayat bir ikili "satır etiketi yok" diye başarısız olur. Koşudan önce `cargo build -p panora-gui --features fixture --release` şart (CI zaten yapıyor).
 - Yerel derleme/test için WSL2 Ubuntu 24.04 yeterli: `cargo test`, Xvfb altında X11/GUI/AT-SPI testleri, headless sway ile Wayland e2e, `gnome-keyring-daemon` ile keyring testi.
