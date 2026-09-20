@@ -86,6 +86,20 @@ Rotate the key before it expires; users fetch the new public key from the
 same URL, and the old one keeps verifying the suites signed with it until
 then.
 
+## Other packaging
+
+`packaging/aur/PKGBUILD` (+ `.SRCINFO`), `packaging/nix/flake.nix` and
+`packaging/rpm/panora.spec` are **untested, contributed as a starting
+point**. No maintainer has run `makepkg`, `nix build` or `rpmbuild` on them
+and CI does not touch them; they exist so a packager can read the install
+layout and the dependency set instead of deriving it from
+`packaging/build-deb.sh`.
+
+They are not part of the release: nothing bumps their `pkgver` / `Version:`
+automatically, and a release is not held up by them. When one of them is
+known to work, move it out of this section and into CI. `packaging/README.md`
+records the status per file and `docs/DISTRIBUTION.md` the policy.
+
 ## After the release
 
 - Announce (This Week in GNOME, r/gnome, the project Discussions).

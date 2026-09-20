@@ -263,6 +263,9 @@ Sık karşılaşılan durumlar ve daemon günlüğü için
 ## Proje
 
 - [docs/ROADMAP.md](docs/ROADMAP.md): planlanan işler, her biri ID'li.
+- [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md): resmi dağıtım kanalları,
+  test edilen dağıtımlar, destek penceresi ve paketleyiciler için notlar
+  (İngilizce).
 - [CHANGELOG.md](CHANGELOG.md), [CONTRIBUTING.md](CONTRIBUTING.md),
   [SECURITY.md](SECURITY.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 

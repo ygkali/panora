@@ -265,6 +265,9 @@ each, is in [docs/DESKTOPS.md](docs/DESKTOPS.md).
 ## Project
 
 - [docs/ROADMAP.md](docs/ROADMAP.md): what is planned, with an id per task.
+- [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md): the official channels,
+  which distributions are tested, how long a release is supported, and
+  notes for packagers.
 - [CHANGELOG.md](CHANGELOG.md), [CONTRIBUTING.md](CONTRIBUTING.md),
   [SECURITY.md](SECURITY.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 - Architecture: `crates/panora-core` (model, privacy, storage, IPC, i18n),

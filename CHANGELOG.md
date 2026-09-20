@@ -104,6 +104,14 @@ real-machine verification in `docs/RELEASING.md` is done.
 - On wlroots compositors and KWin the source application of a copy is
   now known (`wlr-foreign-toplevel-management`): the excluded-application
   and window-title lists work there, and `app:` searches match.
+- `docs/DISTRIBUTION.md`: which channels are official, which distributions
+  are tested and which are best effort, what the support window is, and what
+  a packager has to keep (the user unit, the compiled gschema, the
+  hardening). Linked from both READMEs.
+- Packaging starting points for other distributions, marked untested and
+  outside CI: `packaging/aur/PKGBUILD` (+ `.SRCINFO`),
+  `packaging/nix/flake.nix`, `packaging/rpm/panora.spec`, with
+  `packaging/README.md` saying what is supported and what is not.
 - `scripts/upgrade-test.sh` proves the upgrade path: the previous release
   writes a history in a scratch directory, this build reopens it and the
   entries, the search index, the migrated schema version and the

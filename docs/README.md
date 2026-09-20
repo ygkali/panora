@@ -4,6 +4,10 @@
 |---|---|
 | [ROADMAP.md](ROADMAP.md) | Yayın hazırlığı ve yayın sonrası geliştirme planı; her iş ID'li (R-/B-/CAP-/UI-/…) |
 | [protocol-matrix.md](protocol-matrix.md) | Oturum tipi × özellik desteği matrisi (X11, Wayland, GNOME köprüsü) ve gerçek oturum test notları |
+| [DESKTOPS.md](DESKTOPS.md) | Masaüstü başına özellik matrisi ve kısayol bağlama (İngilizce) |
+| [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Sık karşılaşılan sorunlar ve daemon günlüğü (İngilizce) |
+| [RELEASING.md](RELEASING.md) | Sürüm çıkarma süreci: etiketleme, imzalama, APT deposu (İngilizce) |
+| [DISTRIBUTION.md](DISTRIBUTION.md) | Dağıtım politikası: resmi kanallar, test edilen dağıtımlar, sürümleme ve destek penceresi, paketleyicilere notlar (İngilizce) |
 | [security-checklist.md](security-checklist.md) | Güvenlik kontrolleri ve kanıtları |
 | [security-gap-analysis.md](security-gap-analysis.md) | 1.0 dönemi boşluk analizi (tarihsel; "Panora mevcut durumu" sütunu 1.0'ı anlatır, "Karar" sütunu uygulanmıştır) |
 | [security-research-notes.md](security-research-notes.md) | Açık kaynak pano yöneticileri ve standartlar üzerine araştırma notları (tarihsel) |

@@ -1,0 +1,98 @@
+# Maintainer: nobody yet -- see packaging/README.md
+#
+# Untested starting point, contributed so an Arch packager does not begin
+# from an empty file. The project builds and tests only the Debian package;
+# nothing here runs in CI.
+pkgname=panora
+pkgver=1.3.0
+pkgrel=1
+pkgdesc="Encrypted clipboard history for the GNOME desktop"
+arch=('x86_64' 'aarch64')
+url="https://github.com/ygkali/panora"
+license=('GPL-3.0-only')
+depends=('gtk4>=4.12' 'libadwaita>=1.5' 'glib2' 'sqlite' 'adwaita-icon-theme')
+optdepends=(
+  'gnome-keyring: Secret Service provider for the master key'
+  'gnome-shell: the Super+V extension and clipboard bridge'
+  'wl-clipboard: clipboard helpers used by the test scripts'
+  'wtype: instant paste on Wayland outside GNOME'
+)
+makedepends=('rust>=1.92' 'cargo' 'pkgconf')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+options=('!lto')
+
+_appid=io.github.ygkali.Panora
+_extuuid=panora@ygkali.github.io
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/^host: //p')"
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release --workspace
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  # The X11 and Wayland backend tests need a display and self-skip without one.
+  cargo test --frozen --workspace
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+
+  install -Dm0755 target/release/panod "$pkgdir/usr/bin/panod"
+  install -Dm0755 target/release/panora-gui "$pkgdir/usr/bin/panora-gui"
+  install -Dm0755 target/release/panora-cli "$pkgdir/usr/bin/panora-cli"
+  install -Dm0755 scripts/panora-doctor "$pkgdir/usr/bin/panora-doctor"
+  ln -s panora-gui "$pkgdir/usr/bin/panora"
+
+  # A user unit. Never install this into /usr/lib/systemd/system.
+  install -Dm0644 packaging/panod.service "$pkgdir/usr/lib/systemd/user/panod.service"
+  install -Dm0644 "packaging/$_appid.service" \
+    "$pkgdir/usr/share/dbus-1/services/$_appid.service"
+
+  install -Dm0644 "packaging/$_appid.desktop" \
+    "$pkgdir/usr/share/applications/$_appid.desktop"
+  install -Dm0644 "packaging/$_appid.metainfo.xml" \
+    "$pkgdir/usr/share/metainfo/$_appid.metainfo.xml"
+  install -Dm0644 "packaging/icons/$_appid.svg" \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/$_appid.svg"
+  install -Dm0644 "packaging/icons/$_appid-symbolic.svg" \
+    "$pkgdir/usr/share/icons/hicolor/symbolic/apps/$_appid-symbolic.svg"
+
+  install -d "$pkgdir/usr/share/man/man1"
+  target/release/panora-cli man "$pkgdir/usr/share/man/man1"
+  install -Dm0644 packaging/man/panod.1 packaging/man/panora-gui.1 \
+    packaging/man/panora-doctor.1 -t "$pkgdir/usr/share/man/man1"
+  ln -s panora-gui.1 "$pkgdir/usr/share/man/man1/panora.1"
+
+  target/release/panora-cli completions bash \
+    > "$srcdir/panora-cli.bash"
+  target/release/panora-cli completions zsh > "$srcdir/_panora-cli"
+  target/release/panora-cli completions fish > "$srcdir/panora-cli.fish"
+  install -Dm0644 "$srcdir/panora-cli.bash" \
+    "$pkgdir/usr/share/bash-completion/completions/panora-cli"
+  install -Dm0644 "$srcdir/_panora-cli" \
+    "$pkgdir/usr/share/zsh/site-functions/_panora-cli"
+  install -Dm0644 "$srcdir/panora-cli.fish" \
+    "$pkgdir/usr/share/fish/vendor_completions.d/panora-cli.fish"
+
+  # The GNOME Shell extension. Arch compiles gschemas in a hook.
+  local extdir="$pkgdir/usr/share/gnome-shell/extensions/$_extuuid"
+  install -Dm0644 gnome-extension/metadata.json "$extdir/metadata.json"
+  install -Dm0644 gnome-extension/extension.js "$extdir/extension.js"
+  install -Dm0644 gnome-extension/schemas/*.gschema.xml -t "$extdir/schemas"
+
+  install -Dm0644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm0644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm0644 THIRD_PARTY_LICENSES.md \
+    "$pkgdir/usr/share/doc/$pkgname/THIRD_PARTY_LICENSES.md"
+}
