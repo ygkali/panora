@@ -10,7 +10,7 @@ use gtk4 as gtk;
 use libadwaita as adw;
 use libadwaita::prelude::*;
 use panora_core::config::{
-    compile_ignore_pattern, data_dir, Config, MAX_IGNORE_PATTERNS, SENSITIVE_POLICIES,
+    compile_ignore_pattern, data_dir, Config, MAX_IGNORE_PATTERNS, POSITIONS, SENSITIVE_POLICIES,
 };
 use panora_core::i18n::fill;
 use panora_core::ipc::{Request, ResponseData};
@@ -323,6 +323,17 @@ pub fn show(ui: &Rc<Ui>) {
         .build();
     interface.add(&close_on_focus_loss);
 
+    let position = adw::ComboRow::builder()
+        .title(s.settings_position)
+        .subtitle(s.settings_position_sub)
+        .build();
+    position.set_model(Some(&gtk::StringList::new(&[
+        s.settings_position_pointer,
+        s.settings_position_center,
+    ])));
+    position.set_selected(index_of(POSITIONS, &config.ui.position));
+    interface.add(&position);
+
     let hint = gtk::Label::new(Some(s.settings_restart_hint));
     hint.add_css_class("dim-label");
     hint.add_css_class("caption");
@@ -401,6 +412,7 @@ pub fn show(ui: &Rc<Ui>) {
         next.ui.theme = THEMES[theme.selected() as usize % THEMES.len()].into();
         next.ui.instant_paste = instant_paste.is_active();
         next.ui.close_on_focus_loss = close_on_focus_loss.is_active();
+        next.ui.position = POSITIONS[position.selected() as usize % POSITIONS.len()].into();
         save(ui, next);
     });
     dialog.present(Some(&ui.window));

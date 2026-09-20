@@ -24,6 +24,7 @@ if [[ -n "${PANORA_BIN_DIR:-}" ]]; then
 else
   command -v cargo >/dev/null 2>&1 || { echo "wayland-e2e: cargo not found" >&2; exit 2; }
   cargo build -p panod -p panora-cli
+  cargo build -p panora-gui --features fixture
   BIN="${CARGO_TARGET_DIR:-target}/debug"
   BIN="$(cd -- "$BIN" && pwd)"
 fi
@@ -157,7 +158,30 @@ else
   pass "unrecorded content is not re-offered"
 fi
 
-# 6. store / restore through the CLI
+# 6. source application from wlr-foreign-toplevel: a GTK window (the
+#    fixture popup) is the activated toplevel while wl-copy runs.
+if [[ -x "$BIN/panora-gui" ]]; then
+  GSK_RENDERER=cairo "$BIN/panora-gui" > "$SCRATCH/gui.log" 2>&1 &
+  GUI_PID=$!
+  sleep 3
+  APPMARK="wayland-e2e-$$-fromgui"
+  printf "%s" "$APPMARK" | wl-copy
+  if wait_listed "\[text\] $APPMARK"; then
+    if "$CLI" --json list --limit 5 | grep -Eq "\"source_app\": *\"io.github.ygkali.Panora\""; then
+      pass "source application from the activated toplevel"
+    else
+      fail "source application" "$("$CLI" --json list --limit 1 2>&1 | grep -oE "\"source_app\": *[^,}]*" | head -n1)"
+    fi
+  else
+    fail "capture while a window is active" ""
+  fi
+  kill "$GUI_PID" 2>/dev/null || true
+  wait "$GUI_PID" 2>/dev/null || true
+else
+  echo "SKIP  source application (build panora-gui --features fixture for this case)"
+fi
+
+# 7. store / restore through the CLI
 printf "stored-%s" "$MARK" | "$CLI" store --app e2e >/dev/null
 if wait_listed "\[text\] stored-$MARK"; then pass "cli store"; else fail "cli store" ""; fi
 SID="$(id_of "\[text\] stored-$MARK" || true)"

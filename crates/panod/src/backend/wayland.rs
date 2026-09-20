@@ -42,6 +42,10 @@ use wayland_protocols_wlr::data_control::v1::client::{
     zwlr_data_control_device_v1 as wlr_device, zwlr_data_control_manager_v1 as wlr_manager,
     zwlr_data_control_offer_v1 as wlr_offer, zwlr_data_control_source_v1 as wlr_source,
 };
+use wayland_protocols_wlr::foreign_toplevel::v1::client::{
+    zwlr_foreign_toplevel_handle_v1 as toplevel_handle,
+    zwlr_foreign_toplevel_manager_v1 as toplevel_manager,
+};
 
 /// Marker format added to our own offers so the watcher can tell a recall
 /// apart from a user copy. Other clipboard tools ignore unknown types.
@@ -64,6 +68,9 @@ pub struct WaylandBackend {
     /// Mutter and KWin keep the content themselves, and a null selection
     /// from them can only mean an intentional clear.
     persist: bool,
+    /// The compositor exposes `wlr-foreign-toplevel-management`, so the
+    /// activated window's app id can name the source application.
+    source_app: bool,
 }
 
 impl WaylandBackend {
@@ -76,11 +83,13 @@ impl WaylandBackend {
         info!(
             protocol = session.manager.protocol(),
             persist = !session.compositor_keeps_selection,
+            source_app = session.toplevels.is_some(),
             "wayland data-control available"
         );
         Ok(Self {
             primary: session.manager.supports_primary(),
             persist: !session.compositor_keeps_selection,
+            source_app: session.toplevels.is_some(),
         })
     }
 }
@@ -99,9 +108,10 @@ impl ClipboardBackend for WaylandBackend {
             // lets `history.persist_on_wayland` override it either way.
             persist: self.persist,
             synthetic_paste: true,
-            // The data-control protocols expose no client identity, so the
-            // `excluded_apps` list cannot fire on this backend.
-            source_app: false,
+            // The data-control protocols expose no client identity; the
+            // activated toplevel does, where the compositor implements
+            // wlr-foreign-toplevel-management (wlroots, KWin).
+            source_app: self.source_app,
             needs_bridge: false,
         }
     }
@@ -281,8 +291,23 @@ struct SelectionChange {
 
 // ------------------------------------------------------------------ state
 
+/// One window the compositor told us about.
+#[derive(Default)]
+struct Toplevel {
+    app_id: Option<String>,
+    title: Option<String>,
+    activated: bool,
+}
+
+/// `zwlr_foreign_toplevel_handle_v1.state` entry for the activated window.
+const TOPLEVEL_STATE_ACTIVATED: u32 = 2;
+
 #[derive(Default)]
 struct State {
+    /// Windows by handle, and which one is activated: the source of the
+    /// next copy, as far as a compositor can tell.
+    toplevels: HashMap<ObjectId, Toplevel>,
+    active_toplevel: Option<ObjectId>,
     offers: HashMap<ObjectId, OfferInfo>,
     clipboard: Option<ObjectId>,
     primary: Option<ObjectId>,
@@ -296,6 +321,18 @@ struct State {
 }
 
 impl State {
+    /// App id and title of the activated window, if any.
+    fn active_window(&self) -> (Option<String>, Option<String>) {
+        match self
+            .active_toplevel
+            .as_ref()
+            .and_then(|id| self.toplevels.get(id))
+        {
+            Some(window) => (window.app_id.clone(), window.title.clone()),
+            None => (None, None),
+        }
+    }
+
     fn current(&self, selection: Selection) -> Option<&OfferInfo> {
         let id = match selection {
             Selection::Clipboard => self.clipboard.as_ref()?,
@@ -353,6 +390,78 @@ impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for State {
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
+    }
+}
+
+impl Dispatch<toplevel_manager::ZwlrForeignToplevelManagerV1, ()> for State {
+    fn event(
+        state: &mut Self,
+        _: &toplevel_manager::ZwlrForeignToplevelManagerV1,
+        event: toplevel_manager::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let toplevel_manager::Event::Toplevel { toplevel } = event {
+            state.toplevels.insert(toplevel.id(), Toplevel::default());
+        }
+    }
+
+    event_created_child!(State, toplevel_manager::ZwlrForeignToplevelManagerV1, [
+        toplevel_manager::EVT_TOPLEVEL_OPCODE => (toplevel_handle::ZwlrForeignToplevelHandleV1, ()),
+    ]);
+}
+
+impl Dispatch<toplevel_handle::ZwlrForeignToplevelHandleV1, ()> for State {
+    fn event(
+        state: &mut Self,
+        handle: &toplevel_handle::ZwlrForeignToplevelHandleV1,
+        event: toplevel_handle::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        let id = handle.id();
+        match event {
+            toplevel_handle::Event::AppId { app_id } => {
+                if let Some(window) = state.toplevels.get_mut(&id) {
+                    window.app_id = Some(app_id).filter(|a| !a.trim().is_empty());
+                }
+            }
+            toplevel_handle::Event::Title { title } => {
+                if let Some(window) = state.toplevels.get_mut(&id) {
+                    window.title = Some(title).filter(|t| !t.trim().is_empty());
+                }
+            }
+            toplevel_handle::Event::State { state: flags } => {
+                // An array of native-endian u32 enum values.
+                let activated = flags
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|c| u32::from_ne_bytes(*c))
+                    .any(|flag| flag == TOPLEVEL_STATE_ACTIVATED);
+                if let Some(window) = state.toplevels.get_mut(&id) {
+                    window.activated = activated;
+                }
+            }
+            toplevel_handle::Event::Done => {
+                let activated = state.toplevels.get(&id).is_some_and(|w| w.activated);
+                if activated {
+                    state.active_toplevel = Some(id);
+                } else if state.active_toplevel.as_ref() == Some(&id) {
+                    state.active_toplevel = None;
+                }
+            }
+            toplevel_handle::Event::Closed => {
+                state.toplevels.remove(&id);
+                if state.active_toplevel.as_ref() == Some(&id) {
+                    state.active_toplevel = None;
+                }
+                handle.destroy();
+            }
+            _ => {}
+        }
     }
 }
 
@@ -490,6 +599,8 @@ struct Session {
     seat: wl_seat::WlSeat,
     device: Device,
     state: State,
+    /// Kept bound so the compositor keeps sending window events.
+    toplevels: Option<toplevel_manager::ZwlrForeignToplevelManagerV1>,
     /// Mutter (`gtk_shell1`) and KWin (`org_kde_*`, `kde_*` globals) keep
     /// clipboard content after the source exits; every other compositor is
     /// assumed to drop it, like wlroots does.
@@ -537,6 +648,10 @@ impl Session {
             .bind::<wl_seat::WlSeat, State, ()>(&qh, 1..=1, ())
             .map_err(|e| wlerr(format!("no wl_seat: {e}")))?;
         let device = manager.get_device(&seat, &qh);
+        // Optional: which window is activated, for the source application.
+        let toplevels = globals
+            .bind::<toplevel_manager::ZwlrForeignToplevelManagerV1, State, ()>(&qh, 1..=3, ())
+            .ok();
         Ok(Self {
             conn,
             queue,
@@ -545,6 +660,7 @@ impl Session {
             seat,
             device,
             state: State::default(),
+            toplevels,
             compositor_keeps_selection,
         })
     }
@@ -636,6 +752,8 @@ fn watch_loop(mut session: Session, selection: Selection, sender: mpsc::Sender<C
             warn!("wayland data device finished; capture stopped");
             return;
         }
+        // Whatever window is activated now sent the copies queued below.
+        let (active_app, active_title) = session.state.active_window();
         for change in session.state.changes.drain(..) {
             if change.selection != selection {
                 continue;
@@ -664,8 +782,9 @@ fn watch_loop(mut session: Session, selection: Selection, sender: mpsc::Sender<C
                     if mimes.is_empty() {
                         continue;
                     }
-                    debug!(count = mimes.len(), "wayland clipboard change");
-                    ClipboardEvent::changed(selection, mimes, None)
+                    debug!(count = mimes.len(), source_app = ?active_app, "wayland clipboard change");
+                    ClipboardEvent::changed(selection, mimes, active_app.clone())
+                        .with_title(active_title.clone())
                 }
             };
             if sender.blocking_send(event).is_err() {
@@ -853,6 +972,45 @@ fn payload_for<'a>(payloads: &'a [MimePayload], mime: &str) -> Option<&'a MimePa
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn activated_toplevel_names_the_source() {
+        let mut state = State::default();
+        assert_eq!(state.active_window(), (None, None));
+        // The bookkeeping is exercised through the same fields the dispatch
+        // handlers fill in; the protocol objects need a live compositor.
+        let a = ObjectId::null();
+        state.toplevels.insert(
+            a.clone(),
+            Toplevel {
+                app_id: Some("org.mozilla.firefox".into()),
+                title: Some("Online Banking".into()),
+                activated: true,
+            },
+        );
+        state.active_toplevel = Some(a.clone());
+        assert_eq!(
+            state.active_window(),
+            (
+                Some("org.mozilla.firefox".into()),
+                Some("Online Banking".into())
+            )
+        );
+        state.toplevels.remove(&a);
+        state.active_toplevel = None;
+        assert_eq!(state.active_window(), (None, None));
+        let flags: Vec<u8> = [1u32, TOPLEVEL_STATE_ACTIVATED]
+            .iter()
+            .flat_map(|f| f.to_ne_bytes())
+            .collect();
+        let activated = flags
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| u32::from_ne_bytes(*c))
+            .any(|flag| flag == TOPLEVEL_STATE_ACTIVATED);
+        assert!(activated);
+    }
 
     #[test]
     fn compositor_persistence_is_read_off_the_globals() {

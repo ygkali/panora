@@ -6,7 +6,7 @@
 use crate::util::{
     call, call_async, format_size, kind_icon, kind_label, relative_time, spawn, unix_now,
 };
-use crate::{details, settings, welcome, App};
+use crate::{details, placement, settings, welcome, App};
 use gdk_pixbuf::PixbufLoader;
 use gtk::gdk;
 use gtk4 as gtk;
@@ -140,6 +140,9 @@ pub fn build(app: &adw::Application, state: &Rc<App>) {
         .width_request(340)
         .height_request(420)
         .build();
+    // On wlroots compositors the panel is a layer-shell overlay; this has to
+    // happen before the window is realized.
+    let layered = placement::prepare(&window, &state.config.borrow().ui);
 
     let title = adw::WindowTitle::new(s.app_name, s.subtitle_history);
     let header = adw::HeaderBar::builder().title_widget(&title).build();
@@ -406,6 +409,9 @@ pub fn build(app: &adw::Application, state: &Rc<App>) {
         });
     }
 
+    if !layered {
+        placement::place(&window, &state.config.borrow().ui);
+    }
     window.present();
     search.grab_focus();
     welcome::show_if_first_run(&ui);

@@ -120,6 +120,18 @@ impl Default for PrivacyConfig {
 /// Values `privacy.sensitive_policy` accepts.
 pub const SENSITIVE_POLICIES: &[&str] = &["mask", "drop", "store"];
 
+/// Values `ui.position` accepts.
+pub const POSITIONS: &[&str] = &["pointer", "center"];
+
+/// Values `ui.layer_anchor` accepts.
+pub const LAYER_ANCHORS: &[&str] = &[
+    "top-right",
+    "top-left",
+    "bottom-right",
+    "bottom-left",
+    "center",
+];
+
 /// Upper bounds for the user-defined filters.
 pub const MAX_IGNORE_PATTERNS: usize = 32;
 /// Longest accepted regular expression, in bytes.
@@ -160,6 +172,14 @@ pub struct UiConfig {
     /// Close the popup when keyboard focus moves to another window, the way
     /// the Windows Win+V flyout does.
     pub close_on_focus_loss: bool,
+    /// Where the popup opens: `pointer` (next to the mouse pointer on X11
+    /// and, through the Shell extension, on GNOME) or `center`. Wayland
+    /// compositors that speak layer-shell use `layer_anchor` instead.
+    pub position: String,
+    /// Screen corner the popup is anchored to on wlroots compositors
+    /// (Sway, Hyprland, ...) when gtk4-layer-shell is installed:
+    /// `top-right`, `top-left`, `bottom-right`, `bottom-left` or `center`.
+    pub layer_anchor: String,
 }
 
 impl Default for UiConfig {
@@ -169,6 +189,8 @@ impl Default for UiConfig {
             instant_paste: false,
             theme: "system".into(),
             close_on_focus_loss: true,
+            position: "pointer".into(),
+            layer_anchor: "top-right".into(),
         }
     }
 }
@@ -255,6 +277,18 @@ impl Config {
             return Err(Error::Config(
                 "sensitive_ttl_minutes must be at most 525600 (a year)".into(),
             ));
+        }
+        if !POSITIONS.contains(&self.ui.position.as_str()) {
+            return Err(Error::Config(format!(
+                "ui.position must be one of {}",
+                POSITIONS.join(", ")
+            )));
+        }
+        if !LAYER_ANCHORS.contains(&self.ui.layer_anchor.as_str()) {
+            return Err(Error::Config(format!(
+                "ui.layer_anchor must be one of {}",
+                LAYER_ANCHORS.join(", ")
+            )));
         }
         if self.privacy.excluded_window_titles.len() > 64 {
             return Err(Error::Config(

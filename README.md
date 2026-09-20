@@ -163,6 +163,8 @@ language = "system"      # system | tr | en
 theme = "system"         # system | light | dark
 instant_paste = false    # Ctrl+V after picking (Ctrl+Shift+V in terminals)
 close_on_focus_loss = true
+position = "pointer"     # pointer | center: where the panel opens (X11, GNOME)
+layer_anchor = "top-right"   # Sway/Hyprland with gtk4-layer-shell: top-right | top-left | bottom-right | bottom-left | center
 ```
 
 ### Search syntax
@@ -244,7 +246,9 @@ model; see [SECURITY.md](SECURITY.md), the ADRs in `docs/adr/` and
 
 `panora-doctor` first; `panora-doctor --report` writes the file to attach to
 a bug report. Common cases and the daemon log are described in
-[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
+[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md); what works on GNOME,
+KDE, Sway/Hyprland and the Xorg desktops, and how to bind the shortcut on
+each, is in [docs/DESKTOPS.md](docs/DESKTOPS.md).
 
 ## Project
 

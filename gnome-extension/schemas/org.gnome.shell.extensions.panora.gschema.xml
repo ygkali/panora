@@ -9,6 +9,11 @@
         Keyboard shortcut that opens the Panora clipboard history popup.
       </description>
     </key>
+    <key name="move-to-pointer" type="b">
+      <default>true</default>
+      <summary>Open the popup next to the pointer</summary>
+      <description>Move the Panora window to the mouse pointer once it appears, like the Windows clipboard flyout.</description>
+    </key>
     <key name="restore-message-tray" type="as">
       <default>[]</default>
       <summary>Saved notification-list shortcut</summary>

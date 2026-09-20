@@ -16,6 +16,11 @@ path = "src/main.rs"
 # Canned in-process daemon for UI development without panod; never enabled
 # in release packages.
 fixture = []
+# Layer-shell overlay on Sway, Hyprland and other wlroots compositors. Needs
+# libgtk4-layer-shell at build and run time, which Ubuntu 24.04 does not
+# ship, so the .deb is built without it; source builds on such desktops
+# add `--features layer-shell`.
+layer-shell = ["dep:gtk4-layer-shell"]
 
 [dependencies]
 panora-core = { path = "../panora-core" }
@@ -25,3 +30,6 @@ gdk-pixbuf = "0.22"
 glib = "0.22"
 qrcode.workspace = true
 toml.workspace = true
+x11rb.workspace = true
+gdk4-x11.workspace = true
+gtk4-layer-shell = { workspace = true, optional = true }

@@ -13,6 +13,7 @@
 mod details;
 #[cfg(feature = "fixture")]
 mod fixture;
+mod placement;
 mod settings;
 mod util;
 mod welcome;

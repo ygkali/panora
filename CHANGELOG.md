@@ -93,6 +93,17 @@ real-machine verification in `docs/RELEASING.md` is done.
 - `history.max_images` (200) caps the image entries kept.
 - The popup no longer rebuilds its list when a revision bump changed
   nothing visible.
+- The popup opens where the pointer is: on X11 the window is moved next to
+  the pointer once mapped, on GNOME the Shell extension moves it after
+  activation (`move-to-pointer` setting), and on Sway, Hyprland and other
+  wlroots compositors it becomes a layer-shell overlay anchored to a
+  corner (`ui.layer_anchor`) when the popup is built with the
+  `layer-shell` feature (the library must be linked in, and Ubuntu 24.04
+  does not ship it, so the .deb leaves it out). `ui.position` picks
+  pointer or centre.
+- On wlroots compositors and KWin the source application of a copy is
+  now known (`wlr-foreign-toplevel-management`): the excluded-application
+  and window-title lists work there, and `app:` searches match.
 - Recording pauses while the session is locked (`org.gnome.ScreenSaver` /
   `org.freedesktop.ScreenSaver` `ActiveChanged`); `panora-cli status` shows
   `locked`.

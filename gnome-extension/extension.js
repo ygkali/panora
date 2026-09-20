@@ -243,6 +243,10 @@ export default class PanoraExtension extends Extension {
         this._virtualKeyboard = null;
         this._selection = null;
         this._bus = null;
+        if (this._moveTimer) {
+            GLib.Source.remove(this._moveTimer);
+            this._moveTimer = 0;
+        }
         this._settings = null;
     }
 
@@ -320,6 +324,7 @@ export default class PanoraExtension extends Extension {
                 (connection, result) => {
                     try {
                         connection.call_finish(result);
+                        this._moveToPointer();
                     } catch (error) {
                         // Only spawn when nothing owns the name and D-Bus
                         // could not start it (no service file, e.g. a source
@@ -476,6 +481,37 @@ export default class PanoraExtension extends Extension {
             return GLib.SOURCE_REMOVE;
         };
         attempt();
+    }
+
+    // Mutter gives clients no say in where their windows go, so the popup
+    // is moved from here once it has focus: centred under the pointer and
+    // kept inside the monitor's work area, like the Windows flyout.
+    _moveToPointer() {
+        if (!this._settings || !this._settings.get_boolean('move-to-pointer'))
+            return;
+        if (this._moveTimer) {
+            GLib.Source.remove(this._moveTimer);
+            this._moveTimer = 0;
+        }
+        let attempts = 0;
+        this._moveTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
+            attempts += 1;
+            if (!this._popupHasFocus()) {
+                if (attempts < 30)
+                    return GLib.SOURCE_CONTINUE;
+                this._moveTimer = 0;
+                return GLib.SOURCE_REMOVE;
+            }
+            const window = global.display.focus_window;
+            const [px, py] = global.get_pointer();
+            const frame = window.get_frame_rect();
+            const area = Main.layoutManager.getWorkAreaForMonitor(global.display.get_current_monitor());
+            const x = Math.min(Math.max(px - frame.width / 2, area.x), area.x + area.width - frame.width);
+            const y = Math.min(Math.max(py - 24, area.y), area.y + area.height - frame.height);
+            window.move_frame(true, Math.round(x), Math.round(y));
+            this._moveTimer = 0;
+            return GLib.SOURCE_REMOVE;
+        });
     }
 
     _popupHasFocus() {

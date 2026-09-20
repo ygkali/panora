@@ -162,6 +162,8 @@ language = "system"      # system | tr | en
 theme = "system"         # system | light | dark
 instant_paste = false    # seçince Ctrl+V (terminallerde Ctrl+Shift+V)
 close_on_focus_loss = true
+position = "pointer"     # pointer | center: panelin açıldığı yer (X11, GNOME)
+layer_anchor = "top-right"   # gtk4-layer-shell'li Sway/Hyprland: top-right | top-left | bottom-right | bottom-left | center
 ```
 
 ### Arama söz dizimi
@@ -241,7 +243,9 @@ bkz. [SECURITY.md](SECURITY.md), `docs/adr/` ve
 ## Sorun giderme
 
 Önce `panora-doctor`; `panora-doctor --report` hata bildirimine eklenecek dosyayı
-yazar. Sık karşılaşılan durumlar ve daemon günlüğü için
+yazar. GNOME, KDE, Sway/Hyprland ve Xorg masaüstlerinde neyin çalıştığı ve
+kısayolun nasıl bağlandığı [docs/DESKTOPS.md](docs/DESKTOPS.md) dosyasında.
+Sık karşılaşılan durumlar ve daemon günlüğü için
 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 
 ## Proje
