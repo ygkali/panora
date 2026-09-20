@@ -77,6 +77,10 @@ real-machine verification in `docs/RELEASING.md` is done.
   vacuums the database once a quarter of it is free pages, and removes
   blobs no row references (left by a crash between writing a blob and
   recording it) along with stale temporary files.
+- Search grammar in the popup and the CLI: `"quoted phrases"`, `kind:`,
+  `app:`, `pinned:`, `before:`/`after:` (a day or `7d`-style spans) and
+  `re:` for a regular expression over the preview and the indexed text.
+  Matches are shown in bold in the popup.
 - Recording pauses while the session is locked (`org.gnome.ScreenSaver` /
   `org.freedesktop.ScreenSaver` `ActiveChanged`); `panora-cli status` shows
   `locked`.

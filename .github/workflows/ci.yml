@@ -97,6 +97,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-4-dev libadwaita-1-dev xvfb dbus-x11 x11-utils imagemagick \
             adwaita-icon-theme librsvg2-common
+      - name: Install the accessibility stack
+        run: sudo apt-get install -y at-spi2-core python3-pyatspi
       - name: Render the popup from the fixture data
         run: bash scripts/capture-screenshots.sh shots
       - name: The shots must show a window, not a blank screen
@@ -106,10 +108,49 @@ jobs:
             echo "$f: $size bytes"
             test "$size" -gt 10000
           done
+      - name: The accessibility tree names the controls
+        run: bash scripts/a11y-check.sh shots/a11y-tree.txt
       - uses: actions/upload-artifact@v7
         with:
           name: popup-screenshots
-          path: shots/*.png
+          path: shots/
+
+  quality:
+    name: Spelling & unused dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: typos,cargo-machete
+      - run: typos
+      - run: cargo machete
+
+  coverage:
+    name: Coverage (informational)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev
+      - name: Measure line coverage of the unit tests
+        run: |
+          cargo llvm-cov --workspace --lcov --output-path lcov.info
+          cargo llvm-cov report --summary-only | tee coverage.txt
+          { echo '## Coverage'; echo '```'; cat coverage.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: coverage
+          path: |
+            lcov.info
+            coverage.txt
 
   msrv:
     name: MSRV (Rust 1.92)

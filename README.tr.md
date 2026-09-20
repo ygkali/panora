@@ -162,6 +162,22 @@ instant_paste = false    # seçince Ctrl+V (terminallerde Ctrl+Shift+V)
 close_on_focus_loss = true
 ```
 
+### Arama söz dizimi
+
+Arama kutusu ve `panora-cli search` aynı dilbilgisini kullanır. Sözcükler ön
+ek olarak eşleşir, `"tırnaklı ifadeler"` birebir aranır, işleçler listeyi
+daraltır:
+
+| İşleç | Anlamı |
+|---|---|
+| `kind:image` | `text`, `richtext`, `link`, `image`, `files`, `color` |
+| `app:firefox` | kaynak uygulama adı bu sözcüğü içerir (X11 ve GNOME) |
+| `pinned:yes` / `pinned:no` | yalnızca sabitli / sabitsiz kayıtlar |
+| `after:7d` / `before:2026-09-01` | son kullanıma göre; `30m`, `12h`, `7d`, `2w` ya da bir gün |
+| `re:^https?://.*\.pdf$` | satırın kalanı düzenli ifadedir (büyük/küçük harf duyarsız); önizleme ve dizinlenen metinde aranır |
+
+Eşleşmeler popup'ta kalın gösterilir.
+
 ### Komut satırı
 
 ```sh

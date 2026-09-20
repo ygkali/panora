@@ -31,6 +31,8 @@ pub mod ipc;
 pub mod model;
 /// Privacy engine: secret flags, exclusion lists, private mode.
 pub mod privacy;
+/// The search grammar (`kind:` `app:` `after:` `re:` ...) and match highlighting.
+pub mod search;
 /// Heuristics for secrets, keys and card numbers (`privacy.sensitive_policy`).
 pub mod sensitive;
 /// Encrypted storage: SQLite + FTS5 index + content-addressed blob store.

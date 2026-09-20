@@ -163,6 +163,21 @@ instant_paste = false    # Ctrl+V after picking (Ctrl+Shift+V in terminals)
 close_on_focus_loss = true
 ```
 
+### Search syntax
+
+The search box and `panora-cli search` share one grammar. Words match as
+prefixes, `"quoted phrases"` match exactly, and operators narrow the list:
+
+| Operator | Meaning |
+|---|---|
+| `kind:image` | `text`, `richtext`, `link`, `image`, `files`, `color` |
+| `app:firefox` | the source application contains the word (X11 and GNOME) |
+| `pinned:yes` / `pinned:no` | pinned or unpinned entries only |
+| `after:7d` / `before:2026-09-01` | by last use; `30m`, `12h`, `7d`, `2w` or a day |
+| `re:^https?://.*\.pdf$` | the rest of the line is a regular expression (case-insensitive) matched against the preview and the indexed text |
+
+Matches are shown in bold in the popup.
+
 ### Command line
 
 ```sh

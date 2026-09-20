@@ -3,7 +3,9 @@
 
 //! The history popup: search, filter chips, card grid, keyboard handling.
 
-use crate::util::{call, call_async, format_size, kind_icon, kind_label, relative_time, spawn};
+use crate::util::{
+    call, call_async, format_size, kind_icon, kind_label, relative_time, spawn, unix_now,
+};
 use crate::{details, settings, welcome, App};
 use gdk_pixbuf::PixbufLoader;
 use gtk::gdk;
@@ -13,6 +15,7 @@ use libadwaita::prelude::*;
 use panora_core::i18n::{fill, Strings};
 use panora_core::ipc::{health, HealthItem, QueryRequest, Request, ResponseData};
 use panora_core::model::{ContentKind, Entry};
+use panora_core::search::{mark_matches, ParsedQuery};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
@@ -947,8 +950,12 @@ fn load_next_page(ui: &Rc<Ui>) {
 fn append_entries(ui: &Rc<Ui>, entries: Vec<Entry>) {
     let more = entries.len() >= PAGE_LIMIT;
     let offset = ui.entries.borrow().len();
+    // Parsed once per page: every row highlights the same query.
+    let text = ui.search.text();
+    let query = text.trim();
+    let parsed = (!query.is_empty()).then(|| panora_core::search::parse(query, unix_now()));
     for (i, entry) in entries.iter().enumerate() {
-        let child = build_card(ui, entry, offset + i);
+        let child = build_card(ui, entry, offset + i, parsed.as_ref());
         ui.flow.insert(&child, -1);
     }
     ui.entries.borrow_mut().extend(entries);
@@ -989,7 +996,12 @@ fn name_for_a11y(widget: &impl IsA<gtk::Widget>, label: &str) {
 /// Actions stay in the layout at `opacity: 0` rather than being added and
 /// removed, so nothing shifts under the pointer when a row lights up, and a
 /// keyboard user can still Tab into them (`:focus-within` reveals them).
-fn build_card(ui: &Rc<Ui>, entry: &Entry, index: usize) -> gtk::FlowBoxChild {
+fn build_card(
+    ui: &Rc<Ui>,
+    entry: &Entry,
+    index: usize,
+    query: Option<&ParsedQuery>,
+) -> gtk::FlowBoxChild {
     let s = ui.s;
     let card = gtk::Box::new(gtk::Orientation::Vertical, 8);
     card.add_css_class("history-card");
@@ -1006,9 +1018,9 @@ fn build_card(ui: &Rc<Ui>, entry: &Entry, index: usize) -> gtk::FlowBoxChild {
         }
         ContentKind::Color => {
             card.append(&color_swatch(&entry.preview));
-            card.append(&preview_label(&entry.preview, 1));
+            card.append(&preview_widget(entry, query, 1));
         }
-        _ => card.append(&preview_label(&entry.preview, 3)),
+        _ => card.append(&preview_widget(entry, query, 3)),
     }
 
     let bottom = gtk::Box::new(gtk::Orientation::Horizontal, 4);
@@ -1171,6 +1183,18 @@ fn rounded_rect(cr: &gtk::cairo::Context, w: f64, h: f64, r: f64) {
     cr.arc(r, h - r, r, pi / 2.0, pi);
     cr.arc(r, r, r, pi, 1.5 * pi);
     cr.close_path();
+}
+
+/// The preview text of a row; with a query, its matches in bold.
+fn preview_widget(entry: &Entry, query: Option<&ParsedQuery>, lines: i32) -> gtk::Label {
+    match query {
+        Some(query) => {
+            let label = preview_label("", lines);
+            label.set_markup(&mark_matches(entry.preview.trim(), query));
+            label
+        }
+        None => preview_label(&entry.preview, lines),
+    }
 }
 
 fn preview_label(text: &str, lines: i32) -> gtk::Label {

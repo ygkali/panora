@@ -88,6 +88,9 @@ fn rebuild_search_index(db: &Database) -> Result<()> {
     Ok(())
 }
 
+/// Newest candidates a regular-expression search scans before paging.
+const REGEX_SCAN_LIMIT: i64 = 5000;
+
 /// Filter for history queries.
 #[derive(Debug, Clone, Default)]
 pub struct QueryFilter {
@@ -101,6 +104,14 @@ pub struct QueryFilter {
     pub limit: usize,
     /// Offset for pagination.
     pub offset: usize,
+    /// Only entries whose source application contains this (lowercase).
+    pub app: Option<String>,
+    /// Only entries last seen before this Unix time.
+    pub before: Option<i64>,
+    /// Only entries last seen at or after this Unix time.
+    pub after: Option<i64>,
+    /// A regular expression the preview or the indexed text must match.
+    pub regex: Option<String>,
 }
 
 impl QueryFilter {
@@ -121,6 +132,10 @@ impl Default for &QueryFilter {
             pinned_only: false,
             limit: 50,
             offset: 0,
+            app: None,
+            before: None,
+            after: None,
+            regex: None,
         };
         &DEFAULT
     }
@@ -575,38 +590,105 @@ impl Database {
     /// Query entries. Pinned entries always sort first, then by
     /// `last_seen_at` descending. Tombstoned entries are hidden.
     pub fn query(&self, filter: &QueryFilter) -> Result<Vec<Entry>> {
+        // The search string carries the grammar (`kind:`, `app:`, `re:`...);
+        // a field set on the filter itself wins over what the string says.
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let parsed = filter
+            .search
+            .as_deref()
+            .map(|search| crate::search::parse(search, now))
+            .unwrap_or_default();
+        let kind = filter.kind.or(parsed.kind);
+        let app = filter.app.clone().or_else(|| parsed.app.clone());
+        let before = filter.before.or(parsed.before);
+        let after = filter.after.or(parsed.after);
+        // A regular expression that does not compile (typed halfway) matches
+        // nothing rather than failing the request.
+        let regex = match filter.regex.clone().or_else(|| parsed.regex.clone()) {
+            Some(pattern) => match crate::search::compile_regex(&pattern) {
+                Ok(re) => Some(re),
+                Err(_) => return Ok(Vec::new()),
+            },
+            None => None,
+        };
+
         let mut sql = String::from(
             "SELECT e.id, e.content_hash, e.preview, e.kind, e.primary_mime,
                     e.size_bytes, e.source_app, e.selection, e.created_at,
                     e.last_seen_at, e.pinned, e.device_id, e.lamport, e.deleted,
-                    e.sensitive
-             FROM entries e",
+                    e.sensitive",
         );
+        if regex.is_some() {
+            sql.push_str(", f.content");
+        }
+        sql.push_str(" FROM entries e");
         let mut conditions = vec!["e.deleted = 0".to_string()];
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
-        if let Some(search) = &filter.search {
-            if let Some(expression) = fts_query(search) {
-                sql.push_str(" JOIN entries_fts ON entries_fts.rowid = e.id");
-                conditions.push("entries_fts MATCH ?".to_string());
-                params_vec.push(Box::new(expression));
-            }
+        if let Some(expression) = parsed.fts_expression() {
+            sql.push_str(" JOIN entries_fts ON entries_fts.rowid = e.id");
+            conditions.push("entries_fts MATCH ?".to_string());
+            params_vec.push(Box::new(expression));
         }
-        if let Some(kind) = filter.kind {
+        if regex.is_some() {
+            sql.push_str(" LEFT JOIN entries_fts f ON f.rowid = e.id");
+        }
+        if let Some(kind) = kind {
             conditions.push("e.kind = ?".to_string());
             params_vec.push(Box::new(kind.as_str().to_string()));
         }
-        if filter.pinned_only {
+        if filter.pinned_only || parsed.pinned == Some(true) {
             conditions.push("e.pinned = 1".to_string());
+        } else if parsed.pinned == Some(false) {
+            conditions.push("e.pinned = 0".to_string());
+        }
+        if let Some(app) = app {
+            conditions.push("instr(LOWER(COALESCE(e.source_app, '')), ?) > 0".to_string());
+            params_vec.push(Box::new(app.to_lowercase()));
+        }
+        if let Some(before) = before {
+            conditions.push("e.last_seen_at < ?".to_string());
+            params_vec.push(Box::new(before));
+        }
+        if let Some(after) = after {
+            conditions.push("e.last_seen_at >= ?".to_string());
+            params_vec.push(Box::new(after));
         }
 
         sql.push_str(&format!(" WHERE {}", conditions.join(" AND ")));
         sql.push_str(" ORDER BY e.pinned DESC, e.last_seen_at DESC, e.id DESC LIMIT ? OFFSET ?");
-        params_vec.push(Box::new(filter.limit as i64));
-        params_vec.push(Box::new(filter.offset as i64));
+        if regex.is_some() {
+            // The expression runs in Rust over the newest candidates; paging
+            // happens after the filter.
+            params_vec.push(Box::new(REGEX_SCAN_LIMIT));
+            params_vec.push(Box::new(0i64));
+        } else {
+            params_vec.push(Box::new(filter.limit as i64));
+            params_vec.push(Box::new(filter.offset as i64));
+        }
 
         let mut stmt = self.conn.prepare(&sql)?;
         let param_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
+        if let Some(re) = regex {
+            let rows = stmt
+                .query_map(param_refs.as_slice(), |row| {
+                    Ok((self.row_to_entry(row)?, row.get::<_, Option<String>>(15)?))
+                })?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            return Ok(rows
+                .into_iter()
+                .filter(|(entry, content)| {
+                    re.is_match(&entry.preview)
+                        || content.as_deref().is_some_and(|text| re.is_match(text))
+                })
+                .map(|(entry, _)| entry)
+                .skip(filter.offset)
+                .take(filter.limit)
+                .collect());
+        }
         let rows = stmt
             .query_map(param_refs.as_slice(), |row| self.row_to_entry(row))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -987,18 +1069,7 @@ impl Database {
 /// list narrows as the user types (`mer` finds `merhaba`) and no FTS
 /// operator or punctuation in the input can change the query shape.
 pub fn fts_query(search: &str) -> Option<String> {
-    let terms: Vec<String> = search
-        .split_whitespace()
-        .map(|token| token.replace('"', ""))
-        .filter(|token| !token.is_empty())
-        .take(16)
-        .map(|token| format!("\"{token}\"*"))
-        .collect();
-    if terms.is_empty() {
-        None
-    } else {
-        Some(terms.join(" "))
-    }
+    crate::search::parse(search, 0).fts_expression()
 }
 
 #[cfg(test)]
@@ -1236,7 +1307,7 @@ mod tests {
             assert_eq!(hits.len(), 1, "query {q:?}");
         }
         assert_eq!(fts_query("  "), None);
-        assert_eq!(fts_query("a \"b\" c"), Some("\"a\"* \"b\"* \"c\"*".into()));
+        assert_eq!(fts_query("a \"b\" c"), Some("\"a\"* \"c\"* \"b\"".into()));
     }
 
     #[test]
@@ -1586,6 +1657,99 @@ mod lifecycle_tests {
         assert_eq!(search(&db, "istanbul"), vec![id]);
         assert_eq!(search(&db, "yagmur"), vec![id]);
         assert_eq!(search(&db, "YAĞMUR"), vec![id]);
+    }
+
+    #[test]
+    fn query_grammar_narrows_by_app_time_pin_and_regex() {
+        let db = Database::open_in_memory(Cipher::new(&MasterKey::generate())).unwrap();
+        let insert = |preview: &str, app: &str, ts: i64| -> i64 {
+            let hash = crate::storage::crypto::content_hash(preview.as_bytes());
+            db.upsert_entry(
+                &hash,
+                preview,
+                ContentKind::Text,
+                "text/plain",
+                preview.len() as i64,
+                Some(app),
+                Selection::Clipboard,
+                ts,
+                "dev",
+                ts,
+            )
+            .unwrap()
+        };
+        let old = insert("invoice 2025 from the shop", "firefox", 1_000);
+        let recent = insert("invoice 2026 draft", "gnome-text-editor", 5_000);
+        let other = insert("holiday photos list", "nautilus", 6_000);
+        db.set_pinned(other, true).unwrap();
+        let ids = |search: &str| -> Vec<i64> {
+            db.query(&QueryFilter {
+                search: Some(search.into()),
+                ..QueryFilter::recent(20)
+            })
+            .unwrap()
+            .into_iter()
+            .map(|e| e.id)
+            .collect()
+        };
+        assert_eq!(ids("invoice app:fire"), vec![old]);
+        assert_eq!(ids("app:GNOME"), vec![recent]);
+        assert_eq!(ids("invoice before:2000-01-01"), vec![recent, old]);
+        assert!(ids("invoice after:2000-01-01").is_empty());
+        assert_eq!(ids("pinned:yes"), vec![other]);
+        assert_eq!(ids("pinned:no invoice"), vec![recent, old]);
+        assert_eq!(ids(r"re:^invoice \d{4} draft$"), vec![recent]);
+        assert_eq!(ids(r"re:PHOTOS"), vec![other], "regex is case-insensitive");
+        assert!(ids("re:(").is_empty(), "a broken pattern matches nothing");
+        // A field on the filter wins over the string.
+        let pinned_only = db
+            .query(&QueryFilter {
+                search: Some("pinned:no".into()),
+                pinned_only: true,
+                ..QueryFilter::recent(20)
+            })
+            .unwrap();
+        assert_eq!(pinned_only.len(), 1);
+        assert_eq!(pinned_only[0].id, other);
+    }
+
+    #[test]
+    fn query_grammar_time_bounds_use_last_seen() {
+        let db = Database::open_in_memory(Cipher::new(&MasterKey::generate())).unwrap();
+        let insert = |preview: &str, ts: i64| -> i64 {
+            let hash = crate::storage::crypto::content_hash(preview.as_bytes());
+            db.upsert_entry(
+                &hash,
+                preview,
+                ContentKind::Text,
+                "text/plain",
+                1,
+                None,
+                Selection::Clipboard,
+                ts,
+                "dev",
+                ts,
+            )
+            .unwrap()
+        };
+        // 2026-09-01 00:00 UTC is day 20 697 since the epoch; one entry an
+        // hour before it, one an hour after.
+        let midnight = 20_697 * 86_400;
+        let before = insert("older", midnight - 3_600);
+        let after = insert("newer", midnight + 3_600);
+        let ids = |search: &str| -> Vec<i64> {
+            db.query(&QueryFilter {
+                search: Some(search.into()),
+                ..QueryFilter::recent(20)
+            })
+            .unwrap()
+            .into_iter()
+            .map(|e| e.id)
+            .collect()
+        };
+        assert_eq!(ids("before:2026-09-01"), vec![before]);
+        assert_eq!(ids("after:2026-09-01"), vec![after]);
+        assert_eq!(ids("after:2026-09-01 before:2026-09-02"), vec![after]);
     }
 
     #[test]

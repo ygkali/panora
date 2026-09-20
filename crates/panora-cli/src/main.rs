@@ -53,7 +53,9 @@ struct Cli {
 enum Command {
     /// List recent entries, newest first (pinned entries come first)
     List {
-        /// Full-text search phrase; every word is a prefix
+        /// Search string; every word is a prefix. Operators: kind:image app:firefox
+        /// pinned:yes after:7d before:2026-09-01 "exact phrase"; re:PATTERN matches a
+        /// regular expression against the text
         query: Option<String>,
         /// Line template instead of the default listing (see `pick --help`)
         #[arg(long, value_name = "TEMPLATE")]
@@ -63,7 +65,9 @@ enum Command {
     },
     /// Full-text search of the history
     Search {
-        /// Search phrase; every word is a prefix ("mer" finds "merhaba")
+        /// Search string; every word is a prefix ("mer" finds "merhaba"). Operators:
+        /// kind:image app:firefox pinned:yes after:7d before:2026-09-01 "exact phrase";
+        /// re:PATTERN matches a regular expression against the text
         text: String,
         /// Line template instead of the default listing (see `pick --help`)
         #[arg(long, value_name = "TEMPLATE")]

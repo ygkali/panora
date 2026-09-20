@@ -125,6 +125,10 @@ impl From<QueryRequest> for QueryFilter {
             pinned_only: r.pinned_only,
             limit: if r.limit == 0 { 50 } else { r.limit.min(500) },
             offset: r.offset,
+            app: None,
+            before: None,
+            after: None,
+            regex: None,
         }
     }
 }

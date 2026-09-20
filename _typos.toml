@@ -1,0 +1,30 @@
+# typos (https://github.com/crate-ci/typos): spelling of identifiers,
+# comments and prose. The interface is bilingual, so Turkish words that
+# happen to look like English misspellings are listed as valid, and the
+# Turkish-language documents are skipped altogether.
+
+[files]
+extend-exclude = [
+    "README.tr.md",
+    "THIRD_PARTY_LICENSES.md",
+    "docs/ROADMAP.md",
+    "docs/security-*.md",
+    "docs/adr/*",
+    "docs/screenshots/*",
+    "Cargo.lock",
+]
+
+[default.extend-words]
+# Turkish words in the bilingual scripts, strings and metadata.
+paket = "paket"
+tema = "tema"
+foto = "foto"
+soket = "soket"
+sistem = "sistem"
+sizin = "sizin"
+gir = "gir"
+nin = "nin"
+lokal = "lokal"
+performans = "performans"
+# The drop-down terminal emulator, in the terminal application list.
+tilda = "tilda"
