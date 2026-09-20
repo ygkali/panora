@@ -113,6 +113,9 @@ pub struct Ui {
     query_generation: Cell<u64>,
     /// A further page is on its way.
     loading_more: Cell<bool>,
+    /// The query the grid was last built for, so an identical page for the
+    /// same query does not rebuild it.
+    rendered_query: RefCell<String>,
     /// The window has held keyboard focus at least once; only then does a
     /// focus loss mean "the user went elsewhere".
     was_active: Cell<bool>,
@@ -310,6 +313,7 @@ pub fn build(app: &adw::Application, state: &Rc<App>) {
         exhausted: Cell::new(true),
         query_generation: Cell::new(0),
         loading_more: Cell::new(false),
+        rendered_query: RefCell::new(String::new()),
         was_active: Cell::new(false),
     });
 
@@ -829,6 +833,16 @@ pub fn refresh(ui: &Rc<Ui>) {
 
 /// Replace the grid with the first page a query returned.
 fn show_page(ui: &Rc<Ui>, result: panora_core::error::Result<ResponseData>) {
+    // A revision bump that changed nothing visible (a lock or health flag,
+    // a re-copy of what is already on top) leaves the grid, its selection
+    // and its scroll position alone.
+    let query_now = ui.search.text().trim().to_string();
+    if let Ok(ResponseData::Entries(entries)) = &result {
+        if *ui.rendered_query.borrow() == query_now && same_rows(&ui.entries.borrow(), entries) {
+            return;
+        }
+    }
+    ui.rendered_query.replace(query_now);
     let previous = current_child(ui).map(|c| c.index());
     let grid_focused = ui.flow.focus_child().is_some();
     while let Some(child) = ui.flow.first_child() {
@@ -906,6 +920,18 @@ fn show_page(ui: &Rc<Ui>, result: panora_core::error::Result<ResponseData>) {
             ui.flow.select_child(&child);
         }
     }
+}
+
+/// The same rows in the same order, as far as a card shows them.
+fn same_rows(current: &[Entry], next: &[Entry]) -> bool {
+    current.len() == next.len()
+        && current.iter().zip(next).all(|(a, b)| {
+            a.id == b.id
+                && a.last_seen_at == b.last_seen_at
+                && a.pinned == b.pinned
+                && a.sensitive == b.sensitive
+                && a.preview == b.preview
+        })
 }
 
 fn update_subtitle(ui: &Rc<Ui>) {

@@ -59,6 +59,8 @@ pub enum Verdict {
     RejectSecretFlag,
     /// Source application is on the exclusion list.
     RejectExcludedApp,
+    /// The focused window's title contains an excluded phrase.
+    RejectWindowTitle,
     /// Private mode is active; recording paused.
     RejectPrivateMode,
     /// Backend metadata is malformed or exceeds a safe bound.
@@ -132,6 +134,9 @@ pub struct PrivacyEngine {
     excluded_apps: Vec<String>,
     private_mode: std::sync::Arc<std::sync::atomic::AtomicBool>,
     filters: ContentFilters,
+    /// Lowercased phrases; a focused window whose title contains one
+    /// pauses recording for that copy.
+    excluded_titles: Vec<String>,
 }
 
 impl PrivacyEngine {
@@ -156,6 +161,7 @@ impl PrivacyEngine {
                 ignore_whitespace_only: true,
                 ..ContentFilters::default()
             },
+            excluded_titles: Vec::new(),
         }
     }
 
@@ -163,6 +169,35 @@ impl PrivacyEngine {
     pub fn with_filters(mut self, filters: ContentFilters) -> Self {
         self.filters = filters;
         self
+    }
+
+    /// Phrases that, found in the focused window's title, keep a copy out
+    /// of the history (case-insensitive substrings, e.g. "Online Banking").
+    pub fn with_excluded_titles(mut self, titles: &[String]) -> Self {
+        self.excluded_titles = titles
+            .iter()
+            .map(|t| t.trim().to_lowercase())
+            .filter(|t| !t.is_empty())
+            .collect();
+        self
+    }
+
+    /// The window-title gate, judged before any payload is read. An
+    /// unknown title (plain Wayland, no focus) never blocks a copy.
+    pub fn evaluate_title(&self, title: Option<&str>) -> Verdict {
+        let Some(title) = title.filter(|_| !self.excluded_titles.is_empty()) else {
+            return Verdict::Allow;
+        };
+        let title = title.to_lowercase();
+        if self
+            .excluded_titles
+            .iter()
+            .any(|phrase| title.contains(phrase.as_str()))
+        {
+            Verdict::RejectWindowTitle
+        } else {
+            Verdict::Allow
+        }
     }
 
     /// Second gate, judged on the payloads once they have been read: the
@@ -493,5 +528,26 @@ mod tests {
             eng.evaluate_content(&text_data("just a note")),
             Verdict::Allow
         );
+    }
+
+    #[test]
+    fn window_titles_are_matched_as_case_insensitive_substrings() {
+        let eng = PrivacyEngine::new(&[]).with_excluded_titles(&[
+            "Online Banking".into(),
+            "   ".into(),
+            "PayPal".into(),
+        ]);
+        assert_eq!(
+            eng.evaluate_title(Some("Online banking — Mozilla Firefox")),
+            Verdict::RejectWindowTitle
+        );
+        assert_eq!(
+            eng.evaluate_title(Some("paypal.com")),
+            Verdict::RejectWindowTitle
+        );
+        assert_eq!(eng.evaluate_title(Some("Weather")), Verdict::Allow);
+        assert_eq!(eng.evaluate_title(None), Verdict::Allow);
+        let none = PrivacyEngine::new(&[]);
+        assert_eq!(none.evaluate_title(Some("Online Banking")), Verdict::Allow);
     }
 }

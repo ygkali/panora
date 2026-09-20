@@ -85,6 +85,14 @@ real-machine verification in `docs/RELEASING.md` is done.
   or shows as a QR code for a phone, a colour copies as hex, `rgb()` or
   `hsl()`, a copied file list opens its folder, and an image saves to a
   file and shows its pixel size.
+- `privacy.excluded_window_titles`: phrases that keep a copy out of the
+  history while the focused window's title contains one (for banking
+  tabs and the like). X11 reads `_NET_WM_NAME`; the GNOME extension sends
+  the title with a new `PushManyFrom` call and falls back to `PushMany`
+  on an older daemon. The title is judged and dropped, never stored.
+- `history.max_images` (200) caps the image entries kept.
+- The popup no longer rebuilds its list when a revision bump changed
+  nothing visible.
 - Recording pauses while the session is locked (`org.gnome.ScreenSaver` /
   `org.freedesktop.ScreenSaver` `ActiveChanged`); `panora-cli status` shows
   `locked`.

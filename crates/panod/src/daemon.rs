@@ -414,6 +414,17 @@ impl Daemon {
             debug!(?verdict, "content rejected by privacy policy");
             return;
         }
+        // The focused window's title, when the backend knows it, is judged
+        // here too and then forgotten.
+        let title_verdict = self
+            .privacy
+            .read()
+            .map(|p| p.evaluate_title(event.source_title.as_deref()))
+            .unwrap_or(panora_core::privacy::Verdict::RejectPrivateMode);
+        if !title_verdict.is_allowed() {
+            debug!(?title_verdict, "content rejected by the window title list");
+            return;
+        }
 
         let limit = self.config().history.max_mime_bytes;
         let mut payloads: Vec<MimePayload> = Vec::new();
@@ -543,7 +554,7 @@ impl Daemon {
     /// has already read a payload because Mutter requires it, so this
     /// method immediately re-applies the same TARGETS-first privacy
     /// policy before any storage operation.
-    pub async fn handle_gnome_data(&self, data: ClipboardData) {
+    pub async fn handle_gnome_data(&self, data: ClipboardData, window_title: Option<String>) {
         if !self.backend.capabilities().needs_bridge {
             // A native data-control backend already captured this change
             // with every format; storing the single bridge payload too would
@@ -568,6 +579,15 @@ impl Daemon {
             .unwrap_or(panora_core::privacy::Verdict::RejectPrivateMode);
         if !verdict.is_allowed() {
             debug!(?verdict, "GNOME bridge content rejected by privacy policy");
+            return;
+        }
+        let title_verdict = self
+            .privacy
+            .read()
+            .map(|p| p.evaluate_title(window_title.as_deref()))
+            .unwrap_or(panora_core::privacy::Verdict::RejectPrivateMode);
+        if !title_verdict.is_allowed() {
+            debug!(?title_verdict, "content rejected by the window title list");
             return;
         }
 
@@ -1027,7 +1047,9 @@ fn privacy_engine_for(config: &Config) -> PrivacyEngine {
             ContentFilters::default()
         }
     };
-    PrivacyEngine::new(&config.privacy.excluded_apps).with_filters(filters)
+    PrivacyEngine::new(&config.privacy.excluded_apps)
+        .with_filters(filters)
+        .with_excluded_titles(&config.privacy.excluded_window_titles)
 }
 
 /// Characters of text indexed for search beyond the preview.
@@ -1759,6 +1781,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn excluded_window_titles_keep_the_copy_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let (daemon, backend) = test_daemon(&dir);
+        let mut config = Config::default();
+        config.privacy.excluded_window_titles = vec!["Online Banking".into()];
+        daemon.apply_config(config).unwrap();
+
+        offer_text(&backend, "IBAN copied from the bank").await;
+        daemon
+            .handle_event(text_event().with_title(Some("Online banking — Firefox".into())))
+            .await;
+        assert!(daemon.query(&QueryFilter::recent(10)).unwrap().is_empty());
+
+        offer_text(&backend, "a recipe").await;
+        daemon
+            .handle_event(text_event().with_title(Some("Recipes — Firefox".into())))
+            .await;
+        assert_eq!(daemon.query(&QueryFilter::recent(10)).unwrap().len(), 1);
+
+        // No title known (plain Wayland): the gate stays open.
+        offer_text(&backend, "another note").await;
+        daemon.handle_event(text_event()).await;
+        assert_eq!(daemon.query(&QueryFilter::recent(10)).unwrap().len(), 2);
+    }
+
+    #[tokio::test]
     async fn maintenance_removes_orphaned_blobs_only() {
         let dir = tempfile::tempdir().unwrap();
         let (daemon, backend) = test_daemon(&dir);
@@ -2360,10 +2408,10 @@ mod tests {
         );
 
         daemon
-            .handle_gnome_data(bridge_push("first", Some("firefox.desktop")))
+            .handle_gnome_data(bridge_push("first", Some("firefox.desktop")), None)
             .await;
         daemon
-            .handle_gnome_data(bridge_push("second", Some("firefox.desktop")))
+            .handle_gnome_data(bridge_push("second", Some("firefox.desktop")), None)
             .await;
         assert_eq!(daemon.db().count().unwrap(), 2);
         let first = daemon.query(&QueryFilter::recent(10)).unwrap()[1].id;
@@ -2371,20 +2419,24 @@ mod tests {
         // Recall "first": the extension sees the clipboard change and pushes
         // the very same bytes back. That must not create a third entry.
         daemon.recall(first, false, None).await.unwrap();
-        daemon.handle_gnome_data(bridge_push("first", None)).await;
+        daemon
+            .handle_gnome_data(bridge_push("first", None), None)
+            .await;
         assert_eq!(daemon.db().count().unwrap(), 2);
         assert_eq!(daemon.query(&QueryFilter::recent(1)).unwrap()[0].id, first);
 
         // A genuinely new copy right after the recall is still recorded.
-        daemon.handle_gnome_data(bridge_push("third", None)).await;
+        daemon
+            .handle_gnome_data(bridge_push("third", None), None)
+            .await;
         assert_eq!(daemon.db().count().unwrap(), 3);
 
         // Password managers are filtered by their desktop id too.
         daemon
-            .handle_gnome_data(bridge_push(
-                "hunter2",
-                Some("org.keepassxc.KeePassXC.desktop"),
-            ))
+            .handle_gnome_data(
+                bridge_push("hunter2", Some("org.keepassxc.KeePassXC.desktop")),
+                None,
+            )
             .await;
         assert_eq!(daemon.db().count().unwrap(), 3);
     }
@@ -2394,12 +2446,15 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (daemon, _backend) = test_daemon(&dir);
         daemon
-            .handle_gnome_data(ClipboardData {
-                selection: Selection::Clipboard,
-                payloads: vec![MimePayload::new("text/plain", "from shell")],
-                offered_mimes: vec!["text/plain".into()],
-                source_app: None,
-            })
+            .handle_gnome_data(
+                ClipboardData {
+                    selection: Selection::Clipboard,
+                    payloads: vec![MimePayload::new("text/plain", "from shell")],
+                    offered_mimes: vec!["text/plain".into()],
+                    source_app: None,
+                },
+                None,
+            )
             .await;
         assert_eq!(daemon.db().count().unwrap(), 0);
     }

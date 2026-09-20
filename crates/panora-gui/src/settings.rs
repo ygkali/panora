@@ -248,6 +248,42 @@ pub fn show(ui: &Rc<Ui>) {
     patterns_group.add(&pattern_list);
     page.add(&patterns_group);
 
+    let titles_group = adw::PreferencesGroup::builder()
+        .title(s.settings_excluded_titles)
+        .description(s.settings_excluded_titles_sub)
+        .build();
+    let titles: Rc<RefCell<Vec<String>>> =
+        Rc::new(RefCell::new(config.privacy.excluded_window_titles.clone()));
+    let title_list = gtk::ListBox::new();
+    title_list.add_css_class("boxed-list");
+    title_list.set_selection_mode(gtk::SelectionMode::None);
+    rebuild_list(&title_list, &titles, s.settings_excluded_remove);
+    let title_row = adw::EntryRow::builder()
+        .title(s.settings_excluded_title_placeholder)
+        .show_apply_button(true)
+        .build();
+    {
+        let titles = titles.clone();
+        let title_list = title_list.clone();
+        let remove_label = s.settings_excluded_remove;
+        title_row.connect_apply(move |row| {
+            let phrase = row.text().trim().to_string();
+            if phrase.is_empty() || phrase.chars().count() > 256 {
+                return;
+            }
+            let mut list = titles.borrow_mut();
+            if !list.contains(&phrase) && list.len() < 64 {
+                list.push(phrase);
+            }
+            drop(list);
+            row.set_text("");
+            rebuild_list(&title_list, &titles, remove_label);
+        });
+    }
+    titles_group.add(&title_row);
+    titles_group.add(&title_list);
+    page.add(&titles_group);
+
     // --- interface ---------------------------------------------------
     let interface = adw::PreferencesGroup::builder()
         .title(s.settings_interface)
@@ -354,6 +390,7 @@ pub fn show(ui: &Rc<Ui>) {
         next.privacy.min_text_length = min_text_length.value().round() as usize;
         next.privacy.ignore_whitespace_only = ignore_whitespace.is_active();
         next.privacy.ignore_patterns = patterns.borrow().clone();
+        next.privacy.excluded_window_titles = titles.borrow().clone();
         next.privacy.capture_kinds = selected_kinds(&kind_switches);
         next.privacy.sensitive_policy = SENSITIVE_POLICIES
             [sensitive_policy.selected() as usize % SENSITIVE_POLICIES.len()]

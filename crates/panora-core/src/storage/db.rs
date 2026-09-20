@@ -988,6 +988,24 @@ impl Database {
         Ok(evicted)
     }
 
+    /// Evict the oldest unpinned entries of one kind beyond `max`; no undo
+    /// window, like the other retention rules.
+    pub fn enforce_kind_limit(&self, kind: ContentKind, max: usize) -> Result<Vec<i64>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id FROM entries
+             WHERE deleted = 0 AND pinned = 0 AND kind = ?1
+             ORDER BY last_seen_at DESC, id DESC
+             LIMIT -1 OFFSET ?2",
+        )?;
+        let ids: Vec<i64> = stmt
+            .query_map(params![kind.as_str(), max as i64], |row| row.get(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        for &id in &ids {
+            self.tombstone(id, 0)?;
+        }
+        Ok(ids)
+    }
+
     /// Every blob reference any row (live or tombstoned) still holds.
     pub fn referenced_blobs(&self) -> Result<std::collections::HashSet<String>> {
         let mut stmt = self
@@ -1750,6 +1768,46 @@ mod lifecycle_tests {
         assert_eq!(ids("before:2026-09-01"), vec![before]);
         assert_eq!(ids("after:2026-09-01"), vec![after]);
         assert_eq!(ids("after:2026-09-01 before:2026-09-02"), vec![after]);
+    }
+
+    #[test]
+    fn image_cap_keeps_the_newest_images_and_leaves_text_alone() {
+        let db = Database::open_in_memory(Cipher::new(&MasterKey::generate())).unwrap();
+        let insert = |preview: &str, kind: ContentKind, ts: i64| -> i64 {
+            let hash = crate::storage::crypto::content_hash(preview.as_bytes());
+            db.upsert_entry(
+                &hash,
+                preview,
+                kind,
+                "image/png",
+                1,
+                None,
+                Selection::Clipboard,
+                ts,
+                "dev",
+                ts,
+            )
+            .unwrap()
+        };
+        let oldest = insert("[image 1]", ContentKind::Image, 1);
+        let middle = insert("[image 2]", ContentKind::Image, 2);
+        let newest = insert("[image 3]", ContentKind::Image, 3);
+        let text = insert("a note", ContentKind::Text, 0);
+        assert_eq!(
+            db.enforce_kind_limit(ContentKind::Image, 2).unwrap(),
+            vec![oldest]
+        );
+        assert!(db.get(oldest).unwrap().deleted);
+        assert!(!db.get(middle).unwrap().deleted);
+        assert!(!db.get(newest).unwrap().deleted);
+        assert!(
+            !db.get(text).unwrap().deleted,
+            "other kinds are not counted"
+        );
+        assert!(db
+            .enforce_kind_limit(ContentKind::Image, 2)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

@@ -145,10 +145,12 @@ max_mime_bytes = 10485760
 persist_on_wayland = "auto"   # auto | always | never: re-offer after the source exits
 index_full_text = true        # search matches words beyond the 500-char preview
 max_total_bytes = 536870912   # payload bytes kept; the oldest unpinned entries go first (0 = no limit)
+max_images = 200              # image entries kept, oldest unpinned first (0 = no limit)
 
 [privacy]
 start_private = false
 excluded_apps = ["keepassxc", "bitwarden", "1password", "gnome-secrets"]
+excluded_window_titles = []   # phrases; nothing is recorded while the focused window's title contains one (X11, GNOME)
 min_text_length = 1           # shorter text is not recorded (characters)
 ignore_whitespace_only = true
 ignore_patterns = []          # regexes; matching text is not recorded, e.g. "^\d{16}$"

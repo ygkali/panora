@@ -42,6 +42,9 @@ pub struct HistoryConfig {
     /// unpinned entries go first; pinned entries count but stay. Zero means
     /// no limit.
     pub max_total_bytes: u64,
+    /// Image entries kept; the oldest unpinned images go first. Zero means
+    /// no limit.
+    pub max_images: usize,
 }
 
 impl Default for HistoryConfig {
@@ -54,6 +57,7 @@ impl Default for HistoryConfig {
             persist_on_wayland: "auto".into(),
             index_full_text: true,
             max_total_bytes: 512 * 1024 * 1024,
+            max_images: 200,
         }
     }
 }
@@ -66,6 +70,10 @@ pub struct PrivacyConfig {
     pub start_private: bool,
     /// Source application names that should never be recorded.
     pub excluded_apps: Vec<String>,
+    /// Phrases that keep a copy out of the history while the focused
+    /// window's title contains one (case-insensitive; X11 and the GNOME
+    /// extension report titles). The title itself is never stored.
+    pub excluded_window_titles: Vec<String>,
     /// Text shorter than this many characters (after trimming) is not
     /// recorded; 1 records everything that is not empty.
     pub min_text_length: usize,
@@ -98,6 +106,7 @@ impl Default for PrivacyConfig {
                 "1password".into(),
                 "gnome-secrets".into(),
             ],
+            excluded_window_titles: Vec::new(),
             min_text_length: 1,
             ignore_whitespace_only: true,
             ignore_patterns: Vec::new(),
@@ -245,6 +254,21 @@ impl Config {
         if self.privacy.sensitive_ttl_minutes > 525_600 {
             return Err(Error::Config(
                 "sensitive_ttl_minutes must be at most 525600 (a year)".into(),
+            ));
+        }
+        if self.privacy.excluded_window_titles.len() > 64 {
+            return Err(Error::Config(
+                "at most 64 excluded_window_titles are allowed".into(),
+            ));
+        }
+        if self
+            .privacy
+            .excluded_window_titles
+            .iter()
+            .any(|t| t.chars().count() > 256)
+        {
+            return Err(Error::Config(
+                "excluded_window_titles entries must be at most 256 characters".into(),
             ));
         }
         if self.privacy.excluded_apps.len() > 256 {

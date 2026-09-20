@@ -34,6 +34,9 @@ pub struct ClipboardEvent {
     pub offered_mimes: Vec<String>,
     /// Best-effort source application name.
     pub source_app: Option<String>,
+    /// Title of the focused window at the time of the copy, for the
+    /// `excluded_window_titles` gate. Judged and dropped; never stored.
+    pub source_title: Option<String>,
     /// Change or loss of the owner.
     pub kind: EventKind,
 }
@@ -49,6 +52,7 @@ impl ClipboardEvent {
             selection,
             offered_mimes,
             source_app,
+            source_title: None,
             kind: EventKind::Changed,
         }
     }
@@ -59,8 +63,15 @@ impl ClipboardEvent {
             selection,
             offered_mimes: Vec::new(),
             source_app: None,
+            source_title: None,
             kind: EventKind::OwnerGone,
         }
+    }
+
+    /// Attach the focused window's title (blank counts as unknown).
+    pub fn with_title(mut self, title: Option<String>) -> Self {
+        self.source_title = title.filter(|t| !t.trim().is_empty());
+        self
     }
 }
 

@@ -57,6 +57,7 @@ x11rb::atom_manager! {
         TEXT,
         STRING,
         _NET_ACTIVE_WINDOW,
+        _NET_WM_NAME,
         _PANORA_OWNER,
         _PANORA_XFER,
     }
@@ -503,6 +504,7 @@ impl Watcher {
                     let source_app = focused_app(&self.client);
                     debug!(?source_app, count = offered.len(), "x11 clipboard change");
                     ClipboardEvent::changed(self.selection, offered, source_app)
+                        .with_title(focused_title(&self.client))
                 }
                 xfixes::SelectionEvent::SELECTION_WINDOW_DESTROY
                 | xfixes::SelectionEvent::SELECTION_CLIENT_CLOSE => {
@@ -994,6 +996,49 @@ fn focused_app(client: &Client) -> Option<String> {
             break;
         }
         window = tree.parent;
+    }
+    None
+}
+
+/// Title of the focused top-level (`_NET_WM_NAME`, else `WM_NAME`), for
+/// the `excluded_window_titles` gate. Judged by the daemon and dropped;
+/// like the application name, a lookup failure never blocks a capture.
+fn focused_title(client: &Client) -> Option<String> {
+    let conn = &client.conn;
+    let root = client.root;
+    let mut window = active_window(conn, root, client.atoms._NET_ACTIVE_WINDOW)
+        .or_else(|| conn.get_input_focus().ok()?.reply().ok().map(|r| r.focus))?;
+    for _ in 0..WM_CLASS_DEPTH {
+        if let Some(title) = window_title(conn, window, &client.atoms) {
+            return Some(title);
+        }
+        let tree = conn.query_tree(window).ok()?.reply().ok()?;
+        if tree.parent == x11rb::NONE || tree.parent == window || window == root {
+            break;
+        }
+        window = tree.parent;
+    }
+    None
+}
+
+fn window_title(conn: &RustConnection, window: Window, atoms: &Atoms) -> Option<String> {
+    let candidates: [(Atom, Atom); 2] = [
+        (atoms._NET_WM_NAME, atoms.UTF8_STRING),
+        (AtomEnum::WM_NAME.into(), AtomEnum::STRING.into()),
+    ];
+    for (property, kind) in candidates {
+        let reply = conn
+            .get_property(false, window, property, kind, 0, 1024)
+            .ok()?
+            .reply()
+            .ok()?;
+        if reply.value.is_empty() {
+            continue;
+        }
+        let title = String::from_utf8_lossy(&reply.value).trim().to_string();
+        if !title.is_empty() {
+            return Some(title);
+        }
     }
     None
 }

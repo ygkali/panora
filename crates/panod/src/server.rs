@@ -264,8 +264,8 @@ async fn run_gnome_bridge(daemon: Rc<Daemon>) -> anyhow::Result<()> {
         .build()
         .await?;
     info!("GNOME Shell bridge D-Bus service ready");
-    while let Some(data) = rx.recv().await {
-        daemon.handle_gnome_data(data).await;
+    while let Some((data, window_title)) = rx.recv().await {
+        daemon.handle_gnome_data(data, window_title).await;
     }
     drop(connection);
     Ok(())

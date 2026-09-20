@@ -629,9 +629,42 @@ export default class PanoraExtension extends Extension {
         readNext();
     }
 
+    // PushManyFrom(mimes: as, payloads: a(say), source_app: s, window_title: s):
+    // the focused window's title lets the daemon honour its excluded-title
+    // list; it is judged there and never stored. Falls back to PushMany()
+    // and then Push() for daemons that predate each.
+    _pushMany(mimes, payloads) {
+        if (!this._bus)
+            return;
+        const variant = new GLib.Variant('(asa(say)ss)',
+            [mimes, payloads, this._sourceApp(), this._windowTitle()]);
+        this._bus.call(
+            BRIDGE_NAME,
+            BRIDGE_PATH,
+            BRIDGE_NAME,
+            'PushManyFrom',
+            variant,
+            null,
+            Gio.DBusCallFlags.NO_AUTO_START,
+            CALL_TIMEOUT_MS,
+            null,
+            (connection, result) => {
+                try {
+                    connection.call_finish(result);
+                } catch (error) {
+                    if (this._isUnknownMethodError(error))
+                        this._pushManyLegacy(mimes, payloads);
+                    // Otherwise the daemon is down, paused or busy. Dropping
+                    // the event is the correct outcome; the next copy will be
+                    // captured.
+                }
+            }
+        );
+    }
+
     // PushMany(mimes: as, payloads: a(say), source_app: s). Falls back to the
     // single-payload Push() for daemons that predate it.
-    _pushMany(mimes, payloads) {
+    _pushManyLegacy(mimes, payloads) {
         if (!this._bus)
             return;
         const variant = new GLib.Variant('(asa(say)s)', [mimes, payloads, this._sourceApp()]);
@@ -653,9 +686,6 @@ export default class PanoraExtension extends Extension {
                         const [mime, data] = payloads[0];
                         this._push(mimes, mime, data);
                     }
-                    // Otherwise the daemon is down, paused or busy. Dropping
-                    // the event is the correct outcome; the next copy will be
-                    // captured.
                 }
             }
         );
@@ -701,5 +731,10 @@ export default class PanoraExtension extends Extension {
             return '';
         const app = Shell.WindowTracker.get_default().get_window_app(window);
         return app ? app.get_id() : '';
+    }
+
+    _windowTitle() {
+        const window = global.display.focus_window;
+        return window ? (window.get_title() || '') : '';
     }
 }

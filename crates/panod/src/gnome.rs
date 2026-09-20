@@ -43,7 +43,7 @@ const ACTIVATE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(25)
 
 /// Small D-Bus endpoint used by the GNOME Shell extension.
 pub struct GnomeBridge {
-    sender: Mutex<mpsc::Sender<ClipboardData>>,
+    sender: Mutex<mpsc::Sender<(ClipboardData, Option<String>)>>,
     needs_bridge: bool,
     /// Unique bus name of the GNOME Shell connection, from the last
     /// successful owner lookup. See `ensure_from_shell`.
@@ -52,7 +52,10 @@ pub struct GnomeBridge {
 
 impl GnomeBridge {
     /// Create a bridge and bounded event receiver.
-    pub fn new(capacity: usize, needs_bridge: bool) -> (Self, mpsc::Receiver<ClipboardData>) {
+    pub fn new(
+        capacity: usize,
+        needs_bridge: bool,
+    ) -> (Self, mpsc::Receiver<(ClipboardData, Option<String>)>) {
         let (sender, receiver) = mpsc::channel(capacity);
         (
             Self {
@@ -128,14 +131,18 @@ impl GnomeBridge {
         Ok(())
     }
 
-    async fn forward(&self, data: ClipboardData) -> zbus::fdo::Result<()> {
+    async fn forward(
+        &self,
+        data: ClipboardData,
+        window_title: Option<String>,
+    ) -> zbus::fdo::Result<()> {
         let sender = self
             .sender
             .lock()
             .map_err(|_| zbus::fdo::Error::Failed("GNOME bridge channel lock poisoned".into()))?
             .clone();
         sender
-            .send(data)
+            .send((data, window_title))
             .await
             .map_err(|_| zbus::fdo::Error::Failed("daemon bridge receiver stopped".into()))
     }
@@ -143,6 +150,8 @@ impl GnomeBridge {
 
 /// Upper bound on formats per `PushMany` call (text, html, uri-list, …).
 const MAX_BRIDGE_PAYLOADS: usize = 8;
+/// Longest window title the bridge keeps for the title gate.
+const MAX_TITLE_CHARS: usize = 256;
 
 #[zbus::interface(name = "io.github.ygkali.Panora.GnomeBridge1")]
 impl GnomeBridge {
@@ -171,7 +180,7 @@ impl GnomeBridge {
                 Some(source_app)
             },
         };
-        self.forward(data).await
+        self.forward(data, None).await
     }
 
     /// Receive every format of one clipboard change at once (text + HTML,
@@ -182,6 +191,29 @@ impl GnomeBridge {
         mimes: Vec<String>,
         payloads: Vec<(String, Vec<u8>)>,
         source_app: String,
+        #[zbus(connection)] connection: &zbus::Connection,
+        #[zbus(header)] message: zbus::message::Header<'_>,
+    ) -> zbus::fdo::Result<()> {
+        self.push_many_from(
+            mimes,
+            payloads,
+            source_app,
+            String::new(),
+            connection,
+            message,
+        )
+        .await
+    }
+
+    /// `PushMany` plus the focused window's title, which the daemon judges
+    /// against `excluded_window_titles` and never stores. Newer extensions
+    /// call this and fall back to `PushMany` on an older daemon.
+    async fn push_many_from(
+        &self,
+        mimes: Vec<String>,
+        payloads: Vec<(String, Vec<u8>)>,
+        source_app: String,
+        window_title: String,
         #[zbus(connection)] connection: &zbus::Connection,
         #[zbus(header)] message: zbus::message::Header<'_>,
     ) -> zbus::fdo::Result<()> {
@@ -209,7 +241,9 @@ impl GnomeBridge {
                 Some(source_app)
             },
         };
-        self.forward(data).await
+        let title = window_title.trim();
+        let title = (!title.is_empty()).then(|| title.chars().take(MAX_TITLE_CHARS).collect());
+        self.forward(data, title).await
     }
 
     /// Protocol version, so the extension can detect an incompatible daemon.
