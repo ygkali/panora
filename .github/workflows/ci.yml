@@ -181,7 +181,7 @@ jobs:
           shellcheck -S warning install.sh uninstall.sh test-local.sh KUR.sh TEST.sh KALDIR.sh \
             packaging/build-deb.sh packaging/make-kit.sh \
             scripts/panora-doctor scripts/e2e-test.sh scripts/security-check.sh scripts/keyring-test.sh \
-            packaging/apt-repo.sh scripts/a11y-check.sh
+            packaging/apt-repo.sh scripts/a11y-check.sh scripts/upgrade-test.sh
       - name: bash -n
         run: |
           for f in install.sh uninstall.sh test-local.sh packaging/*.sh scripts/panora-doctor scripts/*.sh; do
@@ -190,6 +190,39 @@ jobs:
       - name: Scripts stay LF
         run: |
           ! grep -rlI $'\r' install.sh uninstall.sh test-local.sh packaging scripts gnome-extension
+
+  upgrade:
+    name: Upgrade from the previous release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev xvfb dbus-x11             gnome-keyring libsecret-1-0
+      - name: Fetch the newest released .deb, if there is one
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/previous"
+          tag="$(gh release list --limit 1 --json tagName --jq '.[0].tagName' || true)"
+          if [ -z "$tag" ]; then
+            echo "no release yet" >&2
+            exit 0
+          fi
+          gh release download "$tag" --dir "$RUNNER_TEMP/previous"             --pattern 'panora_*_amd64.deb' || true
+      - name: Old history opens, migrates and reads back under this build
+        run: |
+          deb="$(ls "$RUNNER_TEMP"/previous/panora_*_amd64.deb 2>/dev/null | head -n1 || true)"
+          if [ -n "$deb" ]; then
+            ./scripts/upgrade-test.sh --deb "$deb"
+          else
+            ./scripts/upgrade-test.sh
+          fi
 
   extension-security:
     name: GNOME Extension Security

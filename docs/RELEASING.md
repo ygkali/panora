@@ -33,11 +33,17 @@ needs them; `docs/COMPATIBILITY.md` lists what each version accepts.
    --all-targets -- -D warnings`, `cargo test --workspace`, the Xvfb X11
    tests, `scripts/keyring-test.sh`, `shellcheck`, `./packaging/build-deb.sh`
    + `lintian --fail-on error,warning dist/*.deb`.
-7. **Real machine check** (`R-04`): install the package on the target desktop
+7. **Upgrade path** (`PKG-10`): `scripts/upgrade-test.sh --deb <previous
+   release .deb>` (or `--from vX.Y.Z-1`) records entries with the old daemon
+   and reopens the same data directory with this build: the entries have to
+   come back unchanged, the schema has to reach the version this build
+   targets and the pre-migration `history.db.bak-vN` copy has to be there.
+   CI runs it against the newest published `.deb`.
+8. **Real machine check** (`R-04`): install the package on the target desktop
    (Zorin OS 18 / Ubuntu 24.04 GNOME Wayland, plus one X11 session), run
    `panora-doctor` and `scripts/e2e-test.sh`, try Super+V, recall, instant
    paste, settings. Record the outcome in `docs/verification/`.
-8. Push `main` and wait for CI, including the arm64 package job.
+9. Push `main` and wait for CI, including the arm64 package job.
 
 ## Tagging
 

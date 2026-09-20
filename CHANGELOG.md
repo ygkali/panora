@@ -104,6 +104,11 @@ real-machine verification in `docs/RELEASING.md` is done.
 - On wlroots compositors and KWin the source application of a copy is
   now known (`wlr-foreign-toplevel-management`): the excluded-application
   and window-title lists work there, and `app:` searches match.
+- `scripts/upgrade-test.sh` proves the upgrade path: the previous release
+  writes a history in a scratch directory, this build reopens it and the
+  entries, the search index, the migrated schema version and the
+  pre-migration backup are all checked. CI runs it against the newest
+  published `.deb`.
 - The GNOME Shell extension is linted: `gnome-extension/eslint.config.mjs`
   declares the GJS globals and forbids `eval`, implicit globals and
   synchronous subprocesses in the Shell; CI runs ESLint over the extension.
