@@ -1388,9 +1388,16 @@ pub struct DecodedImage {
     has_alpha: bool,
     stride: usize,
     pixels: glib::Bytes,
+    /// Pixel size of the image as stored, before scaling.
+    original: (i32, i32),
 }
 
 impl DecodedImage {
+    /// Width and height of the original image in pixels.
+    pub fn size(&self) -> (i32, i32) {
+        self.original
+    }
+
     /// The texture for `gtk::Picture`; call on the GTK thread.
     pub fn texture(&self) -> gdk::Texture {
         let format = if self.has_alpha {
@@ -1406,9 +1413,12 @@ impl DecodedImage {
 /// a worker thread: the loader lives and dies there.
 pub fn decode_scaled(bytes: &[u8], width: i32, height: i32) -> Option<DecodedImage> {
     let loader = PixbufLoader::new();
+    let original = Rc::new(Cell::new((0, 0)));
     // Scale to fit the box while keeping the aspect ratio; `set_size` alone
     // would stretch the image to exactly width x height.
+    let seen = original.clone();
     loader.connect_size_prepared(move |loader, w, h| {
+        seen.set((w, h));
         if w <= 0 || h <= 0 {
             return;
         }
@@ -1433,6 +1443,7 @@ pub fn decode_scaled(bytes: &[u8], width: i32, height: i32) -> Option<DecodedIma
         has_alpha: pixbuf.has_alpha(),
         stride: usize::try_from(pixbuf.rowstride()).ok()?,
         pixels: pixbuf.read_pixel_bytes(),
+        original: original.get(),
     })
 }
 

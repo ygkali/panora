@@ -81,6 +81,10 @@ real-machine verification in `docs/RELEASING.md` is done.
   `app:`, `pinned:`, `before:`/`after:` (a day or `7d`-style spans) and
   `re:` for a regular expression over the preview and the indexed text.
   Matches are shown in bold in the popup.
+- The details view acts on what the entry is: a link opens in the browser
+  or shows as a QR code for a phone, a colour copies as hex, `rgb()` or
+  `hsl()`, a copied file list opens its folder, and an image saves to a
+  file and shows its pixel size.
 - Recording pauses while the session is locked (`org.gnome.ScreenSaver` /
   `org.freedesktop.ScreenSaver` `ActiveChanged`); `panora-cli status` shows
   `locked`.
