@@ -1,0 +1,576 @@
+<!DOCTYPE HTML>
+<html lang="en" class="rust sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Changelog - Panora</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="Encrypted clipboard history for the GNOME desktop">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="favicon-8114d1fc.png">
+        <link rel="stylesheet" href="css/variables-8adf115d.css">
+        <link rel="stylesheet" href="css/general-e96d0476.css">
+        <link rel="stylesheet" href="css/chrome-d279d366.css">
+        <link rel="stylesheet" href="css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "";
+            const default_light_theme = "rust";
+            const default_dark_theme = "ayu";
+            window.path_to_searchindex_js = "searchindex-9653446b.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc-da722cf1.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('rust')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Panora</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/ygkali/panora" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/ygkali/panora/edit/main/docs/book/src/changelog.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                            <span class=fa-svg id="git-edit-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M421.7 220.3l-11.3 11.3-22.6 22.6-205 205c-6.6 6.6-14.8 11.5-23.8 14.1L30.8 511c-8.4 2.5-17.5 .2-23.7-6.1S-1.5 489.7 1 481.2L38.7 353.1c2.6-9 7.5-17.2 14.1-23.8l205-205 22.6-22.6 11.3-11.3 33.9 33.9 62.1 62.1 33.9 33.9zM96 353.9l-9.3 9.3c-.9 .9-1.6 2.1-2 3.4l-25.3 86 86-25.3c1.3-.4 2.5-1.1 3.4-2l9.3-9.3H112c-8.8 0-16-7.2-16-16V353.9zM453.3 19.3l39.4 39.4c25 25 25 65.5 0 90.5l-14.5 14.5-22.6 22.6-11.3 11.3-33.9-33.9-62.1-62.1L314.3 67.7l11.3-11.3 22.6-22.6 14.5-14.5c25-25 65.5-25 90.5 0z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="changelog"><a class="header" href="#changelog">Changelog</a></h1>
+<p>All notable changes to Panora are recorded here. The format follows
+<a href="https://keepachangelog.com/en/1.1/">Keep a Changelog</a> and the project uses
+semantic versioning (see <code>docs/RELEASING.md</code>).</p>
+<h2 id="unreleased"><a class="header" href="#unreleased"><a href="https://github.com/ygkali/panora/compare/v1.2.0...HEAD">Unreleased</a></a></h2>
+<p>Everything below ships as <strong>1.3.0</strong>, the first public release, once the
+real-machine verification in <code>docs/RELEASING.md</code> is done.</p>
+<h3 id="added"><a class="header" href="#added">Added</a></h3>
+<ul>
+<li>Popup: the panel closes when focus moves to another window (Win+V
+behaviour, <code>ui.close_on_focus_loss</code>), <code>Shift+Enter</code> puts only the plain
+text on the clipboard, <code>Ctrl+1</code>…<code>Ctrl+9</code> pick the first nine rows (which
+show their number), <code>Home</code>/<code>End</code>/<code>PgUp</code>/<code>PgDn</code> jump in the list, typing
+anywhere starts a search, and deleting shows a toast with <strong>Undo</strong>.</li>
+<li>Undo for deletions: a deleted entry keeps its tombstone and blobs for 30
+seconds; <code>panora-cli restore &lt;id&gt;</code> and the toast bring it back. Retention
+evictions and <em>clear</em> stay final.</li>
+<li><code>panora-cli store [FILE]</code> records text from a file or standard input as a
+new entry (through the same privacy gate) and puts it on the clipboard;
+<code>panora-cli pick</code> and <code>list/search --format TEMPLATE</code> print one line per
+entry for dmenu/rofi/fuzzel style pickers.</li>
+<li>Clipboard persistence on Wayland: when the source application exits on
+a compositor that drops the selection (Sway, Hyprland, other wlroots
+desktops), panod re-offers the entry it just recorded, as it always did
+on X11. Mutter and KWin are detected from their globals and left alone;
+<code>history.persist_on_wayland = auto | always | never</code> overrides.</li>
+<li>Image entries carry a PNG thumbnail (longest side 320 px, made on
+capture or on first request) so the popup no longer transfers and decodes
+full images per row; thumbnails are never offered on the clipboard.</li>
+<li><code>scripts/wayland-e2e.sh</code> runs panod against a headless sway compositor
+with a throwaway keyring and checks capture, recall, HTML, private mode,
+persistence and store/restore through wl-copy/wl-paste; CI runs it.</li>
+<li>Instant paste sends <code>Ctrl+Shift+V</code> when the focused window is a terminal
+emulator (X11 and the GNOME extension; <code>panora_core::apps</code> knows the
+common ones).</li>
+<li>Content filters under <code>[privacy]</code>: <code>min_text_length</code>,
+<code>ignore_whitespace_only</code>, <code>ignore_patterns</code> (regular expressions matched
+against the trimmed text, at most 32 of them) and <code>capture_kinds</code> decide
+what is recorded once the text is known; they also guard <code>panora-cli store</code> and the GNOME bridge.</li>
+<li>Search covers the whole text, not only the 500-character preview: text
+entries are indexed up to 64 K characters (<code>history.index_full_text</code>,
+on by default) and the index folds case and diacritics, so <code>istanbul</code>
+finds <code>İstanbul</code>. Existing databases are migrated to schema 3 with a
+backup next to them; older entries stay searchable by their preview.</li>
+<li><code>panora-doctor --report[=FILE]</code> writes a diagnostic file for bug reports:
+the checks, versions, session variables, daemon status, unit state, the
+panod journal, the extension state and the configuration, with the home
+directory, user name and host name replaced, <code>ignore_patterns</code> left out
+and no clipboard content.</li>
+<li><code>Status</code> carries <code>health</code> findings with stable codes. The first one,
+<code>extension_missing</code>, is set when capture depends on the GNOME Shell
+extension and it is not on the bus: the popup shows a banner with an
+<strong>Enable</strong> button that runs <code>gnome-extensions enable</code>, and
+<code>panora-cli status</code> prints the finding.</li>
+<li>Secrets are recognised and kept short-lived: private key blocks, JWTs,
+tokens with vendor prefixes (GitHub, AWS, Slack, Stripe, Google, …),
+card numbers (Luhn), IBANs (mod 97) and single high-entropy tokens.
+<code>privacy.sensitive_policy</code> decides: <code>mask</code> (default) records the entry
+behind a masked preview and outside the search index, <code>drop</code> never
+records it, <code>store</code> records it as it is. Flagged entries show a lock,
+are still recallable, and are removed after <code>sensitive_ttl_minutes</code>
+(10; pinned entries stay). <code>panora-cli list</code> marks them with <code>!</code> and
+<code>--format</code> gets <code>{sensitive}</code>. The database moves to schema 4.</li>
+<li>A welcome on first run: three pages on the shortcut, the privacy model
+and what this session can do (from the daemon’s capabilities). A
+<code>first-run</code> file next to <code>config.toml</code> records that it was seen.</li>
+<li>Settings: a <strong>System</strong> group with a switch for starting panod with the
+session (<code>systemctl --user enable/disable panod.service</code>) and the space
+the history takes on disk.</li>
+<li><code>history.max_total_bytes</code> (512 MiB) caps the payload bytes kept: the
+oldest unpinned entries go first, pinned entries count but stay.</li>
+<li>Hourly upkeep now also runs <code>PRAGMA optimize</code>, checkpoints the WAL,
+vacuums the database once a quarter of it is free pages, and removes
+blobs no row references (left by a crash between writing a blob and
+recording it) along with stale temporary files.</li>
+<li>Search grammar in the popup and the CLI: <code>"quoted phrases"</code>, <code>kind:</code>,
+<code>app:</code>, <code>pinned:</code>, <code>before:</code>/<code>after:</code> (a day or <code>7d</code>-style spans) and
+<code>re:</code> for a regular expression over the preview and the indexed text.
+Matches are shown in bold in the popup.</li>
+<li>The details view acts on what the entry is: a link opens in the browser
+or shows as a QR code for a phone, a colour copies as hex, <code>rgb()</code> or
+<code>hsl()</code>, a copied file list opens its folder, and an image saves to a
+file and shows its pixel size.</li>
+<li><code>privacy.excluded_window_titles</code>: phrases that keep a copy out of the
+history while the focused window’s title contains one (for banking
+tabs and the like). X11 reads <code>_NET_WM_NAME</code>; the GNOME extension sends
+the title with a new <code>PushManyFrom</code> call and falls back to <code>PushMany</code>
+on an older daemon. The title is judged and dropped, never stored.</li>
+<li><code>history.max_images</code> (200) caps the image entries kept.</li>
+<li>The popup no longer rebuilds its list when a revision bump changed
+nothing visible.</li>
+<li>The popup opens where the pointer is: on X11 the window is moved next to
+the pointer once mapped, on GNOME the Shell extension moves it after
+activation (<code>move-to-pointer</code> setting), and on Sway, Hyprland and other
+wlroots compositors it becomes a layer-shell overlay anchored to a
+corner (<code>ui.layer_anchor</code>) when the popup is built with the
+<code>layer-shell</code> feature (the library must be linked in, and Ubuntu 24.04
+does not ship it, so the .deb leaves it out). <code>ui.position</code> picks
+pointer or centre.</li>
+<li>On wlroots compositors and KWin the source application of a copy is
+now known (<code>wlr-foreign-toplevel-management</code>): the excluded-application
+and window-title lists work there, and <code>app:</code> searches match.</li>
+<li>The GNOME Shell extension has a preferences page
+(<code>gnome-extensions prefs panora@ygkali.github.io</code>): the Super+V shortcut
+can be recorded by pressing it instead of by editing dconf, and the
+<em>open next to the pointer</em> switch is there too.</li>
+<li><code>docs/launch.md</code> holds the announcement drafts for the first release –
+Show HN, r/linux, r/gnome, GNOME Discourse, Fosstodon, This Week in
+GNOME and the Turkish forums – each one leading with what Panora does
+not do as well as what it does, plus the order to post them in.</li>
+<li>A documentation site built with mdBook (<code>docs/book/</code>, published to
+https://ygkali.github.io/panora/docs/): the user guide, the popup
+shortcuts, the search syntax, a complete <code>config.toml</code> reference, the CLI
+reference and the privacy model, with search across all of it. The
+desktop matrix, troubleshooting, distribution policy, contributing guide
+and changelog are included from their files rather than copied.</li>
+<li>The interface catalogue moved out of <code>i18n.rs</code> and into gettext files:
+<code>po/panora.pot</code> is the template a translator starts from and <code>po/tr.po</code>
+the Turkish catalogue. A build script turns them into the same <code>Strings</code>
+struct as before – no gettext runtime, no behaviour change – and refuses
+a catalogue with a missing, empty or stale entry.</li>
+<li><code>docs/DISTRIBUTION.md</code>: which channels are official, which distributions
+are tested and which are best effort, what the support window is, and what
+a packager has to keep (the user unit, the compiled gschema, the
+hardening). Linked from both READMEs.</li>
+<li>Packaging starting points for other distributions, marked untested and
+outside CI: <code>packaging/aur/PKGBUILD</code> (+ <code>.SRCINFO</code>),
+<code>packaging/nix/flake.nix</code>, <code>packaging/rpm/panora.spec</code>, with
+<code>packaging/README.md</code> saying what is supported and what is not.</li>
+<li><code>scripts/upgrade-test.sh</code> proves the upgrade path: the previous release
+writes a history in a scratch directory, this build reopens it and the
+entries, the search index, the migrated schema version and the
+pre-migration backup are all checked. CI runs it against the newest
+published <code>.deb</code>.</li>
+<li>The GNOME Shell extension is linted: <code>gnome-extension/eslint.config.mjs</code>
+declares the GJS globals and forbids <code>eval</code>, implicit globals and
+synchronous subprocesses in the Shell; CI runs ESLint over the extension.</li>
+<li>A signed APT repository on GitHub Pages: publishing a release adds its
+<code>.deb</code> files to <code>https://ygkali.github.io/panora/apt</code> (suite <code>stable</code>,
+amd64 and arm64), so updates arrive with <code>apt upgrade</code>.
+<code>packaging/apt-repo.sh</code> builds the suite; <code>docs/RELEASING.md</code> has the
+key setup.</li>
+<li>Recording pauses while the session is locked (<code>org.gnome.ScreenSaver</code> /
+<code>org.freedesktop.ScreenSaver</code> <code>ActiveChanged</code>); <code>panora-cli status</code> shows
+<code>locked</code>.</li>
+<li>panod marks itself non-dumpable (<code>PR_SET_DUMPABLE=0</code>) and the unit adds
+<code>LimitCORE=0</code>, an empty capability set, <code>ProtectProc=invisible</code>,
+<code>PrivateDevices</code>, <code>ProtectClock</code>, <code>ProtectHostname</code>, <code>UMask=0077</code> and a
+<code>@system-service</code> syscall filter; <code>systemd-analyze security</code> scores it
+1.8 (was 4.x). A test asserts that no clipboard content ever reaches the
+daemon log.</li>
+<li>Application icon (scalable and symbolic), AppStream metadata, man pages
+for every binary and bash/zsh/fish completions, all installed by the
+<code>.deb</code>; the package also carries a DEP-5 <code>copyright</code>, a Debian-format
+changelog, <code>THIRD_PARTY_LICENSES.md</code> and md5sums, and is lintian-clean.</li>
+<li><code>--version</code> for <code>panora-cli</code>, <code>panora-gui</code> and <code>panod</code>; <code>panod --help</code>.</li>
+<li>Schema migration framework for the history database: the stored schema
+version is checked on every start, a newer schema is refused, an older one
+is backed up with <code>VACUUM INTO</code> and migrated step by step, and a damaged
+file fails <code>PRAGMA quick_check</code> instead of half-working.</li>
+<li>Key fingerprint in the database: a history opened with a different master
+key (a reset keyring) is refused with a clear message instead of showing
+<code>[decryption failed]</code> rows.</li>
+<li>Integration tests for the IPC server on a real Unix socket (round trips,
+frame and request limits, peer UID check) and for the Secret Service round
+trip through a throwaway gnome-keyring (<code>scripts/keyring-test.sh</code>).</li>
+<li>CI: MSRV job (Rust 1.85), <code>cargo doc</code> without warnings, shellcheck, keyring
+job, desktop/AppStream validation, lintian, an install smoke test of the
+package, and an arm64 package next to amd64. A tag-triggered release
+workflow builds both packages and the install kit, writes <code>SHA256SUMS</code>
+(minisign-signed when a key is configured) and an SPDX SBOM, and publishes
+the GitHub release with the matching changelog section.</li>
+<li><code>uninstall.sh --yes</code> and <code>--purge-data</code>; <code>scripts/capture-screenshots.sh</code>
+renders the README screenshots from the fixture data under Xvfb.</li>
+<li>English <code>README.md</code>, <code>docs/TROUBLESHOOTING.md</code>, <code>docs/RELEASING.md</code>,
+<code>CONTRIBUTING.md</code>, <code>SECURITY.md</code>, <code>CODE_OF_CONDUCT.md</code>, issue and pull
+request templates, Dependabot, <code>REUSE.toml</code>, <code>AUTHORS.md</code>, and
+<code>docs/ROADMAP.md</code> with every planned task identified.</li>
+</ul>
+<h3 id="changed"><a class="header" href="#changed">Changed</a></h3>
+<ul>
+<li>The popup no longer waits on the daemon: history pages, previews, image
+thumbnails and the details view are fetched and decoded on a worker
+thread and land on the GTK loop when ready, so typing and scrolling stay
+smooth with large images in the list. A page that arrives after the
+query changed is dropped.</li>
+<li>Dependencies: gtk4-rs 0.11 / libadwaita-rs 0.9 (same GTK and libadwaita
+runtime requirements), rusqlite 0.40 with bundled SQLite 3.53 and toml 1.</li>
+<li><strong>Identifiers moved to the GitHub namespace.</strong> Application id
+<code>io.panora.Panora</code> → <code>io.github.ygkali.Panora</code>, bus names
+<code>io.panora.GnomeBridge1</code> / <code>io.panora.GnomeShell1</code> →
+<code>io.github.ygkali.Panora.GnomeBridge1</code> / <code>io.github.ygkali.Panora.GnomeShell1</code>,
+extension UUID <code>panora@panora-clipboard.org</code> → <code>panora@ygkali.github.io</code>,
+package maintainer <code>ygkali &lt;kompansebuyucu@proton.me&gt;</code>. The old names used
+domains the project does not own. Upgrading from 1.2.0 removes the old
+extension directory; enable the new UUID once after logging in again.</li>
+<li>The workspace moved from <code>panora/</code> to the repository root: <code>cargo install --git</code> works and CI no longer needs working-directory overrides.
+<code>KUR.sh</code>, <code>TEST.sh</code> and <code>KALDIR.sh</code> stay as Turkish-named wrappers of
+<code>install.sh</code>, <code>test-local.sh</code> and <code>uninstall.sh</code>.</li>
+<li><code>panora-cli</code> is built on clap: <code>panora-cli &lt;command&gt; --help</code> for every
+command, <code>completions</code>, <code>man</code>, and documented exit statuses (1 daemon
+error, 2 usage, 3 daemon not running, 4 no such entry). <code>list</code>, <code>search</code>,
+<code>copy</code>/<code>recall</code>, <code>preview</code>/<code>show</code>, <code>pin</code>, <code>unpin</code>, <code>delete</code>/<code>rm</code>, <code>clear</code>,
+<code>private on|off</code>, <code>status</code>, <code>toggle</code>, <code>reload</code> and <code>--json</code> work as before;
+<code>status</code> now also prints <code>needs_bridge</code>.</li>
+<li><code>install.sh</code>, <code>uninstall.sh</code>, <code>test-local.sh</code> and <code>panora-doctor</code> speak
+English by default and Turkish when the locale is Turkish
+(<code>LANG</code>/<code>LC_ALL</code>/<code>PANORA_LANG</code>); the doctor’s status labels are
+<code>OK/WARN/ERROR/INFO</code> and its JSON keys never change. <code>scripts/e2e-test.sh</code>
+is English only.</li>
+<li>The popup is a <strong>single-column Win+V style panel</strong> (420×660, minimum
+340×420): the newest entry is the top of a list, Up/Down move one row at a
+time, the 9 px type badge is gone in favour of a type icon + age + size +
+source line under the content, row actions (pin, details, delete) appear
+on hover, keyboard focus or selection while pinned rows always show their
+star, <strong>clear history</strong> moved to the header bar and the filter chips wrap.</li>
+<li>Accessibility: every icon button and history row has a screen-reader
+name, row actions are 28 px (WCAG 2.2 SC 2.5.8), fixed pixel font sizes are
+gone so typography follows the user’s text scale, secondary text contrast
+rose from 0.5 to 0.7 alpha (SC 1.4.11), keyboard focus draws its own ring
+(SC 2.4.7). RTL: alignments use <code>halign: Start</code>, so the layout mirrors.</li>
+<li>The <code>max_mime_bytes</code> ceiling is 40 MiB (was 256 MiB): anything larger
+could be stored but never previewed or exported through the 64 MiB IPC
+reply cap.</li>
+<li>Database schema version 2 adds <code>deleted_at</code>; existing files are backed up
+(<code>history.db.bak-v1</code>) and migrated on the first start.</li>
+<li>The minimum supported Rust is 1.92 (what the dependency tree needs);
+<code>install.sh</code> installs rustup when the system toolchain is older.</li>
+<li>The Debian package <code>Recommends: gnome-keyring | kwalletmanager</code> and
+<code>Suggests: wtype, ydotool, xclip, wl-clipboard</code>.</li>
+<li>Docs: ADR 0001 and 0002 carry addenda for what was never built
+(gtk4-layer-shell, the <code>org.panora.Pano1</code> D-Bus API); <code>docs/benchmark.md</code>
+is a goals-and-method note until the benches exist; 1.0/1.1-era reports
+and test artefacts describing the abandoned arboard/wl-clipboard design
+were removed.</li>
+</ul>
+<h3 id="fixed"><a class="header" href="#fixed">Fixed</a></h3>
+<ul>
+<li>Switching <code>history.record_primary</code> in the settings needed a daemon
+restart; the capture loop now opens or drops the PRIMARY watch on reload.</li>
+<li>The GNOME bridge validates its caller: <code>Push</code>/<code>PushMany</code> are accepted only
+from the owner of <code>org.gnome.Shell</code>, so another session-bus process (a
+Flatpak with only <code>--socket=session-bus</code>, for instance) can no longer
+inject fabricated entries. The bus signature is unchanged.</li>
+<li>New backend capability <code>source_app</code>: <code>panora-cli status</code> shows it and the
+settings dialog says on plain Wayland sessions that the exclusion list
+cannot fire there (the data-control protocols expose no client identity).</li>
+<li><code>Cargo.toml</code>, <code>panod.service</code> and the package <code>Homepage</code> point at the real
+repository.</li>
+</ul>
+<h2 id="120---2026-09-11"><a class="header" href="#120---2026-09-11"><a href="https://github.com/ygkali/panora/releases/tag/v1.2.0">1.2.0</a> - 2026-09-11</a></h2>
+<h3 id="zorin-os-18--ubuntu-2404"><a class="header" href="#zorin-os-18--ubuntu-2404">Zorin OS 18 / Ubuntu 24.04</a></h3>
+<ul>
+<li><code>install.sh</code> refuses releases older than Ubuntu 24.04 / Debian 13 / Zorin
+18 with a clear message, detects a too-old apt <code>cargo</code> (1.75) and installs
+rustup instead, picks the <code>libglib2.0-0t64</code> runtime name, installs
+<code>libglib2.0-bin</code> (where <code>glib-compile-schemas</code> really lives) and tolerates a
+broken third-party apt repo.</li>
+<li>GNOME 46 Wayland bridge: <code>PushMany</code> carries text + HTML (or uri-list) per
+change so bridge entries have the same fidelity as native captures; the
+daemon recognises the echo of its own recall; a failed bridge service is
+fatal when capture depends on it; backend detection no longer calls the
+blocking zbus API inside the runtime (this crashed panod at startup on
+sessions without <code>XDG_CURRENT_DESKTOP</code>).</li>
+<li>Extension: loads in Zorin’s <code>zorin</code> session mode, takes <code>&lt;Super&gt;v</code> away
+from GNOME’s notification list while enabled (restored on disable), waits
+for focus to leave the popup before pasting, uses evdev key codes so Ctrl+V
+works on any layout, activates the popup with a 25 s timeout and only falls
+back to spawning when no D-Bus service exists.</li>
+<li>New <code>panora-doctor</code> (installed to /usr/bin) diagnoses the session, daemon,
+extension, D-Bus names, keyring and shortcut conflicts;
+<code>scripts/e2e-test.sh</code> runs a PASS/FAIL functional test of every feature on
+the real machine; <code>test-local.sh</code> runs the doctor first.</li>
+</ul>
+<h3 id="daemon"><a class="header" href="#daemon">Daemon</a></h3>
+<ul>
+<li>Native X11 backend (x11rb): XFIXES change events instead of 180 ms polling,
+<code>ConvertSelection</code> reads with INCR, panod becomes the selection owner on
+recall and serves every stored format (text + HTML, images) with INCR for
+large payloads, XTEST instant paste, re-offer of the last entry when the
+owning application exits. <code>xclip</code> is no longer required.</li>
+<li>Native Wayland backend (wayland-client): <code>ext-data-control-v1</code> and
+<code>wlr-data-control-v1</code>, event-driven capture with the MIME list delivered
+before any payload, multi-format data sources on recall, primary selection
+support. <code>wl-clipboard</code> is no longer required. Consecutive copies of the
+same type are no longer missed.</li>
+<li>GNOME bridge backend for GNOME ≤ 47 (no data-control): recall and paste
+through the Shell extension’s helper service; bridge pushes are ignored
+when a native backend is active so entries are never duplicated.</li>
+<li>Live configuration reload (<code>ReloadConfig</code>), preserving private mode;
+retention runs hourly and on every store; evicted or deleted entries
+release their encrypted blobs unless another entry still references them;
+revived entries are indexed for search again.</li>
+<li><code>Recall { paste }</code> synthesizes Ctrl+V after the clipboard is set; <code>Toggle</code>
+activates the GUI over D-Bus; <code>Status</code> reports revision, version, protocol
+and capabilities; SIGTERM shuts down cleanly.</li>
+<li>FTS5 prefix search (<code>mer</code> finds <code>merhaba</code>), safe against operator
+injection.</li>
+</ul>
+<h3 id="gui"><a class="header" href="#gui">GUI</a></h3>
+<ul>
+<li>Unique application: Super+V / <code>panora</code> / <code>panora-cli toggle</code> toggle the
+popup; D-Bus activation file installed.</li>
+<li>Turkish and English catalogues (<code>ui.language</code>), light/dark/system theme
+(<code>ui.theme</code>).</li>
+<li>Settings dialog (history limits, PRIMARY recording, private start,
+excluded applications, language, theme, instant paste) that writes
+<code>config.toml</code> and reloads the daemon.</li>
+<li>Details view (full text, full-size image, formats, copy as plain text),
+rich-text and colour filter chips, pagination with “load more”, live
+refresh while open, desktop notification when instant paste is
+unavailable.</li>
+</ul>
+<h3 id="cli"><a class="header" href="#cli">CLI</a></h3>
+<ul>
+<li>Shared protocol types from <code>panora-core</code>; <code>--json</code>, <code>--kind</code>, <code>--pinned</code>,
+<code>--limit</code>, <code>--offset</code>, <code>copy --paste</code>, <code>preview --mime/--out</code>, <code>toggle</code>,
+<code>reload</code>, localized help.</li>
+</ul>
+<h3 id="packaging"><a class="header" href="#packaging">Packaging</a></h3>
+<ul>
+<li>Review fixes: dialogs no longer lose Escape/Delete/Space to the main
+window, Super+V toggles through <code>org.freedesktop.Application.Activate</code>, the
+GUI spawned by panod escapes the service sandbox via <code>systemd-run --user</code>,
+package upgrades restart the daemon, <code>PrivateTmp</code> dropped so <code>ydotool</code> can
+reach its socket, aspect-correct thumbnails, “copy as plain text” goes
+through the daemon (<code>Recall { mime }</code>), <code>install.sh</code> builds as the desktop
+user and hands display variables to the user session.</li>
+<li>Desktop entry with <code>DBusActivatable=true</code>, D-Bus service file, <code>.deb</code>
+without xclip/wl-clipboard dependencies (<code>Suggests: wtype, ydotool</code>),
+<code>install.sh</code> installs rustup when <code>cargo</code> is missing, CI builds the package
+and runs the new X11 integration tests under Xvfb.</li>
+</ul>
+<h2 id="110---2026-08-25"><a class="header" href="#110---2026-08-25"><a href="https://github.com/ygkali/panora/releases/tag/v1.1.0">1.1.0</a> - 2026-08-25</a></h2>
+<ul>
+<li>Fix silent keyboard, privacy and packaging failures; add the GNOME
+extension.</li>
+</ul>
+<h2 id="100---2026-08-18"><a class="header" href="#100---2026-08-18"><a href="https://github.com/ygkali/panora/releases/tag/v1.0.0">1.0.0</a> - 2026-08-18</a></h2>
+<ul>
+<li>First release.</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="releasing.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="releasing.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr-ef4e11c1.min.js"></script>
+        <script src="mark-09e88c2c.min.js"></script>
+        <script src="searcher-09f2665d.js"></script>
+
+        <script src="clipboard-1626706a.min.js"></script>
+        <script src="highlight-abc7f01d.js"></script>
+        <script src="book-609e4cb8.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+
+    </div>
+    </body>
+</html>

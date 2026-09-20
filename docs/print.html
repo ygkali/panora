@@ -1,0 +1,1585 @@
+<!DOCTYPE HTML>
+<html lang="en" class="rust sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Panora</title>
+        <meta name="robots" content="noindex">
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="Encrypted clipboard history for the GNOME desktop">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="favicon-8114d1fc.png">
+        <link rel="stylesheet" href="css/variables-8adf115d.css">
+        <link rel="stylesheet" href="css/general-e96d0476.css">
+        <link rel="stylesheet" href="css/chrome-d279d366.css">
+        <link rel="stylesheet" href="css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "";
+            const default_light_theme = "rust";
+            const default_dark_theme = "ayu";
+            window.path_to_searchindex_js = "searchindex-9653446b.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc-da722cf1.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('rust')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Panora</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/ygkali/panora" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="panora"><a class="header" href="#panora">Panora</a></h1>
+<p>Panora is a clipboard history for the GNOME desktop. Press <strong>Super+V</strong>, the
+last few hundred things you copied are there, pick one and it is on the
+clipboard again.</p>
+<p>What makes it different from the other clipboard managers is where the
+history lives. Everything you copy ends up in a SQLite database encrypted
+with a key held by the Secret Service (your keyring), the daemon runs as a
+systemd <strong>user</strong> service with a tight sandbox, and nothing ever leaves the
+machine — there is no network code in the daemon or in the GNOME Shell
+extension, and CI fails the build if any appears.</p>
+<pre><code>Super+V  -&gt;  panora-gui  -&gt;  panod  -&gt;  history.db (ChaCha20-Poly1305)
+                               |            ^
+                               |            +-- master key in the Secret Service
+                               +-- X11 / Wayland / GNOME Shell clipboard
+</code></pre>
+<h2 id="where-to-start"><a class="header" href="#where-to-start">Where to start</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>If you want to</th><th>Read</th></tr>
+</thead>
+<tbody>
+<tr><td>install it</td><td><a href="#install">Install</a></td></tr>
+<tr><td>know the shortcuts</td><td><a href="#the-popup">The popup</a></td></tr>
+<tr><td>find one old thing among thousands</td><td><a href="#search-syntax">Search syntax</a></td></tr>
+<tr><td>script it, or wire it into rofi or fuzzel</td><td><a href="#command-line">Command line</a></td></tr>
+<tr><td>change how much it keeps, or what it ignores</td><td><a href="#configtoml-reference">config.toml reference</a></td></tr>
+<tr><td>know what it does with a password you copied</td><td><a href="#privacy-and-security">Privacy and security</a></td></tr>
+<tr><td>use it on KDE, Sway or Xfce</td><td><a href="#panora-on-each-desktop">What works where</a></td></tr>
+<tr><td>fix something that is not working</td><td><a href="#troubleshooting">Troubleshooting</a></td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="in-one-paragraph"><a class="header" href="#in-one-paragraph">In one paragraph</a></h2>
+<p>The daemon (<code>panod</code>) watches the clipboard through whichever protocol the
+session offers: the X11 selection, <code>ext-data-control</code> or <code>wlr-data-control</code>
+on Wayland, or the GNOME Shell extension on GNOME versions that have
+neither. Every offer is judged before a byte of it is read — the privacy
+engine looks at the MIME list, the source application and the window title
+first — and what survives is encrypted and stored. The popup
+(<code>panora-gui</code>) and the command line (<code>panora-cli</code>) talk to the daemon over a
+Unix socket in your runtime directory; the GNOME extension talks to it over
+the session bus. Nothing runs as root and nothing writes outside your home
+directory.</p>
+<h2 id="reporting-something"><a class="header" href="#reporting-something">Reporting something</a></h2>
+<p><code>panora-doctor</code> first: it checks the session, the service, the keyring, the
+extension and the permissions, and <code>panora-doctor --report</code> writes the file
+to attach. Issues and security reports go to
+<a href="https://github.com/ygkali/panora">the repository</a>; <code>SECURITY.md</code> has the
+disclosure process.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="install"><a class="header" href="#install">Install</a></h1>
+<p>Panora needs <strong>GTK 4.12</strong> and <strong>libadwaita 1.5</strong>, which means Debian 13,
+Ubuntu 24.04, Zorin OS 18 or newer. Ubuntu 22.04, Zorin OS 17, Mint 21 and
+Debian 12 are too old and the package refuses to install on them.</p>
+<p><a href="#how-panora-is-distributed">How Panora is distributed</a> has the full list of tested
+distributions, the support window, and how to verify a download.</p>
+<h2 id="from-the-apt-repository"><a class="header" href="#from-the-apt-repository">From the APT repository</a></h2>
+<p>The one to pick if you want <code>apt upgrade</code> to bring you new versions.</p>
+<pre><code class="language-sh">curl -fsSL https://ygkali.github.io/panora/apt/panora.gpg \
+  | sudo tee /usr/share/keyrings/panora.gpg &gt;/dev/null
+echo "deb [signed-by=/usr/share/keyrings/panora.gpg] https://ygkali.github.io/panora/apt stable main" \
+  | sudo tee /etc/apt/sources.list.d/panora.list
+sudo apt update &amp;&amp; sudo apt install panora
+systemctl --user enable --now panod.service
+</code></pre>
+<h2 id="from-the-debian-package"><a class="header" href="#from-the-debian-package">From the Debian package</a></h2>
+<p>Download <code>panora_&lt;version&gt;_&lt;arch&gt;.deb</code> from the
+<a href="https://github.com/ygkali/panora/releases">releases page</a> — amd64 and
+arm64 — check it against <code>SHA256SUMS</code>, then:</p>
+<pre><code class="language-sh">sha256sum -c SHA256SUMS --ignore-missing
+sudo apt install ./panora_*.deb
+systemctl --user enable --now panod.service
+</code></pre>
+<h2 id="from-source"><a class="header" href="#from-source">From source</a></h2>
+<pre><code class="language-sh">sudo apt install -y build-essential pkg-config libgtk-4-dev libadwaita-1-dev \
+  binutils libglib2.0-bin adwaita-icon-theme librsvg2-common gnome-keyring
+git clone https://github.com/ygkali/panora.git &amp;&amp; cd panora
+./packaging/build-deb.sh
+sudo apt install ./dist/panora_*.deb
+</code></pre>
+<p>Rust 1.92 or newer. <code>./install.sh</code> does all of the above plus the service
+and the extension, in English or Turkish depending on your locale.</p>
+<h2 id="after-installing"><a class="header" href="#after-installing">After installing</a></h2>
+<p>On GNOME, log out and back in once so the Shell notices the extension, then:</p>
+<pre><code class="language-sh">gnome-extensions enable panora@ygkali.github.io
+</code></pre>
+<p>The extension binds <strong>Super+V</strong> (taking it from the notification list) and,
+on GNOME versions without a data-control protocol, is what lets the daemon
+see the clipboard at all. The popup shows a banner with an <strong>Enable</strong>
+button when it is installed but not running.</p>
+<p>On every other desktop, bind a key to <code>panora-cli toggle</code> yourself;
+<a href="#panora-on-each-desktop">What works where</a> says where each desktop hides that setting.</p>
+<p>Then check the whole thing:</p>
+<pre><code class="language-sh">panora-doctor
+</code></pre>
+<p>It reports the session type, the backend in use, the service state, whether
+the keyring is unlocked, whether the extension is enabled, and the
+permissions on the data directory. Anything it complains about has a fix
+printed next to it.</p>
+<h2 id="removing-it"><a class="header" href="#removing-it">Removing it</a></h2>
+<pre><code class="language-sh">sudo apt remove panora        # or ./uninstall.sh
+</code></pre>
+<p>Your history stays in <code>~/.local/share/panora</code> unless you pass <code>--purge-data</code>
+to <code>uninstall.sh</code>. The master key stays in the keyring; removing it makes
+an old history file unreadable, which is the point.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="the-popup"><a class="header" href="#the-popup">The popup</a></h1>
+<p>Open it with <strong>Super+V</strong> on GNOME, with the launcher entry, by running
+<code>panora</code>, or with <code>panora-cli toggle</code> from any key binding. Opening it again
+closes it, and it closes by itself when you move to another window — the
+Win+V habit, which <code>ui.close_on_focus_loss</code> turns off if you would rather it
+stayed.</p>
+<h2 id="keys"><a class="header" href="#keys">Keys</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Key</th><th>Action</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Ctrl+F</code></td><td>Focus the search box. Typing anywhere in the panel starts a search too</td></tr>
+<tr><td><code>↑</code> <code>↓</code> <code>←</code> <code>→</code>, <code>Home</code> <code>End</code> <code>PgUp</code> <code>PgDn</code></td><td>Move between entries</td></tr>
+<tr><td><code>Enter</code></td><td>Put the entry on the clipboard and close; with instant paste on, also paste it</td></tr>
+<tr><td><code>Shift+Enter</code></td><td>Put <strong>only the plain text</strong> on the clipboard, dropping the HTML of a rich-text entry</td></tr>
+<tr><td><code>Ctrl+1</code> … <code>Ctrl+9</code></td><td>Pick the Nth entry; the first nine rows show their number</td></tr>
+<tr><td><code>Space</code></td><td>Details: the full text, the full-size image, every format the entry carries</td></tr>
+<tr><td><code>Ctrl+D</code></td><td>Pin or unpin</td></tr>
+<tr><td><code>Delete</code></td><td>Delete; the toast offers <strong>Undo</strong> for thirty seconds</td></tr>
+<tr><td><code>Ctrl+Shift+P</code></td><td>Private mode on or off</td></tr>
+<tr><td><code>Ctrl+,</code></td><td>Settings</td></tr>
+<tr><td><code>Esc</code></td><td>Clear the search, or close when the search is already empty</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="the-rows"><a class="header" href="#the-rows">The rows</a></h2>
+<p>Each row shows what kind of entry it is, a preview, which application the
+copy came from (where the session can tell), and how long ago it was last
+used. A pin keeps an entry through <strong>clear history</strong> and through retention;
+a lock icon marks an entry the privacy engine flagged as sensitive, which
+is masked in the list and removed again after
+<code>privacy.sensitive_ttl_minutes</code>.</p>
+<p>The filter chips above the list — all, pinned, text, links, images, files,
+rich text, colours — are the same thing as a <code>kind:</code> search, one click
+away.</p>
+<h2 id="details"><a class="header" href="#details">Details</a></h2>
+<p><code>Space</code> opens the details view of the selected entry. What is there depends
+on the kind:</p>
+<ul>
+<li><strong>Text and rich text</strong>: the whole text, the list of formats, <em>copy</em> and
+<em>copy as plain text</em>.</li>
+<li><strong>Links</strong>: <em>open</em> in the default browser, and a QR code for sending the
+link to a phone.</li>
+<li><strong>Colours</strong>: the swatch plus hex, RGB and HSL, each one click to copy.</li>
+<li><strong>Images</strong>: the image at full size and <em>save as</em>.</li>
+<li><strong>Files</strong>: the paths, and <em>open the containing folder</em>.</li>
+</ul>
+<h2 id="private-mode"><a class="header" href="#private-mode">Private mode</a></h2>
+<p>The switch in the header bar, <code>Ctrl+Shift+P</code>, or <code>panora-cli private on</code>.
+While it is on, nothing new is recorded — the daemon still serves what is
+already there, so you can recall an old entry without leaving a trace of
+what you copy in between. It survives a configuration reload and is
+reported by <code>panora-cli status</code>.</p>
+<p>Recording also pauses by itself while the screen is locked.</p>
+<h2 id="the-shortcut"><a class="header" href="#the-shortcut">The shortcut</a></h2>
+<p>On GNOME the shortcut belongs to the extension, not to the popup: open the
+Extensions app or run <code>gnome-extensions prefs panora@ygkali.github.io</code>,
+click the shortcut row and press the combination you want. <code>Backspace</code>
+disables it, <code>Escape</code> cancels, and the reset button puts <code>Super+V</code> back.
+The same page has the <em>open next to the pointer</em> switch.</p>
+<p>Everywhere else, bind a key to <code>panora-cli toggle</code> in your desktop’s own
+keyboard settings – <a href="#panora-on-each-desktop">What works where</a> says where each one
+hides it.</p>
+<h2 id="settings"><a class="header" href="#settings">Settings</a></h2>
+<p><code>Ctrl+,</code> opens the settings dialog, which writes
+<code>~/.config/panora/config.toml</code> and tells the daemon to re-read it — nothing
+needs restarting. Every key it writes, and the several it does not expose,
+are in the <a href="#configtoml-reference">config.toml reference</a>.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="search-syntax"><a class="header" href="#search-syntax">Search syntax</a></h1>
+<p>The search box in the popup and <code>panora-cli search</code> share one grammar.</p>
+<ul>
+<li><strong>Bare words match as prefixes.</strong> <code>mer</code> finds <em>merhaba</em>. Several words all
+have to match, in any order.</li>
+<li><strong><code>"quoted phrases"</code> match exactly</strong>, in that order.</li>
+<li><strong>Operators narrow the result</strong> and can be combined with words and with
+each other.</li>
+</ul>
+<p>Matches are shown in bold in the popup.</p>
+<h2 id="operators"><a class="header" href="#operators">Operators</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Operator</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>kind:image</code></td><td>one of <code>text</code>, <code>richtext</code>, <code>link</code>, <code>image</code>, <code>files</code>, <code>color</code></td></tr>
+<tr><td><code>app:firefox</code></td><td>the source application contains the word</td></tr>
+<tr><td><code>pinned:yes</code>, <code>pinned:no</code></td><td>pinned or unpinned entries only</td></tr>
+<tr><td><code>after:7d</code>, <code>after:2026-09-01</code></td><td>used since then</td></tr>
+<tr><td><code>before:12h</code>, <code>before:2026-09-01</code></td><td>not used since then</td></tr>
+<tr><td><code>re:PATTERN</code></td><td>the rest of the line is a case-insensitive regular expression</td></tr>
+</tbody>
+</table>
+</div>
+<p>Ages are <code>30m</code>, <code>12h</code>, <code>7d</code>, <code>2w</code>, or a <code>YYYY-MM-DD</code> day. <code>after:</code> and
+<code>before:</code> both work on when the entry was <strong>last used</strong>, not when it was
+first copied, so recalling an old entry moves it forward.</p>
+<p><code>app:</code> needs a session that can name the copying application: X11, GNOME
+through the extension, and wlroots or KWin compositors through
+<code>wlr-foreign-toplevel-management</code>. <code>panora-cli status</code> prints
+<code>source_app=true</code> where it works. On a plain Wayland compositor without
+that protocol the operator matches nothing, because nothing was recorded to
+match against.</p>
+<p><code>re:</code> takes the whole rest of the line, so put it last. It is matched
+against the preview and, when <code>history.index_full_text</code> is on, against the
+indexed text of the entry.</p>
+<h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
+<pre><code>invoice kind:files after:7d          files with "invoice", used in the last week
+app:firefox kind:link                links copied out of Firefox
+"ssh -i" before:2w                   that command, from more than two weeks ago
+pinned:yes kind:color                the palette you pinned
+re:^https?://.*\.pdf$                entries that are a PDF URL and nothing else
+</code></pre>
+<h2 id="what-is-searched"><a class="header" href="#what-is-searched">What is searched</a></h2>
+<p>The preview — the first 500 characters — always. The rest of the text only
+when <code>history.index_full_text</code> is on, which it is by default; turning it off
+makes the index smaller and the search shallower. Image and file entries are
+searched through their file names and the application name.</p>
+<p>The index is full-text (SQLite FTS5) and is written when an entry is
+recorded, so the setting applies from the moment you change it: entries
+captured while it was off keep only their preview indexed, and entries
+captured while it was on keep their full text even after you turn it off.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="command-line"><a class="header" href="#command-line">Command line</a></h1>
+<p><code>panora-cli</code> talks to the daemon over the socket in <code>$XDG_RUNTIME_DIR</code>. It
+is the scripting interface and the one to reach for when the popup will not
+open.</p>
+<pre><code class="language-sh">panora-cli list [QUERY] [--kind image] [--pinned] [--limit 20] [--offset 20] [--format TEMPLATE]
+panora-cli search &lt;TEXT&gt; [--format TEMPLATE]
+panora-cli copy &lt;ID&gt; [--paste] [--mime text/plain]
+panora-cli preview &lt;ID&gt; [--mime image/png] [--out photo.png]
+panora-cli pin &lt;ID&gt; | unpin &lt;ID&gt; | delete &lt;ID&gt; | restore &lt;ID&gt;
+panora-cli clear
+panora-cli private on|off
+panora-cli status | toggle | reload
+panora-cli store [FILE] [--mime TYPE] [--app NAME] [--no-copy]
+panora-cli pick [--format '{id}\t{kind}\t{preview}']
+panora-cli completions bash|zsh|fish
+panora-cli man &lt;DIR&gt;
+</code></pre>
+<p><code>--json</code> works on every command that prints something; <code>man panora-cli</code> has
+the full text.</p>
+<h2 id="exit-status"><a class="header" href="#exit-status">Exit status</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Code</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td>success</td></tr>
+<tr><td>1</td><td>the daemon returned an error</td></tr>
+<tr><td>2</td><td>wrong usage</td></tr>
+<tr><td>3</td><td>the daemon is not running</td></tr>
+<tr><td>4</td><td>no entry with that id</td></tr>
+</tbody>
+</table>
+</div>
+<p>Scripts can tell “there is no such entry” from “the daemon is down” without
+parsing anything.</p>
+<h2 id="line-templates"><a class="header" href="#line-templates">Line templates</a></h2>
+<p><code>pick</code> and the <code>--format</code> option on <code>list</code> and <code>search</code> print one line per
+entry from a template. The placeholders are <code>{id}</code>, <code>{kind}</code>, <code>{preview}</code>,
+<code>{app}</code>, <code>{age}</code>, <code>{size}</code>, <code>{pinned}</code> and <code>{sensitive}</code>; <code>\t</code> and <code>\n</code> are
+escapes. The default is <code>{id}\t{kind}\t{preview}</code>.</p>
+<p>That is all a launcher integration needs:</p>
+<pre><code class="language-sh"># fuzzel
+panora-cli pick | fuzzel --dmenu | cut -f1 | xargs panora-cli copy --paste
+
+# rofi
+panora-cli pick --format '{id}\t{preview}' \
+  | rofi -dmenu -i -p clipboard | cut -f1 | xargs panora-cli copy --paste
+
+# dmenu, without the ids on screen
+panora-cli pick --format '{preview}\t{id}' \
+  | dmenu -l 15 | awk -F'\t' '{print $NF}' | xargs panora-cli copy
+</code></pre>
+<h2 id="recording-something-that-was-never-copied"><a class="header" href="#recording-something-that-was-never-copied">Recording something that was never copied</a></h2>
+<pre><code class="language-sh">git log -1 --format=%H | panora-cli store --app git
+panora-cli store notes.txt --no-copy
+</code></pre>
+<p><code>store</code> goes through the same privacy gate as a real copy: an excluded
+application name, an ignore pattern or private mode all still apply.
+Without <code>--no-copy</code> the entry also lands on the clipboard.</p>
+<h2 id="reading-one-back-out"><a class="header" href="#reading-one-back-out">Reading one back out</a></h2>
+<pre><code class="language-sh">panora-cli preview 42                               # every format, with headers
+panora-cli preview 42 --mime text/plain\;charset=utf-8   # just the payload
+panora-cli preview 42 --mime image/png --out shot.png
+</code></pre>
+<p>With <code>--mime</code> the payload is written raw and nothing else, which is what
+you want in a pipe.</p>
+<h2 id="watching-the-daemon"><a class="header" href="#watching-the-daemon">Watching the daemon</a></h2>
+<pre><code class="language-sh">panora-cli status
+</code></pre>
+<pre><code>backend=wayland entries=812 private=false locked=false version=1.3.0
+protocol=2 revision=57 primary=true persist=true paste=true
+source_app=true needs_bridge=false
+</code></pre>
+<p><code>backend</code> is the clipboard protocol in use, <code>revision</code> rises on every
+change (useful for polling), and the capability flags say which features
+this session can offer — see <a href="#panora-on-each-desktop">What works where</a>. Any health
+findings are printed after it as <code>health=&lt;code&gt; &lt;message&gt;</code>; those are the
+same ones the popup shows as a banner.</p>
+<p><code>panora-cli reload</code> re-reads <code>config.toml</code> without restarting, which is what
+the settings dialog does when you press <em>save</em>.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="configtoml-reference"><a class="header" href="#configtoml-reference">config.toml reference</a></h1>
+<p><code>~/.config/panora/config.toml</code> (or <code>$XDG_CONFIG_HOME/panora/config.toml</code>).
+Every key has a default, so the file only needs the ones you change, and a
+missing file is the same as an empty one. The settings dialog writes this
+file; <code>panora-cli reload</code> — which the dialog calls for you — makes the
+daemon re-read it without restarting.</p>
+<p>An invalid value is refused with the key named, and the daemon keeps the
+configuration it already had rather than starting with something you did not
+ask for.</p>
+<h2 id="history"><a class="header" href="#history"><code>[history]</code></a></h2>
+<pre><code class="language-toml">[history]
+record_primary = false
+max_entries = 1000
+max_age_days = 30
+max_mime_bytes = 10485760
+persist_on_wayland = "auto"
+index_full_text = true
+max_total_bytes = 536870912
+max_images = 200
+</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Key</th><th>Default</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td><code>record_primary</code></td><td><code>false</code></td><td>Also record the PRIMARY selection — text you merely select with the mouse. Noisy by nature; off unless you want it.</td></tr>
+<tr><td><code>max_entries</code></td><td><code>1000</code></td><td>Unpinned entries kept. The oldest go first. Pinned entries do not count.</td></tr>
+<tr><td><code>max_age_days</code></td><td><code>30</code></td><td>Unpinned entries older than this are removed. <code>0</code> keeps them forever.</td></tr>
+<tr><td><code>max_mime_bytes</code></td><td><code>10485760</code> (10 MiB)</td><td>Most bytes read for one payload. A larger offer is skipped, not truncated.</td></tr>
+<tr><td><code>persist_on_wayland</code></td><td><code>"auto"</code></td><td>Re-offer the last entry when the clipboard empties because the source application exited. <code>auto</code> turns it on for compositors that drop the selection (Sway, Hyprland and the other wlroots ones) and leaves Mutter and KWin alone; <code>always</code> and <code>never</code> override the detection.</td></tr>
+<tr><td><code>index_full_text</code></td><td><code>true</code></td><td>Index up to 64 KiB of an entry’s text, not just its 500-character preview, so search finds words anywhere in it. The index is in the same 0600 file.</td></tr>
+<tr><td><code>max_total_bytes</code></td><td><code>536870912</code> (512 MiB)</td><td>Payload bytes the history may hold. Over the limit, the oldest unpinned entries go first; pinned entries count towards it but are never evicted. <code>0</code> means no limit.</td></tr>
+<tr><td><code>max_images</code></td><td><code>200</code></td><td>Image entries kept, oldest unpinned first. <code>0</code> means no limit.</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="privacy"><a class="header" href="#privacy"><code>[privacy]</code></a></h2>
+<pre><code class="language-toml">[privacy]
+start_private = false
+excluded_apps = ["keepassxc", "bitwarden", "1password", "gnome-secrets"]
+excluded_window_titles = []
+min_text_length = 1
+ignore_whitespace_only = true
+ignore_patterns = []
+capture_kinds = []
+sensitive_policy = "mask"
+sensitive_ttl_minutes = 10
+</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Key</th><th>Default</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td><code>start_private</code></td><td><code>false</code></td><td>Start with recording paused.</td></tr>
+<tr><td><code>excluded_apps</code></td><td>the four password managers</td><td>Source application names that are never recorded. Matched case-insensitively as a substring, so <code>keepass</code> covers <code>keepassxc</code>. Needs a session that can name the source — see below.</td></tr>
+<tr><td><code>excluded_window_titles</code></td><td><code>[]</code></td><td>Phrases; nothing is recorded while the focused window’s title contains one, case-insensitively. The title itself is never stored. X11 and the GNOME extension report titles.</td></tr>
+<tr><td><code>min_text_length</code></td><td><code>1</code></td><td>Text shorter than this many characters, after trimming, is not recorded.</td></tr>
+<tr><td><code>ignore_whitespace_only</code></td><td><code>true</code></td><td>Skip text that is nothing but whitespace.</td></tr>
+<tr><td><code>ignore_patterns</code></td><td><code>[]</code></td><td>Rust regular expressions; matching text is not recorded. At most 32 patterns, 512 bytes each. A pattern that does not compile is refused when you save it, not silently ignored.</td></tr>
+<tr><td><code>capture_kinds</code></td><td><code>[]</code></td><td>Kinds to record: <code>text</code>, <code>richtext</code>, <code>link</code>, <code>image</code>, <code>files</code>, <code>color</code>, <code>binary</code>. Empty means all of them.</td></tr>
+<tr><td><code>sensitive_policy</code></td><td><code>"mask"</code></td><td>What happens to text that looks like a key, a token, a card number or an IBAN. <code>mask</code> records it with a masked preview and no full-text index, <code>drop</code> never records it, <code>store</code> treats it like anything else.</td></tr>
+<tr><td><code>sensitive_ttl_minutes</code></td><td><code>10</code></td><td>Flagged entries are removed after this long, under <code>mask</code> and <code>store</code> alike. <code>0</code> leaves them to the normal retention rules. Pinned entries stay either way.</td></tr>
+</tbody>
+</table>
+</div>
+<p><code>excluded_apps</code> is enforced on the MIME list <strong>before</strong> a payload is read,
+along with the secret markers password managers set
+(<code>x-kde-passwordManagerHint</code>, <code>org.nspasteboard.concealedtype</code>, the Qt
+<em>clipboard viewer ignore</em> type) — those work on every session type. The application name does not: a plain Wayland
+compositor without <code>wlr-foreign-toplevel-management</code> cannot say who owns
+the clipboard, so the list has nothing to match. <code>panora-cli status</code> prints
+<code>source_app=false</code> there and the settings dialog says so next to the list.</p>
+<pre><code class="language-toml"># some patterns worth having
+ignore_patterns = [
+  '^\d{16}$',            # a bare card number
+  '^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$',  # a bare IBAN
+  '^-----BEGIN [A-Z ]*PRIVATE KEY-----',
+]
+</code></pre>
+<h2 id="ui"><a class="header" href="#ui"><code>[ui]</code></a></h2>
+<pre><code class="language-toml">[ui]
+language = "system"
+theme = "system"
+instant_paste = false
+close_on_focus_loss = true
+position = "pointer"
+layer_anchor = "top-right"
+</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Key</th><th>Default</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td><code>language</code></td><td><code>"system"</code></td><td><code>system</code>, <code>tr</code> or <code>en</code>. <code>system</code> follows <code>LC_ALL</code> / <code>LC_MESSAGES</code> / <code>LANG</code>.</td></tr>
+<tr><td><code>theme</code></td><td><code>"system"</code></td><td><code>system</code>, <code>light</code> or <code>dark</code>.</td></tr>
+<tr><td><code>instant_paste</code></td><td><code>false</code></td><td>Send a paste keystroke to the focused window after picking an entry — <code>Ctrl+V</code>, or <code>Ctrl+Shift+V</code> when that window is a terminal. Needs a session that can synthesise keys (<code>paste=true</code> in <code>panora-cli status</code>).</td></tr>
+<tr><td><code>close_on_focus_loss</code></td><td><code>true</code></td><td>Close the popup when focus moves to another window, the way the Win+V flyout does.</td></tr>
+<tr><td><code>position</code></td><td><code>"pointer"</code></td><td><code>pointer</code> or <code>center</code>. Applies on X11 and, through the Shell extension, on GNOME. Other Wayland compositors decide for themselves.</td></tr>
+<tr><td><code>layer_anchor</code></td><td><code>"top-right"</code></td><td>Which corner the popup is anchored to on wlroots compositors when <code>gtk4-layer-shell</code> is available: <code>top-right</code>, <code>top-left</code>, <code>bottom-right</code>, <code>bottom-left</code>, <code>center</code>.</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="where-everything-lives"><a class="header" href="#where-everything-lives">Where everything lives</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Path</th><th>What</th></tr>
+</thead>
+<tbody>
+<tr><td><code>~/.config/panora/config.toml</code></td><td>this file</td></tr>
+<tr><td><code>~/.local/share/panora/history.db</code></td><td>the encrypted history, mode 0600 in a 0700 directory</td></tr>
+<tr><td><code>~/.local/share/panora/history.db.bak-vN</code></td><td>the copy taken before a schema migration</td></tr>
+<tr><td><code>$XDG_RUNTIME_DIR/panora.sock</code></td><td>the IPC socket, mode 0600, peer UID checked</td></tr>
+<tr><td>the Secret Service</td><td>the master key, under the <code>application=panora</code> attribute</td></tr>
+</tbody>
+</table>
+</div>
+<p>The daemon writes nothing outside these. There is no system-wide
+configuration file and no root-owned state.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="privacy-and-security"><a class="header" href="#privacy-and-security">Privacy and security</a></h1>
+<p>A clipboard manager sees everything you copy, including the things you
+would never type into a text file. This page says what Panora does with
+them, and — more usefully — what it does not defend against.</p>
+<h2 id="the-gate-comes-before-the-read"><a class="header" href="#the-gate-comes-before-the-read">The gate comes before the read</a></h2>
+<p>Nothing reads a clipboard payload until the privacy engine has judged the
+offer. What it looks at is the list of formats, the source application and
+the focused window’s title — never the content, which has not been fetched
+yet.</p>
+<p>An offer is refused when:</p>
+<ul>
+<li>it carries a <strong>secret marker</strong> from a password manager:
+<code>x-kde-passwordManagerHint</code>, <code>org.nspasteboard.concealedtype</code>, the Qt
+<em>clipboard viewer ignore</em> type and their variants, matched
+case-insensitively and with MIME parameters ignored;</li>
+<li>the <strong>source application</strong> matches <code>privacy.excluded_apps</code> (KeePassXC,
+Bitwarden, 1Password and GNOME Secrets by default);</li>
+<li>the <strong>focused window’s title</strong> contains one of
+<code>privacy.excluded_window_titles</code>;</li>
+<li>the kind is not in <code>privacy.capture_kinds</code>;</li>
+<li><strong>private mode</strong> is on, or the screen is locked.</li>
+</ul>
+<p>The markers work on every session type. The application name and the window
+title need a session that reports them — X11, GNOME through the extension,
+and wlroots or KWin compositors through
+<code>wlr-foreign-toplevel-management</code>. Where they cannot be known,
+<code>panora-cli status</code> says <code>source_app=false</code>, the settings dialog says so
+next to the list, and the exclusion list simply has nothing to match. That
+is a limitation of the protocol, not something Panora can work around, and
+it is why the marker-based gate matters more than the name-based one.</p>
+<h2 id="text-that-looks-like-a-secret"><a class="header" href="#text-that-looks-like-a-secret">Text that looks like a secret</a></h2>
+<p>Content that gets past the gate is still examined for the shapes of API
+keys, tokens, card numbers and IBANs. What happens then is
+<code>privacy.sensitive_policy</code>:</p>
+<ul>
+<li><code>mask</code> (the default) records it with a masked preview and keeps it out of
+the full-text index;</li>
+<li><code>drop</code> does not record it at all;</li>
+<li><code>store</code> treats it like anything else.</li>
+</ul>
+<p>Under <code>mask</code> and <code>store</code> the entry is removed after
+<code>privacy.sensitive_ttl_minutes</code> — ten minutes by default — so a token you
+pasted once does not sit in the history for a month. Pinning one keeps it.</p>
+<h2 id="at-rest"><a class="header" href="#at-rest">At rest</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th></th><th></th></tr>
+</thead>
+<tbody>
+<tr><td>Cipher</td><td>XChaCha20-Poly1305, versioned envelope, associated data bound to the entry</td></tr>
+<tr><td>Master key</td><td>in the Secret Service, fetched over an encrypted D-Bus session (<code>dh-ietf1024-sha256-aes128-cbc-pkcs7</code>)</td></tr>
+<tr><td>No keyring</td><td>the daemon refuses to start rather than fall back to a key on disk</td></tr>
+<tr><td>Wrong key</td><td>a database that does not match is refused with a clear message, never shown as garbage</td></tr>
+<tr><td>Permissions</td><td>data directory 0700, files 0600, socket 0600</td></tr>
+<tr><td>IPC</td><td>Unix socket with peer UID checks, frame and request size limits</td></tr>
+<tr><td>GNOME bridge</td><td>pushes accepted only from <code>org.gnome.Shell</code></td></tr>
+<tr><td>Process</td><td><code>PR_SET_DUMPABLE=0</code>, <code>LimitCORE=0</code>, empty capability set, <code>ProtectProc=invisible</code>, <code>PrivateDevices</code>, <code>UMask=0077</code>, a <code>@system-service</code> syscall filter</td></tr>
+<tr><td>Logs</td><td>a test asserts that no clipboard content ever reaches the daemon log</td></tr>
+</tbody>
+</table>
+</div>
+<p>Deleting an entry removes its payloads from disk unless another entry
+shares them. A deletion keeps a tombstone for thirty seconds so <strong>undo</strong>
+can bring it back; retention evictions and <em>clear</em> are final. Retention
+runs on every store and once an hour.</p>
+<h2 id="no-network-and-it-is-checked"><a class="header" href="#no-network-and-it-is-checked">No network, and it is checked</a></h2>
+<p>The daemon and the GNOME Shell extension open no sockets beyond the session
+bus and the local IPC socket. There is no telemetry, no update check and no
+crash reporting. CI fails the build when a network primitive appears in
+either — <code>scripts/security-check.sh</code> for the daemon, a grep for <code>fetch</code>,
+<code>XMLHttpRequest</code>, <code>WebSocket</code> and URLs in the extension.</p>
+<h2 id="what-is-outside-the-threat-model"><a class="header" href="#what-is-outside-the-threat-model">What is outside the threat model</a></h2>
+<p>Panora protects the history file and what reaches it. It does not protect
+you from:</p>
+<ul>
+<li><strong>the kernel and swap.</strong> Clipboard content is in the daemon’s memory while
+it is being handled; a swap file without encryption can hold it.</li>
+<li><strong>another process running as you.</strong> The Unix permission model is the
+boundary. Anything running under your UID can read the socket, talk to
+the daemon and ask the keyring for the master key — that includes any
+program you install.</li>
+<li><strong>a malicious GNOME Shell extension.</strong> The Shell can read the clipboard
+directly; Panora’s extension is one of several.</li>
+<li><strong>an already compromised session.</strong> If someone can log a keystroke, a
+clipboard manager is not the weak point.</li>
+<li><strong>forensic recovery.</strong> SQLite can leave deleted rows in free pages until
+a <code>VACUUM</code>.</li>
+</ul>
+<p>This is not an independent audit. <code>SECURITY.md</code> has the disclosure process,
+<code>docs/adr/</code> the reasoning behind the design, and
+<code>docs/security-checklist.md</code> each control with its evidence. RustSec
+<code>cargo-audit</code> and <code>cargo-deny</code> run on every CI build.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="panora-on-each-desktop"><a class="header" href="#panora-on-each-desktop">Panora on each desktop</a></h1>
+<p>What works where, how to bind the shortcut, and what to install. The
+daemon, the popup and the CLI are the same everywhere; the differences are
+in how the clipboard is watched, whether the copying application is known,
+and how the popup is opened and placed.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th></th><th>GNOME (Wayland)</th><th>GNOME (Xorg)</th><th>KDE Plasma (Wayland)</th><th>Sway, Hyprland, other wlroots</th><th>Xfce, MATE, Cinnamon, LXQt</th></tr>
+</thead>
+<tbody>
+<tr><td>Capture</td><td>Shell extension on GNOME ≤ 47; <code>ext-data-control</code> on GNOME 48+</td><td>X11 backend</td><td><code>ext-data-control</code> / <code>wlr-data-control</code></td><td><code>wlr-data-control</code></td><td>X11 backend</td></tr>
+<tr><td>Source application (excluded apps, <code>app:</code> search)</td><td>yes (extension)</td><td>yes (<code>WM_CLASS</code>)</td><td>yes (<code>wlr-foreign-toplevel</code>)</td><td>yes (<code>wlr-foreign-toplevel</code>)</td><td>yes (<code>WM_CLASS</code>)</td></tr>
+<tr><td>Window titles (<code>excluded_window_titles</code>)</td><td>yes (extension)</td><td>yes (<code>_NET_WM_NAME</code>)</td><td>yes</td><td>yes</td><td>yes</td></tr>
+<tr><td>Instant paste</td><td>extension (<code>Ctrl+V</code>, <code>Ctrl+Shift+V</code> in terminals)</td><td>XTEST</td><td><code>wtype</code> or <code>ydotool</code></td><td><code>wtype</code> or <code>ydotool</code></td><td>XTEST</td></tr>
+<tr><td>Clipboard after the source exits</td><td>kept by Mutter</td><td>re-offered by panod</td><td>kept by KWin</td><td>re-offered by panod</td><td>re-offered by panod</td></tr>
+<tr><td>Popup placement</td><td>next to the pointer (extension)</td><td>next to the pointer</td><td>compositor decides</td><td>corner overlay with the <code>layer-shell</code> build, otherwise compositor decides</td><td>next to the pointer</td></tr>
+<tr><td>Shortcut</td><td>extension binds <code>Super+V</code></td><td>extension or the desktop’s own settings</td><td>System Settings → Shortcuts</td><td>compositor config</td><td>the desktop’s keyboard settings</td></tr>
+</tbody>
+</table>
+</div>
+<p><code>panora-doctor</code> reports which of these apply to the running session.</p>
+<h2 id="gnome"><a class="header" href="#gnome">GNOME</a></h2>
+<p>The <code>.deb</code> installs the Shell extension; <code>install.sh</code> enables it and takes
+<code>Super+V</code> over from the notification list. On GNOME ≤ 47 Wayland every copy
+reaches the daemon through the extension, so it must be enabled (the popup
+shows a banner with an <strong>Enable</strong> button when it is not running). On GNOME
+48 and later the daemon watches the clipboard itself; the extension still
+provides the shortcut, the source application and the popup placement.</p>
+<p>The extension has its own preferences – the Extensions app, or
+<code>gnome-extensions prefs panora@ygkali.github.io</code>: the shortcut, which you
+can record by pressing it rather than by editing dconf, and whether the
+popup is moved under the pointer once it appears. Both are dconf keys, so
+<code>gsettings set org.gnome.shell.extensions.panora move-to-pointer false</code>
+still works. The history, the privacy rules and the appearance belong to
+the daemon and are set in the popup itself.</p>
+<h2 id="kde-plasma"><a class="header" href="#kde-plasma">KDE Plasma</a></h2>
+<p>Plasma 6 offers <code>ext-data-control-v1</code>, so panod captures natively and KWin
+names the focused window through <code>wlr-foreign-toplevel-management</code>. Klipper
+keeps running alongside; to avoid two histories, disable Klipper’s history in
+its settings or leave it for the tray and use Panora for search and pins.
+The master key is stored through the Secret Service API, which KWallet
+provides (<code>kwalletmanager</code> is in <code>Recommends</code>).</p>
+<p>Shortcut: System Settings → Shortcuts → Add Command → <code>panora-cli toggle</code>,
+assign <code>Meta+V</code>. Instant paste needs <code>wtype</code> (<code>sudo apt install wtype</code>).</p>
+<h2 id="sway-hyprland-and-other-wlroots-compositors"><a class="header" href="#sway-hyprland-and-other-wlroots-compositors">Sway, Hyprland and other wlroots compositors</a></h2>
+<p>Capture uses <code>wlr-data-control</code>; the activated toplevel names the source
+application. Bind the toggle in the compositor:</p>
+<pre><code># sway
+bindsym $mod+v exec panora-cli toggle
+
+# hyprland
+bind = SUPER, V, exec, panora-cli toggle
+</code></pre>
+<p>The popup opens as a layer-shell overlay anchored to a screen corner
+(<code>ui.layer_anchor</code>, default <code>top-right</code>) when it is built with the
+<code>layer-shell</code> feature, which needs <code>libgtk4-layer-shell</code>:</p>
+<pre><code class="language-sh">cargo install --git https://github.com/ygkali/panora panora-gui --features layer-shell
+</code></pre>
+<p>Ubuntu 24.04 does not package the library, so the <code>.deb</code> is built without
+the feature; on those systems the compositor places the popup like any
+window (Sway: <code>for_window [app_id="io.github.ygkali.Panora"] floating enable</code>).</p>
+<p>For a picker without the GTK popup, <code>panora-cli pick</code> prints one line per
+entry for fuzzel, wofi, rofi or dmenu:</p>
+<pre><code class="language-sh">panora-cli pick | fuzzel --dmenu | cut -f1 | xargs -r panora-cli copy --paste
+</code></pre>
+<h2 id="xfce-mate-cinnamon-lxqt"><a class="header" href="#xfce-mate-cinnamon-lxqt">Xfce, MATE, Cinnamon, LXQt</a></h2>
+<p>These run on Xorg, where panod watches the clipboard with XFixes and names
+the source from <code>WM_CLASS</code>; instant paste goes through XTEST. Bind the
+shortcut in the desktop’s keyboard settings to <code>panora-cli toggle</code>
+(Xfce: Settings → Keyboard → Application Shortcuts; MATE: Keyboard
+Shortcuts → Custom; Cinnamon: Keyboard → Shortcuts → Custom; LXQt:
+Shortcut Keys). The popup opens next to the pointer.</p>
+<h2 id="everything-else"><a class="header" href="#everything-else">Everything else</a></h2>
+<p>Any Wayland compositor with <code>ext-data-control-v1</code> or <code>wlr-data-control-v1</code>
+works for capture; without either, GNOME’s extension route is the only one.
+Any X11 session works. <code>panora-doctor</code> says which backend was picked and
+what the session cannot do.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="troubleshooting"><a class="header" href="#troubleshooting">Troubleshooting</a></h1>
+<p>Start with <code>panora-doctor</code>: it checks the session, the daemon, the socket, the
+backend, the GNOME extension, the D-Bus names, the keyring, the Super+V
+binding and the data directory, and prints a command for everything that is
+not OK. For a bug report run <code>panora-doctor --report</code>: it writes one file
+with the checks, versions, the daemon status, the unit state, the panod journal
+and the configuration, with your home directory, user name and host name
+replaced and without any clipboard content. Read it once before attaching it.</p>
+<pre><code class="language-sh">systemctl --user status panod.service
+journalctl --user -u panod.service -n 100 --no-pager
+panora-cli status
+</code></pre>
+<h2 id="panora-cli-daemon-unavailable"><a class="header" href="#panora-cli-daemon-unavailable"><code>panora-cli: daemon unavailable</code></a></h2>
+<p>panod is not running or its socket is elsewhere. Read the error in
+<code>systemctl --user status panod.service</code>, then
+<code>systemctl --user enable --now panod.service</code>.</p>
+<h2 id="the-keyring-is-locked"><a class="header" href="#the-keyring-is-locked">The keyring is locked</a></h2>
+<p>panod takes its master key from the Secret Service (gnome-keyring, KWallet).
+When the login keyring is locked an unlock prompt appears; if nobody answers
+it, panod gives up after 60 s with <code>Secret Service did not answer within 60s</code>.
+Unlock the keyring, then:</p>
+<pre><code class="language-sh">systemctl --user reset-failed panod.service
+systemctl --user restart panod.service
+</code></pre>
+<p>The unit stops retrying after three failures (<code>StartLimitBurst=3</code>) so a
+locked keyring does not raise prompt after prompt.</p>
+<h2 id="the-history-was-encrypted-with-a-different-master-key"><a class="header" href="#the-history-was-encrypted-with-a-different-master-key"><code>the history was encrypted with a different master key</code></a></h2>
+<p>The keyring was reset or replaced, so the key that encrypted
+<code>~/.local/share/panora/history.db</code> is gone. Restore the keyring from a backup
+if you have one; otherwise move the data directory away and let panod start a
+new, empty history:</p>
+<pre><code class="language-sh">mv ~/.local/share/panora ~/.local/share/panora.old
+systemctl --user restart panod.service
+</code></pre>
+<h2 id="wayland-compositor-has-no-data-control-protocol"><a class="header" href="#wayland-compositor-has-no-data-control-protocol"><code>Wayland compositor has no data-control protocol</code></a></h2>
+<p>Normal on GNOME 47 and older: panod switches to the GNOME bridge backend and
+needs the Shell extension. Without it nothing is captured on those releases.</p>
+<pre><code class="language-sh">gnome-extensions enable panora@ygkali.github.io
+gnome-extensions info panora@ygkali.github.io
+</code></pre>
+<p>The Shell only discovers a newly installed system extension after it
+restarts, so log out and back in once after installing the package.</p>
+<h2 id="the-service-never-starts-status226namespace"><a class="header" href="#the-service-never-starts-status226namespace">The service never starts, <code>status=226/NAMESPACE</code></a></h2>
+<p>The unit opens <code>~/.local/share/panora</code> with <code>ReadWritePaths</code> and creates it in
+<code>ExecStartPre</code>. If the directory was removed or its permissions changed by
+hand:</p>
+<pre><code class="language-sh">install -d -m 0700 ~/.local/share/panora
+systemctl --user restart panod.service
+</code></pre>
+<h2 id="superv-does-nothing"><a class="header" href="#superv-does-nothing">Super+V does nothing</a></h2>
+<p>The extension is installed by the package but only enabled after the Shell
+restarts. Log out and back in, then enable it (above). GNOME binds Super+V to
+the notification list by default; the extension removes that binding while
+it is enabled and restores it when disabled. Without the extension panod
+still records everything on GNOME 48+ and other desktops; open the popup
+with <code>panora</code> or bind <code>panora-cli toggle</code> to a key in your desktop’s shortcut
+settings.</p>
+<h2 id="icons-show-as-broken-boxes"><a class="header" href="#icons-show-as-broken-boxes">Icons show as broken boxes</a></h2>
+<p><code>librsvg2-common</code> is missing (Adwaita ships symbolic icons as SVG only):</p>
+<pre><code class="language-sh">sudo apt install -y librsvg2-common adwaita-icon-theme
+</code></pre>
+<h2 id="instant-paste-does-not-work"><a class="header" href="#instant-paste-does-not-work">Instant paste does not work</a></h2>
+<p>X11 uses XTEST, GNOME the extension; other Wayland desktops need <code>wtype</code>
+(wlroots) or <code>ydotool</code> with its uinput daemon. When the keystroke cannot be
+delivered the entry is still put on the clipboard and a notification says so.
+Terminals expect Ctrl+Shift+V rather than Ctrl+V; see <code>docs/ROADMAP.md</code>
+INT-09.</p>
+<h2 id="the-exclusion-list-does-not-apply-on-wayland"><a class="header" href="#the-exclusion-list-does-not-apply-on-wayland">The exclusion list does not apply on Wayland</a></h2>
+<p>The <code>ext</code>/<code>wlr-data-control</code> protocols do not tell which application owns the
+clipboard, so the <code>excluded_apps</code> list cannot fire on KDE, Sway, Hyprland and
+GNOME 48+ native capture; <code>panora-cli status</code> reports <code>source_app=false</code>. The
+password manager MIME gate applies everywhere, and the GNOME extension
+supplies the application name on GNOME.</p>
+<h2 id="x-forwarding-over-ssh"><a class="header" href="#x-forwarding-over-ssh">X forwarding over SSH</a></h2>
+<p><code>panod.service</code> blocks TCP with <code>RestrictAddressFamilies=AF_UNIX</code>, which a
+<code>DISPLAY=localhost:10</code> needs. Remove that line from
+<code>/usr/lib/systemd/user/panod.service</code> (or a drop-in) and run
+<code>systemctl --user daemon-reload</code>.</p>
+<h2 id="where-things-live"><a class="header" href="#where-things-live">Where things live</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Path</th><th>Content</th></tr>
+</thead>
+<tbody>
+<tr><td><code>~/.config/panora/config.toml</code></td><td>Settings (0600)</td></tr>
+<tr><td><code>~/.local/share/panora/history.db</code></td><td>Entry metadata, encrypted previews, FTS index (0600)</td></tr>
+<tr><td><code>~/.local/share/panora/blobs/</code></td><td>Encrypted payloads, content-addressed</td></tr>
+<tr><td><code>~/.local/share/panora/history.db.bak-vN</code></td><td>Backup taken before a schema migration</td></tr>
+<tr><td><code>$XDG_RUNTIME_DIR/panora.sock</code></td><td>IPC socket (0600)</td></tr>
+</tbody>
+</table>
+</div>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="how-panora-is-distributed"><a class="header" href="#how-panora-is-distributed">How Panora is distributed</a></h1>
+<p>Which channels are official, which distributions are tested, how long a
+release is supported, and what a packager needs to know. <code>docs/RELEASING.md</code>
+covers the mechanics of cutting a release; this file is the policy around it.</p>
+<h2 id="official-channels"><a class="header" href="#official-channels">Official channels</a></h2>
+<p>Only these carry builds made by the project. Everything else is a community
+package (see below).</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Channel</th><th>What it is</th><th>Signed by</th><th>Updates</th></tr>
+</thead>
+<tbody>
+<tr><td><a href="https://github.com/ygkali/panora/releases">GitHub Releases</a></td><td><code>panora_&lt;version&gt;_&lt;arch&gt;.deb</code> for amd64 and arm64, the install kit, <code>SHA256SUMS</code>, an SPDX SBOM</td><td><code>SHA256SUMS.minisig</code> (minisign)</td><td>manual</td></tr>
+<tr><td>APT repository — <code>https://ygkali.github.io/panora/apt</code></td><td>the same <code>.deb</code> files in a <code>stable main</code> suite</td><td>the repository key, <code>InRelease</code> (GPG)</td><td><code>apt upgrade</code></td></tr>
+<tr><td>Source</td><td>this git repository; <code>./packaging/build-deb.sh</code> or <code>cargo build --release</code></td><td>git tags</td><td><code>git pull</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>The install kit (<code>panora-&lt;version&gt;-install-kit.tar.gz</code>) is the <code>.deb</code> plus
+<code>install.sh</code>, <code>uninstall.sh</code> and <code>test-local.sh</code> for people who would rather
+run one script than read the README.</p>
+<p>There is no Flatpak and no Snap. Panora needs the session bus, the Secret
+Service, the X11 or Wayland clipboard protocols and — on older GNOME — a
+Shell extension; the portal story for all of that is not there yet. The
+trade-offs are recorded as <code>PKG-04</code> in <code>docs/ROADMAP.md</code>.</p>
+<h3 id="verifying-a-download"><a class="header" href="#verifying-a-download">Verifying a download</a></h3>
+<pre><code class="language-sh">sha256sum -c SHA256SUMS --ignore-missing
+minisign -Vm SHA256SUMS -P &lt;the public key from the release notes&gt;
+</code></pre>
+<p>The APT repository verifies itself: <code>apt</code> checks <code>InRelease</code> against the key
+in <code>/usr/share/keyrings/panora.gpg</code>, and the <code>Packages</code> hashes against the
+<code>.deb</code>.</p>
+<h2 id="supported-distributions"><a class="header" href="#supported-distributions">Supported distributions</a></h2>
+<p>Panora needs <strong>GTK 4.12</strong> and <strong>libadwaita 1.5</strong>. That is the whole rule; it
+happens to draw the line at the 2024 distribution generation.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Distribution</th><th>Status</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td>Zorin OS 18</td><td>primary target</td><td>the desktop the release is verified on (<code>R-04</code>)</td></tr>
+<tr><td>Ubuntu 24.04 LTS</td><td>tested</td><td>GNOME 46; the extension carries the <code>zorin</code> session mode too</td></tr>
+<tr><td>Ubuntu 25.10</td><td>tested</td><td>GNOME 49; native <code>ext-data-control</code>, no extension needed for capture</td></tr>
+<tr><td>Debian 13 (trixie)</td><td>tested</td><td>GNOME 48</td></tr>
+<tr><td>Linux Mint 22</td><td>best effort</td><td>Cinnamon: X11 backend, no Shell extension</td></tr>
+<tr><td>Pop!_OS 24.04</td><td>best effort</td><td>COSMIC: <code>wlr-data-control</code>, bind the shortcut yourself</td></tr>
+<tr><td>Fedora, Arch, openSUSE, NixOS</td><td>community</td><td>see the packaging starting points below</td></tr>
+<tr><td>Ubuntu 22.04, Zorin OS 17, Mint 21, Debian 12</td><td><strong>not supported</strong></td><td>GTK too old; the <code>.deb</code> refuses to install</td></tr>
+</tbody>
+</table>
+</div>
+<p>“Tested” means CI builds and installs the package there, or a maintainer ran
+<code>scripts/e2e-test.sh</code> on it for the release. “Best effort” means it is
+expected to work and bug reports are welcome, but nothing checks it per
+release. <code>docs/DESKTOPS.md</code> has the per-desktop feature matrix.</p>
+<h2 id="versioning-and-support-window"><a class="header" href="#versioning-and-support-window">Versioning and support window</a></h2>
+<p>Semantic versioning, as in <code>docs/RELEASING.md</code>:</p>
+<ul>
+<li><strong>Patch</strong> (<code>1.3.x</code>) — fixes only. No schema change, no config change, no
+IPC protocol change.</li>
+<li><strong>Minor</strong> (<code>1.x.0</code>) — features. The history database may gain a schema
+version; the migration runs on first start and keeps a
+<code>history.db.bak-vN</code> copy next to the file. Config keys are added, never
+removed without a release of warning. The IPC protocol number may rise;
+the daemon keeps answering the previous one.</li>
+<li><strong>Major</strong> — a break that cannot be migrated. Not planned.</li>
+</ul>
+<p>Only the newest release is supported. When <code>1.4.0</code> is out, <code>1.3.x</code> gets no
+more fixes; security fixes for the previous minor are the exception and are
+published as a patch on it.</p>
+<p>Upgrades are tested, not assumed: <code>scripts/upgrade-test.sh</code> runs the
+previous release’s daemon against a scratch history, then opens the same
+directory with the new build and checks the entries, the search index, the
+migrated schema and the backup. CI runs it against the newest published
+<code>.deb</code> (<code>PKG-10</code>).</p>
+<p>Downgrades are not supported. A newer schema makes the daemon refuse the
+file rather than damage it; restore the <code>history.db.bak-vN</code> copy to go back.</p>
+<h2 id="community-packages"><a class="header" href="#community-packages">Community packages</a></h2>
+<p>Packaging Panora for a distribution is welcome and does not need permission
+— it is GPL-3.0-only. Two requests:</p>
+<ol>
+<li><strong>Do not call it official.</strong> Link to this repository as the upstream and
+say who built the package. Bug reports that turn out to be packaging bugs
+are closed upstream with a pointer to the packager.</li>
+<li><strong>Do not patch out the security work.</strong> The systemd unit hardening, the
+Secret Service master key, <code>PR_SET_DUMPABLE=0</code>, the 0700 data directory
+and the extension’s session-bus-only policy are load bearing.
+<code>docs/security-checklist.md</code> says why each one is there.</li>
+</ol>
+<p>Starting points live in <code>packaging/</code> and are <strong>contributed, untested by the
+project</strong>: <code>packaging/aur/PKGBUILD</code>, <code>packaging/nix/flake.nix</code>,
+<code>packaging/rpm/panora.spec</code>. They are kept in the tree so a packager does not
+start from nothing, not because the project builds them. If you get one
+working, a pull request that corrects it is the best possible contribution.</p>
+<p>If a package lands in a distribution’s own archive, open an issue so the
+README can link to it and so release notes can mention the lag.</p>
+<h2 id="notes-for-packagers"><a class="header" href="#notes-for-packagers">Notes for packagers</a></h2>
+<ul>
+<li><strong>Binaries:</strong> <code>panod</code> (user daemon), <code>panora-gui</code> (the popup, also
+installed as <code>panora</code>), <code>panora-cli</code>, <code>panora-doctor</code> (a shell script).</li>
+<li><strong>Build:</strong> Rust 1.92 or newer, <code>pkg-config</code>, <code>libgtk-4-dev</code> ≥ 4.12,
+<code>libadwaita-1-dev</code> ≥ 1.5. <code>cargo build --release --workspace</code>, or
+<code>packaging/build-deb.sh</code> to see every install path in one place.</li>
+<li><strong>Runtime:</strong> GTK 4, libadwaita, an icon theme, and a Secret Service
+provider (<code>gnome-keyring</code> or <code>kwallet</code> with the Secret Service interface).
+<code>xclip</code>/<code>wl-clipboard</code> are only needed by the test scripts, <code>wtype</code> or
+<code>ydotool</code> only for instant paste on Wayland outside GNOME.</li>
+<li><strong>Services:</strong> <code>panod.service</code> is a <strong>user</strong> unit
+(<code>/usr/lib/systemd/user/</code>), never a system one; it must not be enabled by
+default with a system preset. <code>io.github.ygkali.Panora.service</code> is the
+D-Bus activation file, also session scope.</li>
+<li><strong>Files:</strong> desktop entry, AppStream metainfo, four man pages, the icon in
+<code>hicolor</code>, and <code>gnome-extension/</code> into
+<code>/usr/share/gnome-shell/extensions/panora@ygkali.github.io/</code> with the
+compiled gschema. <code>glib-compile-schemas</code> must run for the extension’s
+settings.</li>
+<li><strong>Nothing writes outside <code>$HOME</code>.</strong> The history, the config and the socket
+are per user (<code>~/.local/share/panora</code>, <code>~/.config/panora</code>,
+<code>$XDG_RUNTIME_DIR</code>). There is no system state to migrate or purge.</li>
+<li><strong>No network.</strong> The daemon and the extension open no sockets beyond the
+session bus and the local IPC socket; CI asserts that
+(<code>scripts/security-check.sh</code>, the extension security job). A build that
+needs the network is a bug.</li>
+<li><strong>Reproducibility:</strong> <code>Cargo.lock</code> is committed and CI builds with
+<code>--locked</code>. Vendoring with <code>cargo vendor</code> works offline.</li>
+</ul>
+<p>Questions that are not answered here belong in a GitHub issue; packaging
+questions get answered.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="contributing-to-panora"><a class="header" href="#contributing-to-panora">Contributing to Panora</a></h1>
+<p>Thanks for helping. This page tells you how the project is built, tested and
+reviewed so a contribution lands on the first try.</p>
+<h2 id="where-things-are"><a class="header" href="#where-things-are">Where things are</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Path</th><th>What</th></tr>
+</thead>
+<tbody>
+<tr><td><code>crates/panora-core</code></td><td>Model, privacy engine, config, encrypted storage, IPC protocol, i18n</td></tr>
+<tr><td><code>crates/panod</code></td><td>The daemon: X11 / Wayland / GNOME bridge backends, keyring, D-Bus, IPC server</td></tr>
+<tr><td><code>crates/panora-gui</code></td><td>GTK4/libadwaita popup, details view, settings</td></tr>
+<tr><td><code>crates/panora-cli</code></td><td>Command-line client (clap)</td></tr>
+<tr><td><code>gnome-extension</code></td><td>GNOME Shell extension: Super+V, clipboard bridge for GNOME ≤ 47, paste helper</td></tr>
+<tr><td><code>packaging</code></td><td><code>.deb</code> build, systemd unit, desktop/D-Bus/AppStream files, icons, man pages</td></tr>
+<tr><td><code>scripts</code></td><td><code>panora-doctor</code>, end-to-end test, keyring test, security checks</td></tr>
+<tr><td><code>docs</code></td><td>Roadmap (<code>docs/ROADMAP.md</code>, every task has an id), ADRs, protocol matrix, security notes</td></tr>
+</tbody>
+</table>
+</div>
+<p>Pick work from <code>docs/ROADMAP.md</code> and mention the id (for example <code>UI-03</code>) in
+the issue or pull request title.</p>
+<h2 id="building"><a class="header" href="#building">Building</a></h2>
+<p>Debian 13, Ubuntu 24.04 or newer; Rust 1.92+ (rustup); GTK 4.12 and
+libadwaita 1.5 development packages:</p>
+<pre><code class="language-sh">sudo apt install -y build-essential pkg-config libgtk-4-dev libadwaita-1-dev \
+  xvfb dbus-x11 xclip wl-clipboard gnome-keyring shellcheck lintian
+cargo build --workspace
+</code></pre>
+<p>The popup can run without a daemon for UI work:</p>
+<pre><code class="language-sh">cargo run -p panora-gui --features fixture
+</code></pre>
+<h2 id="tests"><a class="header" href="#tests">Tests</a></h2>
+<pre><code class="language-sh">cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace                                   # headless, X11 tests self-skip
+Xvfb :99 -screen 0 1280x800x24 -ac &amp; DISPLAY=:99 dbus-run-session -- \
+  cargo test -p panod --test x11_integration -- --test-threads=1
+scripts/keyring-test.sh                                  # Secret Service round trip
+shellcheck -S warning install.sh uninstall.sh test-local.sh packaging/*.sh scripts/*.sh scripts/panora-doctor
+</code></pre>
+<p>On a real desktop, after <code>./install.sh</code>: <code>panora-doctor</code>, then
+<code>scripts/e2e-test.sh --safe</code>. CI runs all of the above plus cargo-audit,
+cargo-deny, the extension checks and a lintian-clean package build for amd64
+and arm64.</p>
+<h2 id="ground-rules"><a class="header" href="#ground-rules">Ground rules</a></h2>
+<ul>
+<li><strong>Privacy first.</strong> Nothing may read a clipboard payload before the privacy
+engine has judged the offered MIME list (ADR 0003). Payloads never appear
+in logs, error messages or the session bus in the clear.</li>
+<li><strong>No network.</strong> The workspace has no network dependency and
+<code>scripts/security-check.sh</code> verifies it. Anything that needs the network
+belongs to the future sync module, behind its own package.</li>
+<li><strong>No <code>unsafe</code>.</strong> All crates carry <code>#![forbid(unsafe_code)]</code>.</li>
+<li><strong>Tests come with the change.</strong> A bug fix adds the test that would have
+caught it; a feature adds unit tests and, where it touches the desktop, an
+e2e step.</li>
+<li><strong>Small commits, present tense subjects</strong>, English, no trailer lines. The
+body explains why, not what.</li>
+<li><strong>Code and comments are English.</strong> User-facing strings live in <code>po/</code>:
+<code>po/panora.pot</code> is the template (the <code>msgctxt</code> is the field name, the
+<code>msgid</code> is the English text, <code>#.</code> lines are the notes translators see),
+and <code>po/tr.po</code> is the Turkish catalogue. <code>build.rs</code> turns them into the
+<code>Strings</code> struct, so a new string means an entry in the template <strong>and</strong>
+in every catalogue – a missing or empty one fails the build. A new
+language is a new <code>&lt;code&gt;.po</code> plus a <code>Language</code> variant. <code>msgfmt --check po/tr.po</code> validates a catalogue. The installer, uninstaller and test
+scripts keep their own translation tables.</li>
+<li>Keep <code>docs/ROADMAP.md</code> honest: tick off what you finish, add what you find.</li>
+</ul>
+<h2 id="pull-requests"><a class="header" href="#pull-requests">Pull requests</a></h2>
+<ol>
+<li>Fork, branch from <code>main</code>, keep the branch focused on one roadmap item.</li>
+<li>Run the checks above; CI must be green.</li>
+<li>Describe the user-visible change in <code>CHANGELOG.md</code> under <em>Unreleased</em>.</li>
+<li>One maintainer review is required; expect questions about privacy
+implications first and code style second.</li>
+</ol>
+<p>By contributing you agree that your work is released under GPL-3.0-only, the
+project licence.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="releasing-panora"><a class="header" href="#releasing-panora">Releasing Panora</a></h1>
+<h2 id="versioning"><a class="header" href="#versioning">Versioning</a></h2>
+<p>Semantic versioning on the <code>.deb</code> version:</p>
+<ul>
+<li><strong>patch</strong> (<code>1.3.x</code>): fixes only; no change to <code>config.toml</code>, the IPC
+protocol, the database schema or the on-disk envelope.</li>
+<li><strong>minor</strong> (<code>1.x.0</code>): new features; additive protocol/config changes (older
+clients keep working); schema changes that migrate automatically.</li>
+<li><strong>major</strong>: anything that breaks an older <code>panora-cli</code>/GUI against the
+daemon, or needs manual data migration.</li>
+</ul>
+<p><code>panora_core::ipc::PROTOCOL_VERSION</code>, <code>storage::db::SCHEMA_VERSION</code> and
+<code>crypto::ENVELOPE_VERSION</code> are bumped in the same commit as the change that
+needs them; <code>docs/COMPATIBILITY.md</code> lists what each version accepts.</p>
+<h2 id="before-tagging"><a class="header" href="#before-tagging">Before tagging</a></h2>
+<ol>
+<li>Every roadmap item for the milestone is done or moved; <code>docs/ROADMAP.md</code>
+reflects it.</li>
+<li><code>CHANGELOG.md</code>: rename <em>Unreleased</em> to <code>[X.Y.Z] - YYYY-MM-DD</code>, add a fresh
+empty <em>Unreleased</em> above it. Keep a Changelog sections: Added / Changed /
+Fixed / Security / Removed.</li>
+<li><code>Cargo.toml</code> <code>[workspace.package] version = "X.Y.Z"</code>, then
+<code>cargo update --workspace</code> so <code>Cargo.lock</code> follows.</li>
+<li><code>packaging/io.github.ygkali.Panora.metainfo.xml</code>: add the <code>&lt;release&gt;</code>
+entry; <code>gnome-extension/metadata.json</code>: bump <code>version-name</code> if the
+extension changed.</li>
+<li>Regenerate <code>THIRD_PARTY_LICENSES.md</code> when dependencies changed:
+<code>cargo about generate about.hbs -o THIRD_PARTY_LICENSES.md</code>.</li>
+<li>Green locally: <code>cargo fmt --all -- --check</code>, <code>cargo clippy --workspace --all-targets -- -D warnings</code>, <code>cargo test --workspace</code>, the Xvfb X11
+tests, <code>scripts/keyring-test.sh</code>, <code>shellcheck</code>, <code>./packaging/build-deb.sh</code>
+<ul>
+<li><code>lintian --fail-on error,warning dist/*.deb</code>.</li>
+</ul>
+</li>
+<li><strong>Upgrade path</strong> (<code>PKG-10</code>): <code>scripts/upgrade-test.sh --deb &lt;previous release .deb&gt;</code> (or <code>--from vX.Y.Z-1</code>) records entries with the old daemon
+and reopens the same data directory with this build: the entries have to
+come back unchanged, the schema has to reach the version this build
+targets and the pre-migration <code>history.db.bak-vN</code> copy has to be there.
+CI runs it against the newest published <code>.deb</code>.</li>
+<li><strong>Real machine check</strong> (<code>R-04</code>): install the package on the target desktop
+(Zorin OS 18 / Ubuntu 24.04 GNOME Wayland, plus one X11 session), run
+<code>panora-doctor</code> and <code>scripts/e2e-test.sh</code>, try Super+V, recall, instant
+paste, settings. Record the outcome in <code>docs/verification/</code>.</li>
+<li>Push <code>main</code> and wait for CI, including the arm64 package job.</li>
+</ol>
+<h2 id="tagging"><a class="header" href="#tagging">Tagging</a></h2>
+<pre><code class="language-sh">git tag -a vX.Y.Z -m "Panora X.Y.Z"
+git push origin vX.Y.Z
+</code></pre>
+<p>The <code>Release</code> workflow builds amd64 and arm64 packages, the install kit,
+<code>SHA256SUMS</code> (signed with minisign when the <code>MINISIGN_KEY</code> and
+<code>MINISIGN_PASSWORD</code> secrets exist), an SPDX SBOM, and publishes the GitHub
+release with the CHANGELOG section as its notes. A tag containing <code>-</code> (for
+example <code>v1.4.0-rc1</code>) is marked as a pre-release.</p>
+<p><code>workflow_dispatch</code> on the same workflow runs the build without publishing;
+use it to try the pipeline from a branch.</p>
+<h2 id="apt-repository"><a class="header" href="#apt-repository">APT repository</a></h2>
+<p><code>.github/workflows/apt-repo.yml</code> runs when a release is published: it
+downloads the release’s <code>.deb</code> files, adds them to the pool on the
+<code>gh-pages</code> branch and regenerates the signed <code>stable</code> suite with
+<code>packaging/apt-repo.sh</code> (older versions stay in the pool). GitHub Pages
+serves the branch at <code>https://ygkali.github.io/panora/</code>, so the repository
+lives at <code>.../panora/apt</code>.</p>
+<p>One-time setup:</p>
+<ol>
+<li>Create a signing key that is used for nothing else:
+<code>gpg --quick-generate-key "Panora APT &lt;kompansebuyucu@proton.me&gt;" ed25519 sign 2y</code></li>
+<li>Store it in the repository secrets: <code>APT_GPG_PRIVATE_KEY</code> =
+<code>gpg --armor --export-secret-keys &lt;key id&gt;</code> and <code>APT_GPG_PASSPHRASE</code>.</li>
+<li>Enable GitHub Pages for the <code>gh-pages</code> branch (root folder) in the
+repository settings after the first run created it.</li>
+<li>Try it locally before relying on it: <code>packaging/apt-repo.sh /tmp/repo dist/panora_*.deb</code>, then point apt at <code>file:///tmp/repo</code> with
+<code>signed-by=/tmp/repo/panora.gpg</code>.</li>
+</ol>
+<p>Rotate the key before it expires; users fetch the new public key from the
+same URL, and the old one keeps verifying the suites signed with it until
+then.</p>
+<h2 id="other-packaging"><a class="header" href="#other-packaging">Other packaging</a></h2>
+<p><code>packaging/aur/PKGBUILD</code> (+ <code>.SRCINFO</code>), <code>packaging/nix/flake.nix</code> and
+<code>packaging/rpm/panora.spec</code> are <strong>untested, contributed as a starting
+point</strong>. No maintainer has run <code>makepkg</code>, <code>nix build</code> or <code>rpmbuild</code> on them
+and CI does not touch them; they exist so a packager can read the install
+layout and the dependency set instead of deriving it from
+<code>packaging/build-deb.sh</code>.</p>
+<p>They are not part of the release: nothing bumps their <code>pkgver</code> / <code>Version:</code>
+automatically, and a release is not held up by them. When one of them is
+known to work, move it out of this section and into CI. <code>packaging/README.md</code>
+records the status per file and <code>docs/DISTRIBUTION.md</code> the policy.</p>
+<h2 id="after-the-release"><a class="header" href="#after-the-release">After the release</a></h2>
+<ul>
+<li>Announce (This Week in GNOME, r/gnome, the project Discussions).</li>
+<li>Open the next milestone; move the remaining roadmap items.</li>
+<li>If the release fixed a security issue, publish the GitHub advisory.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="changelog"><a class="header" href="#changelog">Changelog</a></h1>
+<p>All notable changes to Panora are recorded here. The format follows
+<a href="https://keepachangelog.com/en/1.1/">Keep a Changelog</a> and the project uses
+semantic versioning (see <code>docs/RELEASING.md</code>).</p>
+<h2 id="unreleased"><a class="header" href="#unreleased"><a href="https://github.com/ygkali/panora/compare/v1.2.0...HEAD">Unreleased</a></a></h2>
+<p>Everything below ships as <strong>1.3.0</strong>, the first public release, once the
+real-machine verification in <code>docs/RELEASING.md</code> is done.</p>
+<h3 id="added"><a class="header" href="#added">Added</a></h3>
+<ul>
+<li>Popup: the panel closes when focus moves to another window (Win+V
+behaviour, <code>ui.close_on_focus_loss</code>), <code>Shift+Enter</code> puts only the plain
+text on the clipboard, <code>Ctrl+1</code>…<code>Ctrl+9</code> pick the first nine rows (which
+show their number), <code>Home</code>/<code>End</code>/<code>PgUp</code>/<code>PgDn</code> jump in the list, typing
+anywhere starts a search, and deleting shows a toast with <strong>Undo</strong>.</li>
+<li>Undo for deletions: a deleted entry keeps its tombstone and blobs for 30
+seconds; <code>panora-cli restore &lt;id&gt;</code> and the toast bring it back. Retention
+evictions and <em>clear</em> stay final.</li>
+<li><code>panora-cli store [FILE]</code> records text from a file or standard input as a
+new entry (through the same privacy gate) and puts it on the clipboard;
+<code>panora-cli pick</code> and <code>list/search --format TEMPLATE</code> print one line per
+entry for dmenu/rofi/fuzzel style pickers.</li>
+<li>Clipboard persistence on Wayland: when the source application exits on
+a compositor that drops the selection (Sway, Hyprland, other wlroots
+desktops), panod re-offers the entry it just recorded, as it always did
+on X11. Mutter and KWin are detected from their globals and left alone;
+<code>history.persist_on_wayland = auto | always | never</code> overrides.</li>
+<li>Image entries carry a PNG thumbnail (longest side 320 px, made on
+capture or on first request) so the popup no longer transfers and decodes
+full images per row; thumbnails are never offered on the clipboard.</li>
+<li><code>scripts/wayland-e2e.sh</code> runs panod against a headless sway compositor
+with a throwaway keyring and checks capture, recall, HTML, private mode,
+persistence and store/restore through wl-copy/wl-paste; CI runs it.</li>
+<li>Instant paste sends <code>Ctrl+Shift+V</code> when the focused window is a terminal
+emulator (X11 and the GNOME extension; <code>panora_core::apps</code> knows the
+common ones).</li>
+<li>Content filters under <code>[privacy]</code>: <code>min_text_length</code>,
+<code>ignore_whitespace_only</code>, <code>ignore_patterns</code> (regular expressions matched
+against the trimmed text, at most 32 of them) and <code>capture_kinds</code> decide
+what is recorded once the text is known; they also guard <code>panora-cli store</code> and the GNOME bridge.</li>
+<li>Search covers the whole text, not only the 500-character preview: text
+entries are indexed up to 64 K characters (<code>history.index_full_text</code>,
+on by default) and the index folds case and diacritics, so <code>istanbul</code>
+finds <code>İstanbul</code>. Existing databases are migrated to schema 3 with a
+backup next to them; older entries stay searchable by their preview.</li>
+<li><code>panora-doctor --report[=FILE]</code> writes a diagnostic file for bug reports:
+the checks, versions, session variables, daemon status, unit state, the
+panod journal, the extension state and the configuration, with the home
+directory, user name and host name replaced, <code>ignore_patterns</code> left out
+and no clipboard content.</li>
+<li><code>Status</code> carries <code>health</code> findings with stable codes. The first one,
+<code>extension_missing</code>, is set when capture depends on the GNOME Shell
+extension and it is not on the bus: the popup shows a banner with an
+<strong>Enable</strong> button that runs <code>gnome-extensions enable</code>, and
+<code>panora-cli status</code> prints the finding.</li>
+<li>Secrets are recognised and kept short-lived: private key blocks, JWTs,
+tokens with vendor prefixes (GitHub, AWS, Slack, Stripe, Google, …),
+card numbers (Luhn), IBANs (mod 97) and single high-entropy tokens.
+<code>privacy.sensitive_policy</code> decides: <code>mask</code> (default) records the entry
+behind a masked preview and outside the search index, <code>drop</code> never
+records it, <code>store</code> records it as it is. Flagged entries show a lock,
+are still recallable, and are removed after <code>sensitive_ttl_minutes</code>
+(10; pinned entries stay). <code>panora-cli list</code> marks them with <code>!</code> and
+<code>--format</code> gets <code>{sensitive}</code>. The database moves to schema 4.</li>
+<li>A welcome on first run: three pages on the shortcut, the privacy model
+and what this session can do (from the daemon’s capabilities). A
+<code>first-run</code> file next to <code>config.toml</code> records that it was seen.</li>
+<li>Settings: a <strong>System</strong> group with a switch for starting panod with the
+session (<code>systemctl --user enable/disable panod.service</code>) and the space
+the history takes on disk.</li>
+<li><code>history.max_total_bytes</code> (512 MiB) caps the payload bytes kept: the
+oldest unpinned entries go first, pinned entries count but stay.</li>
+<li>Hourly upkeep now also runs <code>PRAGMA optimize</code>, checkpoints the WAL,
+vacuums the database once a quarter of it is free pages, and removes
+blobs no row references (left by a crash between writing a blob and
+recording it) along with stale temporary files.</li>
+<li>Search grammar in the popup and the CLI: <code>"quoted phrases"</code>, <code>kind:</code>,
+<code>app:</code>, <code>pinned:</code>, <code>before:</code>/<code>after:</code> (a day or <code>7d</code>-style spans) and
+<code>re:</code> for a regular expression over the preview and the indexed text.
+Matches are shown in bold in the popup.</li>
+<li>The details view acts on what the entry is: a link opens in the browser
+or shows as a QR code for a phone, a colour copies as hex, <code>rgb()</code> or
+<code>hsl()</code>, a copied file list opens its folder, and an image saves to a
+file and shows its pixel size.</li>
+<li><code>privacy.excluded_window_titles</code>: phrases that keep a copy out of the
+history while the focused window’s title contains one (for banking
+tabs and the like). X11 reads <code>_NET_WM_NAME</code>; the GNOME extension sends
+the title with a new <code>PushManyFrom</code> call and falls back to <code>PushMany</code>
+on an older daemon. The title is judged and dropped, never stored.</li>
+<li><code>history.max_images</code> (200) caps the image entries kept.</li>
+<li>The popup no longer rebuilds its list when a revision bump changed
+nothing visible.</li>
+<li>The popup opens where the pointer is: on X11 the window is moved next to
+the pointer once mapped, on GNOME the Shell extension moves it after
+activation (<code>move-to-pointer</code> setting), and on Sway, Hyprland and other
+wlroots compositors it becomes a layer-shell overlay anchored to a
+corner (<code>ui.layer_anchor</code>) when the popup is built with the
+<code>layer-shell</code> feature (the library must be linked in, and Ubuntu 24.04
+does not ship it, so the .deb leaves it out). <code>ui.position</code> picks
+pointer or centre.</li>
+<li>On wlroots compositors and KWin the source application of a copy is
+now known (<code>wlr-foreign-toplevel-management</code>): the excluded-application
+and window-title lists work there, and <code>app:</code> searches match.</li>
+<li>The GNOME Shell extension has a preferences page
+(<code>gnome-extensions prefs panora@ygkali.github.io</code>): the Super+V shortcut
+can be recorded by pressing it instead of by editing dconf, and the
+<em>open next to the pointer</em> switch is there too.</li>
+<li><code>docs/launch.md</code> holds the announcement drafts for the first release –
+Show HN, r/linux, r/gnome, GNOME Discourse, Fosstodon, This Week in
+GNOME and the Turkish forums – each one leading with what Panora does
+not do as well as what it does, plus the order to post them in.</li>
+<li>A documentation site built with mdBook (<code>docs/book/</code>, published to
+https://ygkali.github.io/panora/docs/): the user guide, the popup
+shortcuts, the search syntax, a complete <code>config.toml</code> reference, the CLI
+reference and the privacy model, with search across all of it. The
+desktop matrix, troubleshooting, distribution policy, contributing guide
+and changelog are included from their files rather than copied.</li>
+<li>The interface catalogue moved out of <code>i18n.rs</code> and into gettext files:
+<code>po/panora.pot</code> is the template a translator starts from and <code>po/tr.po</code>
+the Turkish catalogue. A build script turns them into the same <code>Strings</code>
+struct as before – no gettext runtime, no behaviour change – and refuses
+a catalogue with a missing, empty or stale entry.</li>
+<li><code>docs/DISTRIBUTION.md</code>: which channels are official, which distributions
+are tested and which are best effort, what the support window is, and what
+a packager has to keep (the user unit, the compiled gschema, the
+hardening). Linked from both READMEs.</li>
+<li>Packaging starting points for other distributions, marked untested and
+outside CI: <code>packaging/aur/PKGBUILD</code> (+ <code>.SRCINFO</code>),
+<code>packaging/nix/flake.nix</code>, <code>packaging/rpm/panora.spec</code>, with
+<code>packaging/README.md</code> saying what is supported and what is not.</li>
+<li><code>scripts/upgrade-test.sh</code> proves the upgrade path: the previous release
+writes a history in a scratch directory, this build reopens it and the
+entries, the search index, the migrated schema version and the
+pre-migration backup are all checked. CI runs it against the newest
+published <code>.deb</code>.</li>
+<li>The GNOME Shell extension is linted: <code>gnome-extension/eslint.config.mjs</code>
+declares the GJS globals and forbids <code>eval</code>, implicit globals and
+synchronous subprocesses in the Shell; CI runs ESLint over the extension.</li>
+<li>A signed APT repository on GitHub Pages: publishing a release adds its
+<code>.deb</code> files to <code>https://ygkali.github.io/panora/apt</code> (suite <code>stable</code>,
+amd64 and arm64), so updates arrive with <code>apt upgrade</code>.
+<code>packaging/apt-repo.sh</code> builds the suite; <code>docs/RELEASING.md</code> has the
+key setup.</li>
+<li>Recording pauses while the session is locked (<code>org.gnome.ScreenSaver</code> /
+<code>org.freedesktop.ScreenSaver</code> <code>ActiveChanged</code>); <code>panora-cli status</code> shows
+<code>locked</code>.</li>
+<li>panod marks itself non-dumpable (<code>PR_SET_DUMPABLE=0</code>) and the unit adds
+<code>LimitCORE=0</code>, an empty capability set, <code>ProtectProc=invisible</code>,
+<code>PrivateDevices</code>, <code>ProtectClock</code>, <code>ProtectHostname</code>, <code>UMask=0077</code> and a
+<code>@system-service</code> syscall filter; <code>systemd-analyze security</code> scores it
+1.8 (was 4.x). A test asserts that no clipboard content ever reaches the
+daemon log.</li>
+<li>Application icon (scalable and symbolic), AppStream metadata, man pages
+for every binary and bash/zsh/fish completions, all installed by the
+<code>.deb</code>; the package also carries a DEP-5 <code>copyright</code>, a Debian-format
+changelog, <code>THIRD_PARTY_LICENSES.md</code> and md5sums, and is lintian-clean.</li>
+<li><code>--version</code> for <code>panora-cli</code>, <code>panora-gui</code> and <code>panod</code>; <code>panod --help</code>.</li>
+<li>Schema migration framework for the history database: the stored schema
+version is checked on every start, a newer schema is refused, an older one
+is backed up with <code>VACUUM INTO</code> and migrated step by step, and a damaged
+file fails <code>PRAGMA quick_check</code> instead of half-working.</li>
+<li>Key fingerprint in the database: a history opened with a different master
+key (a reset keyring) is refused with a clear message instead of showing
+<code>[decryption failed]</code> rows.</li>
+<li>Integration tests for the IPC server on a real Unix socket (round trips,
+frame and request limits, peer UID check) and for the Secret Service round
+trip through a throwaway gnome-keyring (<code>scripts/keyring-test.sh</code>).</li>
+<li>CI: MSRV job (Rust 1.85), <code>cargo doc</code> without warnings, shellcheck, keyring
+job, desktop/AppStream validation, lintian, an install smoke test of the
+package, and an arm64 package next to amd64. A tag-triggered release
+workflow builds both packages and the install kit, writes <code>SHA256SUMS</code>
+(minisign-signed when a key is configured) and an SPDX SBOM, and publishes
+the GitHub release with the matching changelog section.</li>
+<li><code>uninstall.sh --yes</code> and <code>--purge-data</code>; <code>scripts/capture-screenshots.sh</code>
+renders the README screenshots from the fixture data under Xvfb.</li>
+<li>English <code>README.md</code>, <code>docs/TROUBLESHOOTING.md</code>, <code>docs/RELEASING.md</code>,
+<code>CONTRIBUTING.md</code>, <code>SECURITY.md</code>, <code>CODE_OF_CONDUCT.md</code>, issue and pull
+request templates, Dependabot, <code>REUSE.toml</code>, <code>AUTHORS.md</code>, and
+<code>docs/ROADMAP.md</code> with every planned task identified.</li>
+</ul>
+<h3 id="changed"><a class="header" href="#changed">Changed</a></h3>
+<ul>
+<li>The popup no longer waits on the daemon: history pages, previews, image
+thumbnails and the details view are fetched and decoded on a worker
+thread and land on the GTK loop when ready, so typing and scrolling stay
+smooth with large images in the list. A page that arrives after the
+query changed is dropped.</li>
+<li>Dependencies: gtk4-rs 0.11 / libadwaita-rs 0.9 (same GTK and libadwaita
+runtime requirements), rusqlite 0.40 with bundled SQLite 3.53 and toml 1.</li>
+<li><strong>Identifiers moved to the GitHub namespace.</strong> Application id
+<code>io.panora.Panora</code> → <code>io.github.ygkali.Panora</code>, bus names
+<code>io.panora.GnomeBridge1</code> / <code>io.panora.GnomeShell1</code> →
+<code>io.github.ygkali.Panora.GnomeBridge1</code> / <code>io.github.ygkali.Panora.GnomeShell1</code>,
+extension UUID <code>panora@panora-clipboard.org</code> → <code>panora@ygkali.github.io</code>,
+package maintainer <code>ygkali &lt;kompansebuyucu@proton.me&gt;</code>. The old names used
+domains the project does not own. Upgrading from 1.2.0 removes the old
+extension directory; enable the new UUID once after logging in again.</li>
+<li>The workspace moved from <code>panora/</code> to the repository root: <code>cargo install --git</code> works and CI no longer needs working-directory overrides.
+<code>KUR.sh</code>, <code>TEST.sh</code> and <code>KALDIR.sh</code> stay as Turkish-named wrappers of
+<code>install.sh</code>, <code>test-local.sh</code> and <code>uninstall.sh</code>.</li>
+<li><code>panora-cli</code> is built on clap: <code>panora-cli &lt;command&gt; --help</code> for every
+command, <code>completions</code>, <code>man</code>, and documented exit statuses (1 daemon
+error, 2 usage, 3 daemon not running, 4 no such entry). <code>list</code>, <code>search</code>,
+<code>copy</code>/<code>recall</code>, <code>preview</code>/<code>show</code>, <code>pin</code>, <code>unpin</code>, <code>delete</code>/<code>rm</code>, <code>clear</code>,
+<code>private on|off</code>, <code>status</code>, <code>toggle</code>, <code>reload</code> and <code>--json</code> work as before;
+<code>status</code> now also prints <code>needs_bridge</code>.</li>
+<li><code>install.sh</code>, <code>uninstall.sh</code>, <code>test-local.sh</code> and <code>panora-doctor</code> speak
+English by default and Turkish when the locale is Turkish
+(<code>LANG</code>/<code>LC_ALL</code>/<code>PANORA_LANG</code>); the doctor’s status labels are
+<code>OK/WARN/ERROR/INFO</code> and its JSON keys never change. <code>scripts/e2e-test.sh</code>
+is English only.</li>
+<li>The popup is a <strong>single-column Win+V style panel</strong> (420×660, minimum
+340×420): the newest entry is the top of a list, Up/Down move one row at a
+time, the 9 px type badge is gone in favour of a type icon + age + size +
+source line under the content, row actions (pin, details, delete) appear
+on hover, keyboard focus or selection while pinned rows always show their
+star, <strong>clear history</strong> moved to the header bar and the filter chips wrap.</li>
+<li>Accessibility: every icon button and history row has a screen-reader
+name, row actions are 28 px (WCAG 2.2 SC 2.5.8), fixed pixel font sizes are
+gone so typography follows the user’s text scale, secondary text contrast
+rose from 0.5 to 0.7 alpha (SC 1.4.11), keyboard focus draws its own ring
+(SC 2.4.7). RTL: alignments use <code>halign: Start</code>, so the layout mirrors.</li>
+<li>The <code>max_mime_bytes</code> ceiling is 40 MiB (was 256 MiB): anything larger
+could be stored but never previewed or exported through the 64 MiB IPC
+reply cap.</li>
+<li>Database schema version 2 adds <code>deleted_at</code>; existing files are backed up
+(<code>history.db.bak-v1</code>) and migrated on the first start.</li>
+<li>The minimum supported Rust is 1.92 (what the dependency tree needs);
+<code>install.sh</code> installs rustup when the system toolchain is older.</li>
+<li>The Debian package <code>Recommends: gnome-keyring | kwalletmanager</code> and
+<code>Suggests: wtype, ydotool, xclip, wl-clipboard</code>.</li>
+<li>Docs: ADR 0001 and 0002 carry addenda for what was never built
+(gtk4-layer-shell, the <code>org.panora.Pano1</code> D-Bus API); <code>docs/benchmark.md</code>
+is a goals-and-method note until the benches exist; 1.0/1.1-era reports
+and test artefacts describing the abandoned arboard/wl-clipboard design
+were removed.</li>
+</ul>
+<h3 id="fixed"><a class="header" href="#fixed">Fixed</a></h3>
+<ul>
+<li>Switching <code>history.record_primary</code> in the settings needed a daemon
+restart; the capture loop now opens or drops the PRIMARY watch on reload.</li>
+<li>The GNOME bridge validates its caller: <code>Push</code>/<code>PushMany</code> are accepted only
+from the owner of <code>org.gnome.Shell</code>, so another session-bus process (a
+Flatpak with only <code>--socket=session-bus</code>, for instance) can no longer
+inject fabricated entries. The bus signature is unchanged.</li>
+<li>New backend capability <code>source_app</code>: <code>panora-cli status</code> shows it and the
+settings dialog says on plain Wayland sessions that the exclusion list
+cannot fire there (the data-control protocols expose no client identity).</li>
+<li><code>Cargo.toml</code>, <code>panod.service</code> and the package <code>Homepage</code> point at the real
+repository.</li>
+</ul>
+<h2 id="120---2026-09-11"><a class="header" href="#120---2026-09-11"><a href="https://github.com/ygkali/panora/releases/tag/v1.2.0">1.2.0</a> - 2026-09-11</a></h2>
+<h3 id="zorin-os-18--ubuntu-2404"><a class="header" href="#zorin-os-18--ubuntu-2404">Zorin OS 18 / Ubuntu 24.04</a></h3>
+<ul>
+<li><code>install.sh</code> refuses releases older than Ubuntu 24.04 / Debian 13 / Zorin
+18 with a clear message, detects a too-old apt <code>cargo</code> (1.75) and installs
+rustup instead, picks the <code>libglib2.0-0t64</code> runtime name, installs
+<code>libglib2.0-bin</code> (where <code>glib-compile-schemas</code> really lives) and tolerates a
+broken third-party apt repo.</li>
+<li>GNOME 46 Wayland bridge: <code>PushMany</code> carries text + HTML (or uri-list) per
+change so bridge entries have the same fidelity as native captures; the
+daemon recognises the echo of its own recall; a failed bridge service is
+fatal when capture depends on it; backend detection no longer calls the
+blocking zbus API inside the runtime (this crashed panod at startup on
+sessions without <code>XDG_CURRENT_DESKTOP</code>).</li>
+<li>Extension: loads in Zorin’s <code>zorin</code> session mode, takes <code>&lt;Super&gt;v</code> away
+from GNOME’s notification list while enabled (restored on disable), waits
+for focus to leave the popup before pasting, uses evdev key codes so Ctrl+V
+works on any layout, activates the popup with a 25 s timeout and only falls
+back to spawning when no D-Bus service exists.</li>
+<li>New <code>panora-doctor</code> (installed to /usr/bin) diagnoses the session, daemon,
+extension, D-Bus names, keyring and shortcut conflicts;
+<code>scripts/e2e-test.sh</code> runs a PASS/FAIL functional test of every feature on
+the real machine; <code>test-local.sh</code> runs the doctor first.</li>
+</ul>
+<h3 id="daemon"><a class="header" href="#daemon">Daemon</a></h3>
+<ul>
+<li>Native X11 backend (x11rb): XFIXES change events instead of 180 ms polling,
+<code>ConvertSelection</code> reads with INCR, panod becomes the selection owner on
+recall and serves every stored format (text + HTML, images) with INCR for
+large payloads, XTEST instant paste, re-offer of the last entry when the
+owning application exits. <code>xclip</code> is no longer required.</li>
+<li>Native Wayland backend (wayland-client): <code>ext-data-control-v1</code> and
+<code>wlr-data-control-v1</code>, event-driven capture with the MIME list delivered
+before any payload, multi-format data sources on recall, primary selection
+support. <code>wl-clipboard</code> is no longer required. Consecutive copies of the
+same type are no longer missed.</li>
+<li>GNOME bridge backend for GNOME ≤ 47 (no data-control): recall and paste
+through the Shell extension’s helper service; bridge pushes are ignored
+when a native backend is active so entries are never duplicated.</li>
+<li>Live configuration reload (<code>ReloadConfig</code>), preserving private mode;
+retention runs hourly and on every store; evicted or deleted entries
+release their encrypted blobs unless another entry still references them;
+revived entries are indexed for search again.</li>
+<li><code>Recall { paste }</code> synthesizes Ctrl+V after the clipboard is set; <code>Toggle</code>
+activates the GUI over D-Bus; <code>Status</code> reports revision, version, protocol
+and capabilities; SIGTERM shuts down cleanly.</li>
+<li>FTS5 prefix search (<code>mer</code> finds <code>merhaba</code>), safe against operator
+injection.</li>
+</ul>
+<h3 id="gui"><a class="header" href="#gui">GUI</a></h3>
+<ul>
+<li>Unique application: Super+V / <code>panora</code> / <code>panora-cli toggle</code> toggle the
+popup; D-Bus activation file installed.</li>
+<li>Turkish and English catalogues (<code>ui.language</code>), light/dark/system theme
+(<code>ui.theme</code>).</li>
+<li>Settings dialog (history limits, PRIMARY recording, private start,
+excluded applications, language, theme, instant paste) that writes
+<code>config.toml</code> and reloads the daemon.</li>
+<li>Details view (full text, full-size image, formats, copy as plain text),
+rich-text and colour filter chips, pagination with “load more”, live
+refresh while open, desktop notification when instant paste is
+unavailable.</li>
+</ul>
+<h3 id="cli"><a class="header" href="#cli">CLI</a></h3>
+<ul>
+<li>Shared protocol types from <code>panora-core</code>; <code>--json</code>, <code>--kind</code>, <code>--pinned</code>,
+<code>--limit</code>, <code>--offset</code>, <code>copy --paste</code>, <code>preview --mime/--out</code>, <code>toggle</code>,
+<code>reload</code>, localized help.</li>
+</ul>
+<h3 id="packaging"><a class="header" href="#packaging">Packaging</a></h3>
+<ul>
+<li>Review fixes: dialogs no longer lose Escape/Delete/Space to the main
+window, Super+V toggles through <code>org.freedesktop.Application.Activate</code>, the
+GUI spawned by panod escapes the service sandbox via <code>systemd-run --user</code>,
+package upgrades restart the daemon, <code>PrivateTmp</code> dropped so <code>ydotool</code> can
+reach its socket, aspect-correct thumbnails, “copy as plain text” goes
+through the daemon (<code>Recall { mime }</code>), <code>install.sh</code> builds as the desktop
+user and hands display variables to the user session.</li>
+<li>Desktop entry with <code>DBusActivatable=true</code>, D-Bus service file, <code>.deb</code>
+without xclip/wl-clipboard dependencies (<code>Suggests: wtype, ydotool</code>),
+<code>install.sh</code> installs rustup when <code>cargo</code> is missing, CI builds the package
+and runs the new X11 integration tests under Xvfb.</li>
+</ul>
+<h2 id="110---2026-08-25"><a class="header" href="#110---2026-08-25"><a href="https://github.com/ygkali/panora/releases/tag/v1.1.0">1.1.0</a> - 2026-08-25</a></h2>
+<ul>
+<li>Fix silent keyboard, privacy and packaging failures; add the GNOME
+extension.</li>
+</ul>
+<h2 id="100---2026-08-18"><a class="header" href="#100---2026-08-18"><a href="https://github.com/ygkali/panora/releases/tag/v1.0.0">1.0.0</a> - 2026-08-18</a></h2>
+<ul>
+<li>First release.</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr-ef4e11c1.min.js"></script>
+        <script src="mark-09e88c2c.min.js"></script>
+        <script src="searcher-09f2665d.js"></script>
+
+        <script src="clipboard-1626706a.min.js"></script>
+        <script src="highlight-abc7f01d.js"></script>
+        <script src="book-609e4cb8.js"></script>
+
+        <!-- Custom JS scripts -->
+
+        <script>
+        window.addEventListener('load', function() {
+            window.setTimeout(window.print, 100);
+        });
+        </script>
+
+
+    </div>
+    </body>
+</html>
