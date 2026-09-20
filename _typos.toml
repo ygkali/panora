@@ -6,6 +6,9 @@
 [files]
 extend-exclude = [
     "README.tr.md",
+    # Translation catalogues: prose in other languages. The English source
+    # strings stay checked through po/panora.pot.
+    "po/tr.po",
     "THIRD_PARTY_LICENSES.md",
     "docs/ROADMAP.md",
     "docs/security-*.md",

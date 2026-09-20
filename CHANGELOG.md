@@ -104,6 +104,11 @@ real-machine verification in `docs/RELEASING.md` is done.
 - On wlroots compositors and KWin the source application of a copy is
   now known (`wlr-foreign-toplevel-management`): the excluded-application
   and window-title lists work there, and `app:` searches match.
+- The interface catalogue moved out of `i18n.rs` and into gettext files:
+  `po/panora.pot` is the template a translator starts from and `po/tr.po`
+  the Turkish catalogue. A build script turns them into the same `Strings`
+  struct as before -- no gettext runtime, no behaviour change -- and refuses
+  a catalogue with a missing, empty or stale entry.
 - `docs/DISTRIBUTION.md`: which channels are official, which distributions
   are tested and which are best effort, what the support window is, and what
   a packager has to keep (the user unit, the compiled gschema, the

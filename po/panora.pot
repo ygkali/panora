@@ -1,0 +1,741 @@
+# Panora user interface catalogue.
+# Copyright (C) 2026 Panora contributors
+# This file is distributed under the same licence as the Panora package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: panora 1.3.0\n"
+"Report-Msgid-Bugs-To: https://github.com/ygkali/panora/issues\n"
+"POT-Creation-Date: 2026-09-20 00:00+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgctxt "app_name"
+msgid "Panora"
+msgstr ""
+
+msgctxt "subtitle_history"
+msgid "clipboard history"
+msgstr ""
+
+msgctxt "subtitle_no_connection"
+msgid "not connected"
+msgstr ""
+
+msgctxt "subtitle_connection_problem"
+msgid "connection problem"
+msgstr ""
+
+#. `{n}` = entry count.
+msgctxt "subtitle_count"
+msgid "{n} items"
+msgstr ""
+
+msgctxt "search_placeholder"
+msgid "Search clipboard…"
+msgstr ""
+
+msgctxt "private_tooltip"
+msgid "Private mode: new copies are not recorded (Ctrl+Shift+P)"
+msgstr ""
+
+#. Short name for the private-mode toggle, announced by screen
+#. readers; `private_tooltip` is its longer description.
+msgctxt "private_label"
+msgid "Private mode"
+msgstr ""
+
+msgctxt "menu_tooltip"
+msgid "Menu"
+msgstr ""
+
+msgctxt "filter_all"
+msgid "All"
+msgstr ""
+
+msgctxt "filter_pinned"
+msgid "Pinned"
+msgstr ""
+
+msgctxt "filter_text"
+msgid "Text"
+msgstr ""
+
+msgctxt "filter_link"
+msgid "Links"
+msgstr ""
+
+msgctxt "filter_image"
+msgid "Images"
+msgstr ""
+
+msgctxt "filter_files"
+msgid "Files"
+msgstr ""
+
+msgctxt "filter_richtext"
+msgid "Rich text"
+msgstr ""
+
+msgctxt "filter_color"
+msgid "Colors"
+msgstr ""
+
+msgctxt "banner_private"
+msgid "Private mode is on — new copies are not recorded"
+msgstr ""
+
+#. Banner for the `extension_missing` health code.
+msgctxt "health_extension_missing"
+msgid "The GNOME Shell extension is not running, so nothing is recorded."
+msgstr ""
+
+msgctxt "health_extension_enable"
+msgid "Enable"
+msgstr ""
+
+msgctxt "toast_extension_enabled"
+msgid "Extension enabled"
+msgstr ""
+
+#. `{e}` = the error text.
+msgctxt "toast_extension_enable_failed"
+msgid "Could not enable the extension: {e}"
+msgstr ""
+
+msgctxt "empty_title"
+msgid "Clipboard history is empty"
+msgstr ""
+
+msgctxt "empty_filter_title"
+msgid "Nothing matches this filter"
+msgstr ""
+
+msgctxt "empty_description"
+msgid "Copy something and it will show up here."
+msgstr ""
+
+msgctxt "no_results_title"
+msgid "No results"
+msgstr ""
+
+#. `{q}` = search query.
+msgctxt "no_results_description"
+msgid "Nothing matches “{q}”."
+msgstr ""
+
+msgctxt "error_connect_title"
+msgid "Cannot reach the daemon"
+msgstr ""
+
+msgctxt "error_connect_description"
+msgid "panod may not be running. Start it with:\nsystemctl --user start panod.service"
+msgstr ""
+
+msgctxt "error_daemon_title"
+msgid "The daemon returned an error"
+msgstr ""
+
+msgctxt "retry"
+msgid "Retry"
+msgstr ""
+
+msgctxt "hint_line"
+msgid "Enter copy  ·  Space details  ·  Esc close"
+msgstr ""
+
+msgctxt "menu_shortcuts"
+msgid "Keyboard shortcuts"
+msgstr ""
+
+msgctxt "menu_settings"
+msgid "Settings"
+msgstr ""
+
+msgctxt "menu_clear"
+msgid "Clear history"
+msgstr ""
+
+msgctxt "clear_title"
+msgid "Clear the history?"
+msgstr ""
+
+msgctxt "clear_body"
+msgid "Unpinned items are deleted permanently; pinned items stay. This cannot be undone."
+msgstr ""
+
+msgctxt "cancel"
+msgid "Cancel"
+msgstr ""
+
+msgctxt "clear"
+msgid "Clear"
+msgstr ""
+
+msgctxt "ok"
+msgid "OK"
+msgstr ""
+
+msgctxt "close"
+msgid "Close"
+msgstr ""
+
+msgctxt "save"
+msgid "Save"
+msgstr ""
+
+msgctxt "shortcuts_title"
+msgid "Keyboard shortcuts"
+msgstr ""
+
+msgctxt "shortcuts_body"
+msgid "Ctrl+F  ·  focus search\n↑ ↓ ← →  ·  move between items\nHome / End / PgUp / PgDn  ·  jump in the list\nEnter  ·  put the selected item on the clipboard\nShift+Enter  ·  put only its plain text on the clipboard\nCtrl+1…9  ·  put the Nth item on the clipboard\nSpace  ·  open the selected item's details\nCtrl+D  ·  pin / unpin the selected item\nDelete  ·  delete the selected item (undo from the toast)\nCtrl+Shift+P  ·  toggle private mode\nCtrl+,  ·  settings\nEsc  ·  clear the search / close the window\nAny letter  ·  start searching"
+msgstr ""
+
+msgctxt "toast_private_on"
+msgid "Private mode on — recording paused"
+msgstr ""
+
+msgctxt "toast_private_off"
+msgid "Private mode off"
+msgstr ""
+
+msgctxt "toast_private_failed"
+msgid "Could not change private mode"
+msgstr ""
+
+#. `{n}` = cleared count.
+msgctxt "toast_cleared_n"
+msgid "{n} items deleted"
+msgstr ""
+
+msgctxt "toast_cleared"
+msgid "History cleared"
+msgstr ""
+
+msgctxt "toast_clear_failed"
+msgid "Could not clear the history"
+msgstr ""
+
+msgctxt "toast_recall_failed"
+msgid "Could not put the item on the clipboard"
+msgstr ""
+
+msgctxt "toast_paste_failed"
+msgid "Copied, but automatic paste is not supported in this session"
+msgstr ""
+
+msgctxt "toast_pinned"
+msgid "Pinned"
+msgstr ""
+
+msgctxt "toast_unpinned"
+msgid "Unpinned"
+msgstr ""
+
+msgctxt "toast_pin_failed"
+msgid "Could not change the pin"
+msgstr ""
+
+msgctxt "toast_deleted"
+msgid "Item deleted"
+msgstr ""
+
+msgctxt "toast_delete_failed"
+msgid "Could not delete the item"
+msgstr ""
+
+#. Button label on the "deleted" toast.
+msgctxt "toast_undo"
+msgid "Undo"
+msgstr ""
+
+msgctxt "toast_restored"
+msgid "Item restored"
+msgstr ""
+
+msgctxt "toast_restore_failed"
+msgid "Could not restore the item"
+msgstr ""
+
+msgctxt "toast_settings_saved"
+msgid "Settings saved"
+msgstr ""
+
+msgctxt "toast_settings_failed"
+msgid "Could not save settings"
+msgstr ""
+
+msgctxt "toast_copied_text"
+msgid "Plain text copied"
+msgstr ""
+
+msgctxt "kind_text"
+msgid "TEXT"
+msgstr ""
+
+msgctxt "kind_richtext"
+msgid "RICH"
+msgstr ""
+
+msgctxt "kind_link"
+msgid "LINK"
+msgstr ""
+
+msgctxt "kind_image"
+msgid "IMAGE"
+msgstr ""
+
+msgctxt "kind_files"
+msgid "FILES"
+msgstr ""
+
+msgctxt "kind_color"
+msgid "COLOR"
+msgstr ""
+
+msgctxt "kind_binary"
+msgid "BINARY"
+msgstr ""
+
+msgctxt "time_just_now"
+msgid "just now"
+msgstr ""
+
+#. `{n}` = minutes.
+msgctxt "time_minutes"
+msgid "{n} min ago"
+msgstr ""
+
+#. `{n}` = hours.
+msgctxt "time_hours"
+msgid "{n} h ago"
+msgstr ""
+
+#. `{n}` = days.
+msgctxt "time_days"
+msgid "{n} d ago"
+msgstr ""
+
+#. `{n}` = weeks.
+msgctxt "time_weeks"
+msgid "{n} w ago"
+msgstr ""
+
+msgctxt "tooltip_click_to_copy"
+msgid "Click to put on the clipboard"
+msgstr ""
+
+msgctxt "tooltip_pin"
+msgid "Pin (Ctrl+D)"
+msgstr ""
+
+msgctxt "tooltip_unpin"
+msgid "Unpin (Ctrl+D)"
+msgstr ""
+
+msgctxt "tooltip_delete"
+msgid "Delete (Delete)"
+msgstr ""
+
+msgctxt "tooltip_details"
+msgid "Details (Space)"
+msgstr ""
+
+msgctxt "details_title"
+msgid "Item details"
+msgstr ""
+
+msgctxt "details_copy"
+msgid "Copy"
+msgstr ""
+
+msgctxt "details_copy_plain"
+msgid "Copy as plain text"
+msgstr ""
+
+msgctxt "details_no_text"
+msgid "This item has no text preview."
+msgstr ""
+
+msgctxt "details_formats"
+msgid "Formats"
+msgstr ""
+
+msgctxt "load_more"
+msgid "Load more"
+msgstr ""
+
+msgctxt "settings_title"
+msgid "Settings"
+msgstr ""
+
+msgctxt "settings_history"
+msgid "History"
+msgstr ""
+
+msgctxt "settings_max_entries"
+msgid "Maximum items"
+msgstr ""
+
+msgctxt "settings_max_entries_sub"
+msgid "Unpinned item limit; the oldest are removed"
+msgstr ""
+
+msgctxt "settings_max_age"
+msgid "Keep for (days)"
+msgstr ""
+
+msgctxt "settings_max_age_sub"
+msgid "0 = forever"
+msgstr ""
+
+msgctxt "settings_record_primary"
+msgid "Record the selection clipboard (PRIMARY)"
+msgstr ""
+
+msgctxt "settings_record_primary_sub"
+msgid "Also keep text selected with the mouse"
+msgstr ""
+
+msgctxt "settings_privacy"
+msgid "Privacy"
+msgstr ""
+
+msgctxt "settings_start_private"
+msgid "Start in private mode"
+msgstr ""
+
+msgctxt "settings_excluded_apps"
+msgid "Excluded applications"
+msgstr ""
+
+msgctxt "settings_excluded_apps_sub"
+msgid "Copies from these apps are never read"
+msgstr ""
+
+msgctxt "settings_excluded_add_placeholder"
+msgid "application name (e.g. keepassxc)"
+msgstr ""
+
+msgctxt "settings_excluded_add"
+msgid "Add"
+msgstr ""
+
+msgctxt "settings_excluded_remove"
+msgid "Remove"
+msgstr ""
+
+#. Shown when the active backend cannot name the source application, so
+#. the exclusion list above has nothing to match against.
+msgctxt "settings_excluded_unsupported"
+msgid "Inactive in this session: the Wayland data-control protocol does not report which application made the copy. Content a password manager flags as secret is still blocked."
+msgstr ""
+
+msgctxt "settings_interface"
+msgid "Interface"
+msgstr ""
+
+msgctxt "settings_language"
+msgid "Language"
+msgstr ""
+
+msgctxt "settings_language_system"
+msgid "System"
+msgstr ""
+
+msgctxt "settings_language_tr"
+msgid "Türkçe"
+msgstr ""
+
+msgctxt "settings_language_en"
+msgid "English"
+msgstr ""
+
+msgctxt "settings_theme"
+msgid "Theme"
+msgstr ""
+
+msgctxt "settings_theme_system"
+msgid "System"
+msgstr ""
+
+msgctxt "settings_theme_light"
+msgid "Light"
+msgstr ""
+
+msgctxt "settings_theme_dark"
+msgid "Dark"
+msgstr ""
+
+msgctxt "settings_instant_paste"
+msgid "Instant paste"
+msgstr ""
+
+msgctxt "settings_instant_paste_sub"
+msgid "Send Ctrl+V (Ctrl+Shift+V in terminals) to the focused window after picking an item"
+msgstr ""
+
+msgctxt "settings_close_on_focus_loss"
+msgid "Close when focus leaves"
+msgstr ""
+
+msgctxt "settings_close_on_focus_loss_sub"
+msgid "The panel closes when you switch to another window (like Win+V)"
+msgstr ""
+
+msgctxt "settings_position"
+msgid "Panel position"
+msgstr ""
+
+msgctxt "settings_position_sub"
+msgid "Where the panel opens on X11 and GNOME; Sway/Hyprland use ui.layer_anchor"
+msgstr ""
+
+msgctxt "settings_position_pointer"
+msgid "Next to the pointer"
+msgstr ""
+
+msgctxt "settings_position_center"
+msgid "Centre of the screen"
+msgstr ""
+
+msgctxt "settings_filters"
+msgid "Content filters"
+msgstr ""
+
+msgctxt "settings_filters_sub"
+msgid "Applied once the text has been read; the application list above is checked first"
+msgstr ""
+
+msgctxt "settings_min_text_length"
+msgid "Minimum text length"
+msgstr ""
+
+msgctxt "settings_min_text_length_sub"
+msgid "Shorter text is not recorded (characters)"
+msgstr ""
+
+msgctxt "settings_ignore_whitespace"
+msgid "Skip whitespace-only text"
+msgstr ""
+
+msgctxt "settings_index_full_text"
+msgid "Search the whole text"
+msgstr ""
+
+msgctxt "settings_index_full_text_sub"
+msgid "Text beyond the 500-character preview is indexed too (kept in the history database)"
+msgstr ""
+
+msgctxt "settings_capture_kinds"
+msgid "Recorded kinds"
+msgstr ""
+
+msgctxt "settings_capture_kinds_sub"
+msgid "A kind that is switched off is never recorded"
+msgstr ""
+
+msgctxt "settings_ignore_patterns"
+msgid "Ignore patterns"
+msgstr ""
+
+msgctxt "settings_ignore_patterns_sub"
+msgid "Regular expressions; matching text is not recorded (e.g. ^\\d{16}$ for a 16-digit card number)"
+msgstr ""
+
+msgctxt "settings_ignore_pattern_placeholder"
+msgid "regular expression"
+msgstr ""
+
+#. Tooltip on the pattern entry once a pattern failed to compile.
+msgctxt "settings_ignore_pattern_invalid"
+msgid "Not a valid regular expression"
+msgstr ""
+
+msgctxt "settings_excluded_titles"
+msgid "Excluded window titles"
+msgstr ""
+
+msgctxt "settings_excluded_titles_sub"
+msgid "Nothing is recorded while the focused window's title contains one of these (X11 and GNOME); the title is not stored"
+msgstr ""
+
+msgctxt "settings_excluded_title_placeholder"
+msgid "part of a title (e.g. Online Banking)"
+msgstr ""
+
+#. Tooltip of the lock icon on a flagged row.
+msgctxt "sensitive_label"
+msgid "Sensitive content: removed when its time is up"
+msgstr ""
+
+msgctxt "details_sensitive_note"
+msgid "Looks like a key, token or card/account number: masked in the list and removed after the configured time."
+msgstr ""
+
+msgctxt "settings_sensitive_policy"
+msgid "Secrets and card numbers"
+msgstr ""
+
+msgctxt "settings_sensitive_policy_sub"
+msgid "What happens to text that looks like an API key, token, card or IBAN"
+msgstr ""
+
+msgctxt "settings_sensitive_mask"
+msgid "Record, mask the preview"
+msgstr ""
+
+msgctxt "settings_sensitive_drop"
+msgid "Do not record"
+msgstr ""
+
+msgctxt "settings_sensitive_store"
+msgid "Record like anything else"
+msgstr ""
+
+msgctxt "settings_sensitive_ttl"
+msgid "Remove after (minutes)"
+msgstr ""
+
+msgctxt "settings_sensitive_ttl_sub"
+msgid "0 keeps them like other entries; pinned entries stay either way"
+msgstr ""
+
+msgctxt "settings_system"
+msgid "System"
+msgstr ""
+
+msgctxt "settings_autostart"
+msgid "Start with the session"
+msgstr ""
+
+msgctxt "settings_autostart_sub"
+msgid "The user service that records the clipboard (panod.service)"
+msgstr ""
+
+#. `{e}` = the error text.
+msgctxt "settings_autostart_failed"
+msgid "Could not change the service: {e}"
+msgstr ""
+
+msgctxt "settings_storage"
+msgid "Storage used"
+msgstr ""
+
+msgctxt "settings_storage_sub"
+msgid "History database and encrypted payloads"
+msgstr ""
+
+msgctxt "welcome_title"
+msgid "Welcome to Panora"
+msgstr ""
+
+msgctxt "welcome_shortcut_title"
+msgid "Super+V"
+msgstr ""
+
+msgctxt "welcome_shortcut_body"
+msgid "Opens the history from anywhere. Enter puts the selected entry on the clipboard, Shift+Enter only its plain text, Ctrl+1…9 pick the first rows."
+msgstr ""
+
+msgctxt "welcome_privacy_title"
+msgid "Your clipboard stays yours"
+msgstr ""
+
+msgctxt "welcome_privacy_body"
+msgid "Everything is encrypted with a key kept in your login keyring. Password managers are never read, secrets are masked and expire, and private mode pauses recording."
+msgstr ""
+
+msgctxt "welcome_session_title"
+msgid "This session"
+msgstr ""
+
+msgctxt "welcome_session_all_good"
+msgid "Everything works here: capture, instant paste and the source application are all available."
+msgstr ""
+
+msgctxt "welcome_session_bridge"
+msgid "GNOME on Wayland: capture goes through the Panora Shell extension, which must be enabled."
+msgstr ""
+
+msgctxt "welcome_session_no_source_app"
+msgid "This compositor does not name the copying application, so the excluded-applications list cannot apply here."
+msgstr ""
+
+msgctxt "welcome_session_no_paste"
+msgid "Instant paste is not available here; entries are put on the clipboard for you to paste."
+msgstr ""
+
+msgctxt "welcome_session_unknown"
+msgid "The daemon is not reachable yet; run panora-doctor if this persists."
+msgstr ""
+
+msgctxt "welcome_next"
+msgid "Next"
+msgstr ""
+
+msgctxt "welcome_done"
+msgid "Get started"
+msgstr ""
+
+msgctxt "details_open_link"
+msgid "Open in browser"
+msgstr ""
+
+msgctxt "details_show_qr"
+msgid "QR code"
+msgstr ""
+
+msgctxt "details_qr_title"
+msgid "Scan to open on another device"
+msgstr ""
+
+msgctxt "details_copy_as"
+msgid "Copy as…"
+msgstr ""
+
+msgctxt "details_open_folder"
+msgid "Open folder"
+msgstr ""
+
+msgctxt "details_save_image"
+msgid "Save as…"
+msgstr ""
+
+#. `{p}` = the path written.
+msgctxt "toast_saved"
+msgid "Saved to {p}"
+msgstr ""
+
+#. `{e}` = the error text.
+msgctxt "toast_save_failed"
+msgid "Could not save: {e}"
+msgstr ""
+
+#. `{e}` = the error text.
+msgctxt "toast_open_failed"
+msgid "Could not open: {e}"
+msgstr ""
+
+msgctxt "settings_restart_hint"
+msgid "Language changes apply the next time the window opens."
+msgstr ""
+
+msgctxt "settings_invalid"
+msgid "Invalid value"
+msgstr ""
+
+msgctxt "cli_ok"
+msgid "ok"
+msgstr ""
+
+#. `{n}` = affected count.
+msgctxt "cli_count"
+msgid "{n} items processed."
+msgstr ""

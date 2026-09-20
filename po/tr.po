@@ -1,0 +1,741 @@
+# Panora user interface catalogue.
+# Copyright (C) 2026 Panora contributors
+# This file is distributed under the same licence as the Panora package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: panora 1.3.0\n"
+"Report-Msgid-Bugs-To: https://github.com/ygkali/panora/issues\n"
+"POT-Creation-Date: 2026-09-20 00:00+0000\n"
+"PO-Revision-Date: 2026-09-20 00:00+0000\n"
+"Last-Translator: ygkali <kompansebuyucu@proton.me>\n"
+"Language-Team: Turkish <tr@li.org>\n"
+"Language: tr\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgctxt "app_name"
+msgid "Panora"
+msgstr "Panora"
+
+msgctxt "subtitle_history"
+msgid "clipboard history"
+msgstr "pano geçmişi"
+
+msgctxt "subtitle_no_connection"
+msgid "not connected"
+msgstr "bağlantı yok"
+
+msgctxt "subtitle_connection_problem"
+msgid "connection problem"
+msgstr "bağlantı sorunu"
+
+#. `{n}` = entry count.
+msgctxt "subtitle_count"
+msgid "{n} items"
+msgstr "{n} kayıt"
+
+msgctxt "search_placeholder"
+msgid "Search clipboard…"
+msgstr "Panoda ara…"
+
+msgctxt "private_tooltip"
+msgid "Private mode: new copies are not recorded (Ctrl+Shift+P)"
+msgstr "Özel mod: yeni kopyalar kaydedilmez (Ctrl+Shift+P)"
+
+#. Short name for the private-mode toggle, announced by screen
+#. readers; `private_tooltip` is its longer description.
+msgctxt "private_label"
+msgid "Private mode"
+msgstr "Özel mod"
+
+msgctxt "menu_tooltip"
+msgid "Menu"
+msgstr "Menü"
+
+msgctxt "filter_all"
+msgid "All"
+msgstr "Tümü"
+
+msgctxt "filter_pinned"
+msgid "Pinned"
+msgstr "Sabitli"
+
+msgctxt "filter_text"
+msgid "Text"
+msgstr "Metin"
+
+msgctxt "filter_link"
+msgid "Links"
+msgstr "Bağlantı"
+
+msgctxt "filter_image"
+msgid "Images"
+msgstr "Görsel"
+
+msgctxt "filter_files"
+msgid "Files"
+msgstr "Dosya"
+
+msgctxt "filter_richtext"
+msgid "Rich text"
+msgstr "Biçimli"
+
+msgctxt "filter_color"
+msgid "Colors"
+msgstr "Renk"
+
+msgctxt "banner_private"
+msgid "Private mode is on — new copies are not recorded"
+msgstr "Özel mod açık — yeni kopyalar kaydedilmiyor"
+
+#. Banner for the `extension_missing` health code.
+msgctxt "health_extension_missing"
+msgid "The GNOME Shell extension is not running, so nothing is recorded."
+msgstr "GNOME Shell eklentisi çalışmıyor; bu oturumda hiçbir şey kaydedilmiyor."
+
+msgctxt "health_extension_enable"
+msgid "Enable"
+msgstr "Etkinleştir"
+
+msgctxt "toast_extension_enabled"
+msgid "Extension enabled"
+msgstr "Eklenti etkinleştirildi"
+
+#. `{e}` = the error text.
+msgctxt "toast_extension_enable_failed"
+msgid "Could not enable the extension: {e}"
+msgstr "Eklenti etkinleştirilemedi: {e}"
+
+msgctxt "empty_title"
+msgid "Clipboard history is empty"
+msgstr "Pano geçmişi boş"
+
+msgctxt "empty_filter_title"
+msgid "Nothing matches this filter"
+msgstr "Bu filtrede kayıt yok"
+
+msgctxt "empty_description"
+msgid "Copy something and it will show up here."
+msgstr "Bir şey kopyaladığında burada görünecek."
+
+msgctxt "no_results_title"
+msgid "No results"
+msgstr "Sonuç yok"
+
+#. `{q}` = search query.
+msgctxt "no_results_description"
+msgid "Nothing matches “{q}”."
+msgstr "“{q}” ile eşleşen kayıt bulunamadı."
+
+msgctxt "error_connect_title"
+msgid "Cannot reach the daemon"
+msgstr "Daemon'a bağlanılamadı"
+
+msgctxt "error_connect_description"
+msgid "panod may not be running. Start it with:\nsystemctl --user start panod.service"
+msgstr "panod çalışmıyor olabilir. Başlatmak için:\nsystemctl --user start panod.service"
+
+msgctxt "error_daemon_title"
+msgid "The daemon returned an error"
+msgstr "Daemon hata döndürdü"
+
+msgctxt "retry"
+msgid "Retry"
+msgstr "Yeniden dene"
+
+msgctxt "hint_line"
+msgid "Enter copy  ·  Space details  ·  Esc close"
+msgstr "Enter panoya koy  ·  Space ayrıntı  ·  Esc kapat"
+
+msgctxt "menu_shortcuts"
+msgid "Keyboard shortcuts"
+msgstr "Klavye kısayolları"
+
+msgctxt "menu_settings"
+msgid "Settings"
+msgstr "Ayarlar"
+
+msgctxt "menu_clear"
+msgid "Clear history"
+msgstr "Geçmişi temizle"
+
+msgctxt "clear_title"
+msgid "Clear the history?"
+msgstr "Geçmiş temizlensin mi?"
+
+msgctxt "clear_body"
+msgid "Unpinned items are deleted permanently; pinned items stay. This cannot be undone."
+msgstr "Sabitlenmemiş kayıtlar kalıcı olarak silinir; sabitlediklerin kalır. Bu işlem geri alınamaz."
+
+msgctxt "cancel"
+msgid "Cancel"
+msgstr "Vazgeç"
+
+msgctxt "clear"
+msgid "Clear"
+msgstr "Temizle"
+
+msgctxt "ok"
+msgid "OK"
+msgstr "Tamam"
+
+msgctxt "close"
+msgid "Close"
+msgstr "Kapat"
+
+msgctxt "save"
+msgid "Save"
+msgstr "Kaydet"
+
+msgctxt "shortcuts_title"
+msgid "Keyboard shortcuts"
+msgstr "Klavye kısayolları"
+
+msgctxt "shortcuts_body"
+msgid "Ctrl+F  ·  focus search\n↑ ↓ ← →  ·  move between items\nHome / End / PgUp / PgDn  ·  jump in the list\nEnter  ·  put the selected item on the clipboard\nShift+Enter  ·  put only its plain text on the clipboard\nCtrl+1…9  ·  put the Nth item on the clipboard\nSpace  ·  open the selected item's details\nCtrl+D  ·  pin / unpin the selected item\nDelete  ·  delete the selected item (undo from the toast)\nCtrl+Shift+P  ·  toggle private mode\nCtrl+,  ·  settings\nEsc  ·  clear the search / close the window\nAny letter  ·  start searching"
+msgstr "Ctrl+F  ·  aramaya git\n↑ ↓ ← →  ·  kayıtlar arasında gez\nHome / End / PgUp / PgDn  ·  listede atla\nEnter  ·  seçili kaydı panoya koy\nShift+Enter  ·  yalnızca düz metnini panoya koy\nCtrl+1…9  ·  listedeki N. kaydı panoya koy\nSpace  ·  seçili kaydın ayrıntısını aç\nCtrl+D  ·  seçili kaydı sabitle / çöz\nDelete  ·  seçili kaydı sil (geri alınabilir)\nCtrl+Shift+P  ·  özel modu aç / kapat\nCtrl+,  ·  ayarlar\nEsc  ·  aramayı temizle / pencereyi kapat\nHerhangi bir harf  ·  aramaya başla"
+
+msgctxt "toast_private_on"
+msgid "Private mode on — recording paused"
+msgstr "Özel mod açıldı — kayıt durduruldu"
+
+msgctxt "toast_private_off"
+msgid "Private mode off"
+msgstr "Özel mod kapatıldı"
+
+msgctxt "toast_private_failed"
+msgid "Could not change private mode"
+msgstr "Özel mod değiştirilemedi"
+
+#. `{n}` = cleared count.
+msgctxt "toast_cleared_n"
+msgid "{n} items deleted"
+msgstr "{n} kayıt silindi"
+
+msgctxt "toast_cleared"
+msgid "History cleared"
+msgstr "Geçmiş temizlendi"
+
+msgctxt "toast_clear_failed"
+msgid "Could not clear the history"
+msgstr "Geçmiş temizlenemedi"
+
+msgctxt "toast_recall_failed"
+msgid "Could not put the item on the clipboard"
+msgstr "Panoya konulamadı"
+
+msgctxt "toast_paste_failed"
+msgid "Copied, but automatic paste is not supported in this session"
+msgstr "Panoya kondu, ancak otomatik yapıştırma bu oturumda desteklenmiyor"
+
+msgctxt "toast_pinned"
+msgid "Pinned"
+msgstr "Sabitlendi"
+
+msgctxt "toast_unpinned"
+msgid "Unpinned"
+msgstr "Sabitleme kaldırıldı"
+
+msgctxt "toast_pin_failed"
+msgid "Could not change the pin"
+msgstr "Sabitleme değiştirilemedi"
+
+msgctxt "toast_deleted"
+msgid "Item deleted"
+msgstr "Kayıt silindi"
+
+msgctxt "toast_delete_failed"
+msgid "Could not delete the item"
+msgstr "Kayıt silinemedi"
+
+#. Button label on the "deleted" toast.
+msgctxt "toast_undo"
+msgid "Undo"
+msgstr "Geri al"
+
+msgctxt "toast_restored"
+msgid "Item restored"
+msgstr "Kayıt geri getirildi"
+
+msgctxt "toast_restore_failed"
+msgid "Could not restore the item"
+msgstr "Kayıt geri getirilemedi"
+
+msgctxt "toast_settings_saved"
+msgid "Settings saved"
+msgstr "Ayarlar kaydedildi"
+
+msgctxt "toast_settings_failed"
+msgid "Could not save settings"
+msgstr "Ayarlar kaydedilemedi"
+
+msgctxt "toast_copied_text"
+msgid "Plain text copied"
+msgstr "Düz metin panoya kondu"
+
+msgctxt "kind_text"
+msgid "TEXT"
+msgstr "METİN"
+
+msgctxt "kind_richtext"
+msgid "RICH"
+msgstr "BİÇİMLİ"
+
+msgctxt "kind_link"
+msgid "LINK"
+msgstr "BAĞLANTI"
+
+msgctxt "kind_image"
+msgid "IMAGE"
+msgstr "GÖRSEL"
+
+msgctxt "kind_files"
+msgid "FILES"
+msgstr "DOSYA"
+
+msgctxt "kind_color"
+msgid "COLOR"
+msgstr "RENK"
+
+msgctxt "kind_binary"
+msgid "BINARY"
+msgstr "İKİLİ"
+
+msgctxt "time_just_now"
+msgid "just now"
+msgstr "az önce"
+
+#. `{n}` = minutes.
+msgctxt "time_minutes"
+msgid "{n} min ago"
+msgstr "{n} dk önce"
+
+#. `{n}` = hours.
+msgctxt "time_hours"
+msgid "{n} h ago"
+msgstr "{n} sa önce"
+
+#. `{n}` = days.
+msgctxt "time_days"
+msgid "{n} d ago"
+msgstr "{n} gün önce"
+
+#. `{n}` = weeks.
+msgctxt "time_weeks"
+msgid "{n} w ago"
+msgstr "{n} hafta önce"
+
+msgctxt "tooltip_click_to_copy"
+msgid "Click to put on the clipboard"
+msgstr "Panoya koymak için tıkla"
+
+msgctxt "tooltip_pin"
+msgid "Pin (Ctrl+D)"
+msgstr "Sabitle (Ctrl+D)"
+
+msgctxt "tooltip_unpin"
+msgid "Unpin (Ctrl+D)"
+msgstr "Sabitlemeyi kaldır (Ctrl+D)"
+
+msgctxt "tooltip_delete"
+msgid "Delete (Delete)"
+msgstr "Sil (Delete)"
+
+msgctxt "tooltip_details"
+msgid "Details (Space)"
+msgstr "Ayrıntılar (Space)"
+
+msgctxt "details_title"
+msgid "Item details"
+msgstr "Kayıt ayrıntısı"
+
+msgctxt "details_copy"
+msgid "Copy"
+msgstr "Panoya koy"
+
+msgctxt "details_copy_plain"
+msgid "Copy as plain text"
+msgstr "Düz metin olarak koy"
+
+msgctxt "details_no_text"
+msgid "This item has no text preview."
+msgstr "Bu kaydın metin önizlemesi yok."
+
+msgctxt "details_formats"
+msgid "Formats"
+msgstr "Biçimler"
+
+msgctxt "load_more"
+msgid "Load more"
+msgstr "Daha fazla yükle"
+
+msgctxt "settings_title"
+msgid "Settings"
+msgstr "Ayarlar"
+
+msgctxt "settings_history"
+msgid "History"
+msgstr "Geçmiş"
+
+msgctxt "settings_max_entries"
+msgid "Maximum items"
+msgstr "En fazla kayıt"
+
+msgctxt "settings_max_entries_sub"
+msgid "Unpinned item limit; the oldest are removed"
+msgstr "Sabitlenmemiş kayıt üst sınırı; eskiler silinir"
+
+msgctxt "settings_max_age"
+msgid "Keep for (days)"
+msgstr "Saklama süresi (gün)"
+
+msgctxt "settings_max_age_sub"
+msgid "0 = forever"
+msgstr "0 = süresiz"
+
+msgctxt "settings_record_primary"
+msgid "Record the selection clipboard (PRIMARY)"
+msgstr "Seçim panosunu kaydet (PRIMARY)"
+
+msgctxt "settings_record_primary_sub"
+msgid "Also keep text selected with the mouse"
+msgstr "Fareyle seçilen metni de geçmişe ekle"
+
+msgctxt "settings_privacy"
+msgid "Privacy"
+msgstr "Gizlilik"
+
+msgctxt "settings_start_private"
+msgid "Start in private mode"
+msgstr "Özel modda başla"
+
+msgctxt "settings_excluded_apps"
+msgid "Excluded applications"
+msgstr "Hariç tutulan uygulamalar"
+
+msgctxt "settings_excluded_apps_sub"
+msgid "Copies from these apps are never read"
+msgstr "Bu uygulamalardan kopyalananlar hiç okunmaz"
+
+msgctxt "settings_excluded_add_placeholder"
+msgid "application name (e.g. keepassxc)"
+msgstr "uygulama adı (örn. keepassxc)"
+
+msgctxt "settings_excluded_add"
+msgid "Add"
+msgstr "Ekle"
+
+msgctxt "settings_excluded_remove"
+msgid "Remove"
+msgstr "Kaldır"
+
+#. Shown when the active backend cannot name the source application, so
+#. the exclusion list above has nothing to match against.
+msgctxt "settings_excluded_unsupported"
+msgid "Inactive in this session: the Wayland data-control protocol does not report which application made the copy. Content a password manager flags as secret is still blocked."
+msgstr "Bu oturumda çalışmaz: Wayland data-control protokolü kopyalayan uygulamanın kimliğini bildirmiyor. Parola yöneticilerinin gizli içerik işaretleri yine de engellenir."
+
+msgctxt "settings_interface"
+msgid "Interface"
+msgstr "Arayüz"
+
+msgctxt "settings_language"
+msgid "Language"
+msgstr "Dil"
+
+msgctxt "settings_language_system"
+msgid "System"
+msgstr "Sistem"
+
+msgctxt "settings_language_tr"
+msgid "Türkçe"
+msgstr "Türkçe"
+
+msgctxt "settings_language_en"
+msgid "English"
+msgstr "English"
+
+msgctxt "settings_theme"
+msgid "Theme"
+msgstr "Tema"
+
+msgctxt "settings_theme_system"
+msgid "System"
+msgstr "Sistem"
+
+msgctxt "settings_theme_light"
+msgid "Light"
+msgstr "Açık"
+
+msgctxt "settings_theme_dark"
+msgid "Dark"
+msgstr "Koyu"
+
+msgctxt "settings_instant_paste"
+msgid "Instant paste"
+msgstr "Anında yapıştır"
+
+msgctxt "settings_instant_paste_sub"
+msgid "Send Ctrl+V (Ctrl+Shift+V in terminals) to the focused window after picking an item"
+msgstr "Kayıt seçilince odaktaki pencereye Ctrl+V (terminallerde Ctrl+Shift+V) gönder"
+
+msgctxt "settings_close_on_focus_loss"
+msgid "Close when focus leaves"
+msgstr "Odak kaybında kapat"
+
+msgctxt "settings_close_on_focus_loss_sub"
+msgid "The panel closes when you switch to another window (like Win+V)"
+msgstr "Başka bir pencereye geçilince panel kapanır (Win+V gibi)"
+
+msgctxt "settings_position"
+msgid "Panel position"
+msgstr "Panel konumu"
+
+msgctxt "settings_position_sub"
+msgid "Where the panel opens on X11 and GNOME; Sway/Hyprland use ui.layer_anchor"
+msgstr "X11 ve GNOME'da panelin açıldığı yer; Sway/Hyprland ui.layer_anchor ayarını kullanır"
+
+msgctxt "settings_position_pointer"
+msgid "Next to the pointer"
+msgstr "İşaretçinin yanında"
+
+msgctxt "settings_position_center"
+msgid "Centre of the screen"
+msgstr "Ekranın ortasında"
+
+msgctxt "settings_filters"
+msgid "Content filters"
+msgstr "İçerik filtreleri"
+
+msgctxt "settings_filters_sub"
+msgid "Applied once the text has been read; the application list above is checked first"
+msgstr "Metin okunduktan sonra uygulanır; yukarıdaki uygulama listesine daha önce bakılır"
+
+msgctxt "settings_min_text_length"
+msgid "Minimum text length"
+msgstr "En kısa metin"
+
+msgctxt "settings_min_text_length_sub"
+msgid "Shorter text is not recorded (characters)"
+msgstr "Bundan kısa metin kaydedilmez (karakter)"
+
+msgctxt "settings_ignore_whitespace"
+msgid "Skip whitespace-only text"
+msgstr "Yalnızca boşluktan oluşan metni atla"
+
+msgctxt "settings_index_full_text"
+msgid "Search the whole text"
+msgstr "Metnin tamamında ara"
+
+msgctxt "settings_index_full_text_sub"
+msgid "Text beyond the 500-character preview is indexed too (kept in the history database)"
+msgstr "500 karakterlik önizlemenin ötesi de dizinlenir (geçmiş veritabanında saklanır)"
+
+msgctxt "settings_capture_kinds"
+msgid "Recorded kinds"
+msgstr "Kaydedilen türler"
+
+msgctxt "settings_capture_kinds_sub"
+msgid "A kind that is switched off is never recorded"
+msgstr "Kapatılan tür hiç kaydedilmez"
+
+msgctxt "settings_ignore_patterns"
+msgid "Ignore patterns"
+msgstr "Yoksayma kalıpları"
+
+msgctxt "settings_ignore_patterns_sub"
+msgid "Regular expressions; matching text is not recorded (e.g. ^\\d{16}$ for a 16-digit card number)"
+msgstr "Düzenli ifadeler; eşleşen metin kaydedilmez (örn. 16 haneli kart numarası için ^\\d{16}$)"
+
+msgctxt "settings_ignore_pattern_placeholder"
+msgid "regular expression"
+msgstr "düzenli ifade"
+
+#. Tooltip on the pattern entry once a pattern failed to compile.
+msgctxt "settings_ignore_pattern_invalid"
+msgid "Not a valid regular expression"
+msgstr "Geçerli bir düzenli ifade değil"
+
+msgctxt "settings_excluded_titles"
+msgid "Excluded window titles"
+msgstr "Hariç tutulan pencere başlıkları"
+
+msgctxt "settings_excluded_titles_sub"
+msgid "Nothing is recorded while the focused window's title contains one of these (X11 and GNOME); the title is not stored"
+msgstr "Odaktaki pencerenin başlığı bunlardan birini içerirken hiçbir şey kaydedilmez (X11 ve GNOME); başlık saklanmaz"
+
+msgctxt "settings_excluded_title_placeholder"
+msgid "part of a title (e.g. Online Banking)"
+msgstr "başlığın bir parçası (örn. İnternet Bankacılığı)"
+
+#. Tooltip of the lock icon on a flagged row.
+msgctxt "sensitive_label"
+msgid "Sensitive content: removed when its time is up"
+msgstr "Hassas içerik: süresi dolunca silinir"
+
+msgctxt "details_sensitive_note"
+msgid "Looks like a key, token or card/account number: masked in the list and removed after the configured time."
+msgstr "Gizli anahtar, jeton ya da kart/hesap numarasına benziyor: listede maskelenir ve ayarlanan süre sonunda silinir."
+
+msgctxt "settings_sensitive_policy"
+msgid "Secrets and card numbers"
+msgstr "Gizli anahtarlar ve kart numaraları"
+
+msgctxt "settings_sensitive_policy_sub"
+msgid "What happens to text that looks like an API key, token, card or IBAN"
+msgstr "API anahtarı, jeton, kart ya da IBAN'a benzeyen metne ne yapılır"
+
+msgctxt "settings_sensitive_mask"
+msgid "Record, mask the preview"
+msgstr "Kaydet, önizlemeyi maskele"
+
+msgctxt "settings_sensitive_drop"
+msgid "Do not record"
+msgstr "Kaydetme"
+
+msgctxt "settings_sensitive_store"
+msgid "Record like anything else"
+msgstr "Diğerleri gibi kaydet"
+
+msgctxt "settings_sensitive_ttl"
+msgid "Remove after (minutes)"
+msgstr "Şu kadar dakika sonra sil"
+
+msgctxt "settings_sensitive_ttl_sub"
+msgid "0 keeps them like other entries; pinned entries stay either way"
+msgstr "0 = diğer kayıtlar gibi tutulur; sabitlenenler her durumda kalır"
+
+msgctxt "settings_system"
+msgid "System"
+msgstr "Sistem"
+
+msgctxt "settings_autostart"
+msgid "Start with the session"
+msgstr "Oturumla birlikte başlat"
+
+msgctxt "settings_autostart_sub"
+msgid "The user service that records the clipboard (panod.service)"
+msgstr "Panoyu kaydeden kullanıcı servisi (panod.service)"
+
+#. `{e}` = the error text.
+msgctxt "settings_autostart_failed"
+msgid "Could not change the service: {e}"
+msgstr "Servis ayarı değiştirilemedi: {e}"
+
+msgctxt "settings_storage"
+msgid "Storage used"
+msgstr "Kullanılan alan"
+
+msgctxt "settings_storage_sub"
+msgid "History database and encrypted payloads"
+msgstr "Geçmiş veritabanı ve şifreli içerikler"
+
+msgctxt "welcome_title"
+msgid "Welcome to Panora"
+msgstr "Panora'ya hoş geldiniz"
+
+msgctxt "welcome_shortcut_title"
+msgid "Super+V"
+msgstr "Super+V"
+
+msgctxt "welcome_shortcut_body"
+msgid "Opens the history from anywhere. Enter puts the selected entry on the clipboard, Shift+Enter only its plain text, Ctrl+1…9 pick the first rows."
+msgstr "Geçmişi her yerden açar. Enter seçili kaydı panoya koyar, Shift+Enter yalnızca düz metni, Ctrl+1…9 ilk satırları seçer."
+
+msgctxt "welcome_privacy_title"
+msgid "Your clipboard stays yours"
+msgstr "Panonuz size ait"
+
+msgctxt "welcome_privacy_body"
+msgid "Everything is encrypted with a key kept in your login keyring. Password managers are never read, secrets are masked and expire, and private mode pauses recording."
+msgstr "Her şey giriş anahtarlığınızdaki bir anahtarla şifrelenir. Parola yöneticileri hiç okunmaz, gizli anahtarlar maskelenir ve süresi dolunca silinir, özel mod kaydı durdurur."
+
+msgctxt "welcome_session_title"
+msgid "This session"
+msgstr "Bu oturum"
+
+msgctxt "welcome_session_all_good"
+msgid "Everything works here: capture, instant paste and the source application are all available."
+msgstr "Burada her şey çalışır: yakalama, anında yapıştırma ve kaynak uygulama bilgisi kullanılabilir."
+
+msgctxt "welcome_session_bridge"
+msgid "GNOME on Wayland: capture goes through the Panora Shell extension, which must be enabled."
+msgstr "Wayland üzerinde GNOME: yakalama Panora Shell eklentisi üzerinden yapılır; eklenti etkin olmalı."
+
+msgctxt "welcome_session_no_source_app"
+msgid "This compositor does not name the copying application, so the excluded-applications list cannot apply here."
+msgstr "Bu bileşim yöneticisi kopyalayan uygulamayı bildirmez; hariç tutulan uygulamalar listesi burada işlemez."
+
+msgctxt "welcome_session_no_paste"
+msgid "Instant paste is not available here; entries are put on the clipboard for you to paste."
+msgstr "Anında yapıştırma burada yok; kayıtlar panoya konur, yapıştırmak size kalır."
+
+msgctxt "welcome_session_unknown"
+msgid "The daemon is not reachable yet; run panora-doctor if this persists."
+msgstr "Daemon'a henüz ulaşılamıyor; sürerse panora-doctor çalıştırın."
+
+msgctxt "welcome_next"
+msgid "Next"
+msgstr "İleri"
+
+msgctxt "welcome_done"
+msgid "Get started"
+msgstr "Başla"
+
+msgctxt "details_open_link"
+msgid "Open in browser"
+msgstr "Tarayıcıda aç"
+
+msgctxt "details_show_qr"
+msgid "QR code"
+msgstr "QR kod"
+
+msgctxt "details_qr_title"
+msgid "Scan to open on another device"
+msgstr "Başka bir cihazda açmak için tarayın"
+
+msgctxt "details_copy_as"
+msgid "Copy as…"
+msgstr "… olarak kopyala"
+
+msgctxt "details_open_folder"
+msgid "Open folder"
+msgstr "Klasörü aç"
+
+msgctxt "details_save_image"
+msgid "Save as…"
+msgstr "Farklı kaydet…"
+
+#. `{p}` = the path written.
+msgctxt "toast_saved"
+msgid "Saved to {p}"
+msgstr "Kaydedildi: {p}"
+
+#. `{e}` = the error text.
+msgctxt "toast_save_failed"
+msgid "Could not save: {e}"
+msgstr "Kaydedilemedi: {e}"
+
+#. `{e}` = the error text.
+msgctxt "toast_open_failed"
+msgid "Could not open: {e}"
+msgstr "Açılamadı: {e}"
+
+msgctxt "settings_restart_hint"
+msgid "Language changes apply the next time the window opens."
+msgstr "Dil değişikliği pencere yeniden açıldığında uygulanır."
+
+msgctxt "settings_invalid"
+msgid "Invalid value"
+msgstr "Geçersiz değer"
+
+msgctxt "cli_ok"
+msgid "ok"
+msgstr "tamam"
+
+#. `{n}` = affected count.
+msgctxt "cli_count"
+msgid "{n} items processed."
+msgstr "{n} kayıt işlendi."

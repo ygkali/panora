@@ -67,9 +67,15 @@ and arm64.
   e2e step.
 - **Small commits, present tense subjects**, English, no trailer lines. The
   body explains why, not what.
-- **Code and comments are English.** User-facing strings live in
-  `crates/panora-core/src/i18n.rs` (Turkish and English) or the scripts'
-  translation tables.
+- **Code and comments are English.** User-facing strings live in `po/`:
+  `po/panora.pot` is the template (the `msgctxt` is the field name, the
+  `msgid` is the English text, `#.` lines are the notes translators see),
+  and `po/tr.po` is the Turkish catalogue. `build.rs` turns them into the
+  `Strings` struct, so a new string means an entry in the template **and**
+  in every catalogue -- a missing or empty one fails the build. A new
+  language is a new `<code>.po` plus a `Language` variant. `msgfmt --check
+  po/tr.po` validates a catalogue. The installer, uninstaller and test
+  scripts keep their own translation tables.
 - Keep `docs/ROADMAP.md` honest: tick off what you finish, add what you find.
 
 ## Pull requests
