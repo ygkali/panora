@@ -601,27 +601,28 @@ Tüm Rust kaynakları, eklenti, script'ler, paketleme dosyaları, ADR'ler, güve
 
 ## 11. Durum — 2026-09-20
 
-Bu bölüm planın hangi kısmının uygulandığını kaydeder; `fd1d966` (yol haritası) ile `a46aa04` arasındaki commit'ler `main` dalında, CI yeşil.
+Bu bölüm planın hangi kısmının uygulandığını kaydeder. `fd1d966` (yol haritası) sonrası commit'ler `main` dalında, CI yeşil; dal koruması açık.
 
 ### 11.1 Tamamlanan
 
-- **Yayın engelleri (P0):** R-01 kimlikler (`io.github.ygkali.Panora`, UUID `panora@ygkali.github.io`, bakımcı `ygkali`), R-02 README EN/TR + LICENSE + depo kökü (D-2), R-03 sürüm 1.3.0 + CHANGELOG, R-05 temizlik, R-06 simge/AppStream/ekran görüntüleri, R-07 topluluk dosyaları, R-08 hata düzeltmeleri (B-01, B-02, B-13, B-05 belge), R-09/STO-01 migrasyon çerçevesi (şema v4, `VACUUM INTO` yedek, anahtar parmak izi STO-09), R-10/I18N-03 İngilizce varsayılan betikler, R-11 lintian temiz `.deb`, **R-12 dal koruması** (12 zorunlu CI kontrolü, yöneticiler muaf, force-push ve silme kapalı), CI genişletmesi (fmt/clippy, test, keyring, headless sway, popup duman testi, MSRV 1.92, shell, eklenti güvenliği, audit, deny, amd64+arm64 paket), PKG-01 release iş akışı (deb ×2, kit, SHA256SUMS, minisign, SBOM), PKG-06, CLI-01 (clap, man, tamamlama, `--version`, çıkış kodları), QA-01, QA-02 (headless sway e2e), QA-05, SEC-07, SEC-08, SEC-11.
-- **1.4 hattından:** CAP-01, CAP-02 (wlroots kalıcılık, `persist_on_wayland`), CAP-05 (uzunluk/boşluk/regex/tür filtreleri), CAP-06 (hassas içerik: anahtar/JWT/kart/IBAN/yüksek entropi; `sensitive_policy` mask|drop|store, `sensitive_ttl_minutes`), CAP-11 (kilit ekranında duraklat), UI-01, UI-03, UI-04, UI-11+STO-03 (sunucu tarafı küçük resimler), UI-13 (IPC ve görsel çözme işçi iş parçacığında), UI-15, UI-17 (geri al), UI-19 (karşılama), UI-20 (otomatik başlatma anahtarı, depolama kullanımı, tür bazlı yakalama, hassas TTL, odak davranışı), UI-21 (`Status.health`, `extension_missing` + Etkinleştir düğmesi), STO-02 (tam metin dizini, aksan/İ katlama), STO-04 (`max_total_bytes`), STO-05 (`PRAGMA optimize`, WAL checkpoint, koşullu VACUUM, öksüz blob taraması), SEC-04, SEC-05 (günlük sızıntı testi), SEC-09 (`systemd-analyze security` 1.8), CLI-04 (`pick`, `--format`), CLI-07 (`store`), INT-09 (terminalde Ctrl+Shift+V), DOC-01/03/04/05, DOC-08 (`panora-doctor --report`).
-- **Bağımlılıklar:** gtk4-rs 0.11 / libadwaita-rs 0.9, rusqlite 0.40, toml 1; Dependabot gtk-rs ve actions grupları.
+- **Yayın engelleri (P0):** R-01 kimlikler (`io.github.ygkali.Panora`, UUID `panora@ygkali.github.io`, bakımcı `ygkali`), R-02 README EN/TR + LICENSE + depo kökü (D-2), R-03 sürüm 1.3.0 + CHANGELOG, R-05 temizlik, R-06 simge/AppStream/ekran görüntüleri, R-07 topluluk dosyaları, R-08 hata düzeltmeleri (B-01, B-02, B-13, B-05 belge), R-09/STO-01 migrasyon çerçevesi (şema v4, `VACUUM INTO` yedek, anahtar parmak izi STO-09), R-10/I18N-03 İngilizce varsayılan betikler, R-11 lintian temiz `.deb`, **R-12 dal koruması** (12 zorunlu CI kontrolü, yöneticiler muaf, force-push ve silme kapalı), CI genişletmesi, PKG-01 release iş akışı (deb ×2, kit, SHA256SUMS, minisign, SBOM), PKG-06, CLI-01, QA-01, QA-02 (headless sway e2e), QA-05, SEC-07, SEC-08, SEC-11.
+- **1.4.0 listesinin tamamı:** UI-01, UI-03, UI-04, UI-11+STO-03 (küçük resimler), UI-12+STO-02 (arama dilbilgisi `kind:` `app:` `pinned:` `before:`/`after:` `re:`, tırnaklı ifade, kalın eşleşme vurgusu; tam metin dizini, aksan/İ katlama), UI-13 (IPC ve görsel çözme işçi iş parçacığında; değişmeyen sayfa yeniden kurulmaz), UI-15, UI-17 (geri al), UI-19 (karşılama), UI-20 (otomatik başlatma, depolama kullanımı, tür bazlı yakalama, hassas TTL, odak davranışı), UI-21 (`Status.health`, `extension_missing` + Etkinleştir), UI-09 (bağlantı: tarayıcıda aç / QR kod; renk: hex/rgb/hsl kopyala; dosya listesi: klasörü aç; görsel: farklı kaydet + piksel boyutu), CAP-05 (uzunluk/boşluk/regex/tür filtreleri **ve** `excluded_window_titles`: X11 `_NET_WM_NAME`, eklenti `PushManyFrom`), CAP-06 (hassas içerik: anahtar/JWT/kart/IBAN/yüksek entropi; mask|drop|store, TTL), CAP-11, INT-09, CLI-04, CLI-07, STO-04 (`max_total_bytes`, `max_images`), STO-05 (bakım + öksüz blob), STO-09, SEC-04, SEC-05, SEC-09, SEC-11, QA-03 (ekran görüntüsü + AT-SPI ağaç dökümü `scripts/a11y-check.sh`), QA-06 (`typos`, `cargo-machete`, `cargo doc -D warnings`, llvm-cov kapsama işi), QA-10 (CodeQL JS+actions, OpenSSF Scorecard, Dependabot grupları), DOC-08 (`panora-doctor --report`).
+- **Bağımlılıklar:** gtk4-rs 0.11 / libadwaita-rs 0.9, rusqlite 0.40, toml 1, qrcode 0.14.
 
 ### 11.2 Bilinçli olarak dışarıda bırakılan
 
 | Madde | Neden |
 |---|---|
 | R-04 gerçek makine turu, `v1.3.0` etiketi | Zorin OS 18 makinesinde kullanıcı yapacak; etiket CI'da release iş akışını tetikler (`docs/RELEASING.md`). |
-| INT-01 (`prefs.js`, gösterge), CAP-04 (çok biçimli GNOME geri çağırma), INT-07/INT-08, STO-07, PKG-07/PKG-10 | Çalışan bir GNOME Shell oturumu gerekir; WSL/CI'da doğrulanamaz. |
-| CAP-05 `excluded_window_titles`, STO-04 `max_images`/`max_image_bytes`, UI-20 kısayol düzenleyici, UI-13 fark tabanlı liste (`ListView`) | Küçük kalan parçalar; mevcut sürüm için gerekli görülmedi. |
-| I18N-01 gettext, PKG-02 APT deposu, SEC-06 fuzzing, SEC-12 eslint, STO-06 benchmark, CLI-02/CLI-03, UI-12/UI-14 ve diğer P2/P3 maddeler | 1.4+ hattı; başlanmadı. |
+| INT-01 (`prefs.js`, gösterge), CAP-04 (çok biçimli GNOME geri çağırma), INT-07/INT-08, STO-07, PKG-07/PKG-10, QA-04 | Çalışan bir GNOME Shell oturumu gerekir; WSL/CI'da doğrulanamaz. Eklentideki `PushManyFrom` çağrısı da bu turda doğrulanmalı (eski daemon'a `PushMany` ile geri düşer). |
+| UI-20 kısayol düzenleyici, UI-13 `ListView` geçişi | Küçük kalan parçalar; gerekli görülmedi. |
+| I18N-01 gettext, PKG-02 APT deposu, SEC-06 fuzzing, SEC-12 eslint, STO-06 benchmark, CLI-02/CLI-03, UI-14 ve diğer P2/P3 maddeler | 1.5+ hattı; başlanmadı. |
 
 ### 11.3 Öğrenilenler
 
 - GitHub push koruması, gerçek jeton desenine uyan test dizgelerini (Slack `xoxb-…`) reddeder; testlerde açıkça sahte biçimler kullanılmalı.
 - `xwininfo -root -children` boş ekranda da "0 children." yazar; ekran görüntüsü betiği pencere satırını bekler ve boş kare almayana kadar çeker.
 - `adw::Carousel` içindeki sayfalar diyalog genişliğini almadı; karşılama ekranı `gtk::Stack` kullanır.
-- Yerel derleme/test için WSL2 Ubuntu 24.04 yeterli: `cargo test`, Xvfb altında X11 ve GUI testleri, headless sway ile Wayland e2e, `gnome-keyring-daemon` ile keyring testi.
-
+- `ossf/scorecard-action` için `v2` takma adı yok ve `v2.4.0` imajı artık çekilemiyor; tam sürüm etiketi (`v2.4.4`) gerekir.
+- `typos` iki dilli dizgelerde Türkçe sözcükleri yakalar; `_typos.toml` bunları listeler ve Türkçe belgeleri atlar.
+- Yerel derleme/test için WSL2 Ubuntu 24.04 yeterli: `cargo test`, Xvfb altında X11/GUI/AT-SPI testleri, headless sway ile Wayland e2e, `gnome-keyring-daemon` ile keyring testi.
