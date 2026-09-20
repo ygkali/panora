@@ -58,6 +58,18 @@ reported by `panora-cli status`.
 
 Recording also pauses by itself while the screen is locked.
 
+## The shortcut
+
+On GNOME the shortcut belongs to the extension, not to the popup: open the
+Extensions app or run `gnome-extensions prefs panora@ygkali.github.io`,
+click the shortcut row and press the combination you want. `Backspace`
+disables it, `Escape` cancels, and the reset button puts `Super+V` back.
+The same page has the *open next to the pointer* switch.
+
+Everywhere else, bind a key to `panora-cli toggle` in your desktop's own
+keyboard settings -- [What works where](desktops.md) says where each one
+hides it.
+
 ## Settings
 
 `Ctrl+,` opens the settings dialog, which writes

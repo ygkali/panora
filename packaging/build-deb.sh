@@ -101,6 +101,7 @@ EXT_DIR="$STAGE/usr/share/gnome-shell/extensions/$EXT_UUID"
 install -d "$EXT_DIR/schemas"
 install -m 0644 gnome-extension/metadata.json "$EXT_DIR/metadata.json"
 install -m 0644 gnome-extension/extension.js "$EXT_DIR/extension.js"
+install -m 0644 gnome-extension/prefs.js "$EXT_DIR/prefs.js"
 install -m 0644 gnome-extension/schemas/*.gschema.xml "$EXT_DIR/schemas/"
 if command -v glib-compile-schemas >/dev/null 2>&1; then
   glib-compile-schemas "$EXT_DIR/schemas"

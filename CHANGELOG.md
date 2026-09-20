@@ -104,6 +104,10 @@ real-machine verification in `docs/RELEASING.md` is done.
 - On wlroots compositors and KWin the source application of a copy is
   now known (`wlr-foreign-toplevel-management`): the excluded-application
   and window-title lists work there, and `app:` searches match.
+- The GNOME Shell extension has a preferences page
+  (`gnome-extensions prefs panora@ygkali.github.io`): the Super+V shortcut
+  can be recorded by pressing it instead of by editing dconf, and the
+  *open next to the pointer* switch is there too.
 - `docs/launch.md` holds the announcement drafts for the first release --
   Show HN, r/linux, r/gnome, GNOME Discourse, Fosstodon, This Week in
   GNOME and the Turkish forums -- each one leading with what Panora does

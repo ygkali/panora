@@ -100,6 +100,8 @@ install -Dpm0644 gnome-extension/metadata.json \
   %{buildroot}%{_datadir}/gnome-shell/extensions/%{extuuid}/metadata.json
 install -Dpm0644 gnome-extension/extension.js \
   %{buildroot}%{_datadir}/gnome-shell/extensions/%{extuuid}/extension.js
+install -Dpm0644 gnome-extension/prefs.js \
+  %{buildroot}%{_datadir}/gnome-shell/extensions/%{extuuid}/prefs.js
 install -Dpm0644 gnome-extension/schemas/*.gschema.xml \
   -t %{buildroot}%{_datadir}/gnome-shell/extensions/%{extuuid}/schemas
 glib-compile-schemas \

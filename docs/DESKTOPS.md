@@ -26,8 +26,13 @@ shows a banner with an **Enable** button when it is not running). On GNOME
 48 and later the daemon watches the clipboard itself; the extension still
 provides the shortcut, the source application and the popup placement.
 
-The extension moves the popup under the pointer once it appears; turn that
-off with `gsettings set org.gnome.shell.extensions.panora move-to-pointer false`.
+The extension has its own preferences -- the Extensions app, or
+`gnome-extensions prefs panora@ygkali.github.io`: the shortcut, which you
+can record by pressing it rather than by editing dconf, and whether the
+popup is moved under the pointer once it appears. Both are dconf keys, so
+`gsettings set org.gnome.shell.extensions.panora move-to-pointer false`
+still works. The history, the privacy rules and the appearance belong to
+the daemon and are set in the popup itself.
 
 ## KDE Plasma
 

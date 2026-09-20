@@ -82,6 +82,7 @@
             ext=$out/share/gnome-shell/extensions/${extUuid}
             install -Dm0644 $src/gnome-extension/metadata.json $ext/metadata.json
             install -Dm0644 $src/gnome-extension/extension.js $ext/extension.js
+            install -Dm0644 $src/gnome-extension/prefs.js $ext/prefs.js
             install -Dm0644 $src/gnome-extension/schemas/*.gschema.xml -t $ext/schemas
             glib-compile-schemas $ext/schemas
           '';

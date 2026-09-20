@@ -89,6 +89,7 @@ package() {
   local extdir="$pkgdir/usr/share/gnome-shell/extensions/$_extuuid"
   install -Dm0644 gnome-extension/metadata.json "$extdir/metadata.json"
   install -Dm0644 gnome-extension/extension.js "$extdir/extension.js"
+  install -Dm0644 gnome-extension/prefs.js "$extdir/prefs.js"
   install -Dm0644 gnome-extension/schemas/*.gschema.xml -t "$extdir/schemas"
 
   install -Dm0644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
