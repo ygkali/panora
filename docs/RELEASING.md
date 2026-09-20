@@ -55,6 +55,31 @@ example `v1.4.0-rc1`) is marked as a pre-release.
 `workflow_dispatch` on the same workflow runs the build without publishing;
 use it to try the pipeline from a branch.
 
+## APT repository
+
+`.github/workflows/apt-repo.yml` runs when a release is published: it
+downloads the release's `.deb` files, adds them to the pool on the
+`gh-pages` branch and regenerates the signed `stable` suite with
+`packaging/apt-repo.sh` (older versions stay in the pool). GitHub Pages
+serves the branch at `https://ygkali.github.io/panora/`, so the repository
+lives at `.../panora/apt`.
+
+One-time setup:
+
+1. Create a signing key that is used for nothing else:
+   `gpg --quick-generate-key "Panora APT <kompansebuyucu@proton.me>" ed25519 sign 2y`
+2. Store it in the repository secrets: `APT_GPG_PRIVATE_KEY` =
+   `gpg --armor --export-secret-keys <key id>` and `APT_GPG_PASSPHRASE`.
+3. Enable GitHub Pages for the `gh-pages` branch (root folder) in the
+   repository settings after the first run created it.
+4. Try it locally before relying on it: `packaging/apt-repo.sh /tmp/repo
+   dist/panora_*.deb`, then point apt at `file:///tmp/repo` with
+   `signed-by=/tmp/repo/panora.gpg`.
+
+Rotate the key before it expires; users fetch the new public key from the
+same URL, and the old one keeps verifying the suites signed with it until
+then.
+
 ## After the release
 
 - Announce (This Week in GNOME, r/gnome, the project Discussions).

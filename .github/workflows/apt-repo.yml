@@ -1,0 +1,81 @@
+name: APT repository
+
+# After a release is published, add its .deb files to the signed APT
+# repository on the gh-pages branch (served at
+# https://ygkali.github.io/panora/apt). Needs the APT_GPG_PRIVATE_KEY
+# (ASCII-armoured secret key) and APT_GPG_PASSPHRASE secrets; without them
+# the job stops before touching the branch. `workflow_dispatch` republishes
+# the newest release.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Update the repository
+    runs-on: ubuntu-latest
+    env:
+      KEY_CONFIGURED: ${{ secrets.APT_GPG_PRIVATE_KEY != '' }}
+    steps:
+      - name: Stop when no signing key is configured
+        if: env.KEY_CONFIGURED != 'true'
+        run: |
+          echo "APT_GPG_PRIVATE_KEY is not set; see docs/RELEASING.md"
+          exit 1
+      - uses: actions/checkout@v7
+        with:
+          path: source
+      - name: Fetch the release .deb files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          tag="${TAG:-$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)}"
+          echo "release $tag"
+          mkdir debs
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern 'panora_*.deb' --dir debs
+          ls -l debs
+      - name: Import the signing key
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
+          gpg --batch --list-secret-keys --with-colons | awk -F: '/^sec/ { print "key " $5 }'
+      - name: Check out gh-pages (created when missing)
+        uses: actions/checkout@v7
+        with:
+          ref: gh-pages
+          path: site
+        continue-on-error: true
+      - name: Build the repository
+        env:
+          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y apt-utils gnupg
+          if [ ! -d site/.git ]; then
+            git init -b gh-pages site
+            touch site/.nojekyll
+          fi
+          bash source/packaging/apt-repo.sh site/apt debs/*.deb
+          touch site/.nojekyll
+      - name: Push gh-pages
+        run: |
+          set -euo pipefail
+          cd site
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote remove origin 2>/dev/null || true
+          git remote add origin "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git"
+          git add -A
+          git commit -m "apt: ${{ github.event.release.tag_name || 'republish' }}" || echo "nothing to commit"
+          git push origin gh-pages

@@ -66,6 +66,18 @@ Panora GTK 4.12 ve libadwaita 1.5 ister; yani **Debian 13, Ubuntu 24.04,
 Zorin OS 18 veya daha yenisi**. Ubuntu 22.04, Zorin OS 17 ve Mint 21
 desteklenmez.
 
+### APT deposundan
+
+Sürümler imzalı bir APT deposuna da konur; güncellemeler `apt upgrade` ile
+gelir:
+
+```sh
+curl -fsSL https://ygkali.github.io/panora/apt/panora.gpg | sudo tee /usr/share/keyrings/panora.gpg >/dev/null
+echo "deb [signed-by=/usr/share/keyrings/panora.gpg] https://ygkali.github.io/panora/apt stable main" | sudo tee /etc/apt/sources.list.d/panora.list
+sudo apt update && sudo apt install panora
+systemctl --user enable --now panod.service
+```
+
 ### Debian paketiyle
 
 [Sürümler sayfasından](https://github.com/ygkali/panora/releases)

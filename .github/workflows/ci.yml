@@ -180,7 +180,8 @@ jobs:
           sudo apt-get install -y shellcheck
           shellcheck -S warning install.sh uninstall.sh test-local.sh KUR.sh TEST.sh KALDIR.sh \
             packaging/build-deb.sh packaging/make-kit.sh \
-            scripts/panora-doctor scripts/e2e-test.sh scripts/security-check.sh scripts/keyring-test.sh
+            scripts/panora-doctor scripts/e2e-test.sh scripts/security-check.sh scripts/keyring-test.sh \
+            packaging/apt-repo.sh scripts/a11y-check.sh
       - name: bash -n
         run: |
           for f in install.sh uninstall.sh test-local.sh packaging/*.sh scripts/panora-doctor scripts/*.sh; do
