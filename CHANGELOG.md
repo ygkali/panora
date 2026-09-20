@@ -104,6 +104,12 @@ real-machine verification in `docs/RELEASING.md` is done.
 - On wlroots compositors and KWin the source application of a copy is
   now known (`wlr-foreign-toplevel-management`): the excluded-application
   and window-title lists work there, and `app:` searches match.
+- A documentation site built with mdBook (`docs/book/`, published to
+  https://ygkali.github.io/panora/docs/): the user guide, the popup
+  shortcuts, the search syntax, a complete `config.toml` reference, the CLI
+  reference and the privacy model, with search across all of it. The
+  desktop matrix, troubleshooting, distribution policy, contributing guide
+  and changelog are included from their files rather than copied.
 - The interface catalogue moved out of `i18n.rs` and into gettext files:
   `po/panora.pot` is the template a translator starts from and `po/tr.po`
   the Turkish catalogue. A build script turns them into the same `Strings`

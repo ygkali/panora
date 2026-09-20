@@ -262,6 +262,9 @@ Sık karşılaşılan durumlar ve daemon günlüğü için
 
 ## Proje
 
+- **[Belge sitesi](https://ygkali.github.io/panora/docs/)**: kullanım
+  kılavuzu, `config.toml` ve CLI referansları, arama söz dizimi, gizlilik
+  modeli ve masaüstü matrisi; aranabilir (İngilizce). Kaynağı `docs/book/`.
 - [docs/ROADMAP.md](docs/ROADMAP.md): planlanan işler, her biri ID'li.
 - [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md): resmi dağıtım kanalları,
   test edilen dağıtımlar, destek penceresi ve paketleyiciler için notlar

@@ -264,6 +264,10 @@ each, is in [docs/DESKTOPS.md](docs/DESKTOPS.md).
 
 ## Project
 
+- **[The documentation site](https://ygkali.github.io/panora/docs/)**: the
+  user guide, the `config.toml` and CLI references, the search syntax, the
+  privacy model and the desktop matrix, all searchable. Its source is
+  `docs/book/`.
 - [docs/ROADMAP.md](docs/ROADMAP.md): what is planned, with an id per task.
 - [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md): the official channels,
   which distributions are tested, how long a release is supported, and

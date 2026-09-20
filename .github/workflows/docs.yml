@@ -1,0 +1,75 @@
+name: Documentation site
+
+# Builds docs/book with mdBook and publishes it to the gh-pages branch
+# under /docs, served at https://ygkali.github.io/panora/docs/.
+#
+# The APT repository lives on the same branch under /apt. This job checks
+# the branch out and replaces only the docs/ directory, so apt/ and
+# .nojekyll survive; apt-repo.yml does the mirror image of that.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'CHANGELOG.md'
+      - 'CONTRIBUTING.md'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gh-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: source
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install mdBook
+        run: |
+          set -euo pipefail
+          version=0.5.4
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL "https://github.com/rust-lang/mdBook/releases/download/v${version}/mdbook-v${version}-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar -xz -C "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/mdbook" --version
+      - name: Build the book
+        run: mdbook build source/docs/book
+      - name: Check out gh-pages (created when missing)
+        uses: actions/checkout@v7
+        with:
+          ref: gh-pages
+          path: site
+        continue-on-error: true
+      - name: Replace only the docs directory
+        run: |
+          set -euo pipefail
+          if [ ! -d site/.git ]; then
+            git init -b gh-pages site
+          fi
+          # apt/ belongs to the APT repository workflow; leave it alone.
+          rm -rf site/docs
+          mkdir -p site/docs
+          cp -a source/docs/book/book/. site/docs/
+          touch site/.nojekyll
+          ls site
+      - name: Push gh-pages
+        run: |
+          set -euo pipefail
+          cd site
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote remove origin 2>/dev/null || true
+          git remote add origin "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git"
+          git add -A
+          git commit -m "docs: ${GITHUB_SHA::7}" || echo "nothing to commit"
+          git push origin gh-pages

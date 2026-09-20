@@ -1,0 +1,28 @@
+[book]
+title = "Panora"
+description = "Encrypted clipboard history for the GNOME desktop"
+authors = ["Panora contributors"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+create-missing = false
+
+[output.html]
+default-theme = "rust"
+preferred-dark-theme = "ayu"
+git-repository-url = "https://github.com/ygkali/panora"
+edit-url-template = "https://github.com/ygkali/panora/edit/main/docs/book/{path}"
+site-url = "/panora/docs/"
+no-section-label = true
+
+[output.html.search]
+limit-results = 20
+use-boolean-and = true
+
+[output.html.fold]
+enable = true
+level = 1
+
+[preprocessor.links]
