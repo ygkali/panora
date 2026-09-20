@@ -69,8 +69,11 @@ jobs:
           sudo apt-get install -y apt-utils gnupg
           if [ ! -d site/.git ]; then
             git init -b gh-pages site
-            touch site/.nojekyll
           fi
+          # A failed checkout (no gh-pages yet) can leave the directory on
+          # another branch; point HEAD at gh-pages without touching the
+          # tree, since everything is staged from the worktree below.
+          git -C site symbolic-ref HEAD refs/heads/gh-pages
           bash source/packaging/apt-repo.sh site/apt debs/*.deb
           touch site/.nojekyll
       - name: Push gh-pages

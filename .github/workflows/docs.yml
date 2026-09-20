@@ -56,6 +56,10 @@ jobs:
           if [ ! -d site/.git ]; then
             git init -b gh-pages site
           fi
+          # A failed checkout (no gh-pages yet) can leave the directory on
+          # another branch; point HEAD at gh-pages without touching the
+          # tree, since everything is staged from the worktree below.
+          git -C site symbolic-ref HEAD refs/heads/gh-pages
           # apt/ belongs to the APT repository workflow; leave it alone.
           rm -rf site/docs
           mkdir -p site/docs
