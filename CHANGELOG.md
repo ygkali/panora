@@ -104,6 +104,9 @@ real-machine verification in `docs/RELEASING.md` is done.
 - On wlroots compositors and KWin the source application of a copy is
   now known (`wlr-foreign-toplevel-management`): the excluded-application
   and window-title lists work there, and `app:` searches match.
+- The GNOME Shell extension is linted: `gnome-extension/eslint.config.mjs`
+  declares the GJS globals and forbids `eval`, implicit globals and
+  synchronous subprocesses in the Shell; CI runs ESLint over the extension.
 - A signed APT repository on GitHub Pages: publishing a release adds its
   `.deb` files to `https://ygkali.github.io/panora/apt` (suite `stable`,
   amd64 and arm64), so updates arrive with `apt upgrade`.

@@ -1,0 +1,55 @@
+// ESLint for the GNOME Shell extension (GJS, ES modules). Run from the
+// repository root: `npx eslint --config gnome-extension/eslint.config.mjs gnome-extension`.
+// The GJS globals are listed here; the ECMAScript ones come with
+// `ecmaVersion`.
+export default [
+    {
+        files: ['**/*.js'],
+        languageOptions: {
+            ecmaVersion: 2022,
+            sourceType: 'module',
+            globals: {
+                global: 'readonly',
+                globalThis: 'readonly',
+                imports: 'readonly',
+                log: 'readonly',
+                logError: 'readonly',
+                print: 'readonly',
+                printerr: 'readonly',
+                console: 'readonly',
+                TextDecoder: 'readonly',
+                TextEncoder: 'readonly',
+                setTimeout: 'readonly',
+                clearTimeout: 'readonly',
+                setInterval: 'readonly',
+                clearInterval: 'readonly',
+                ARGV: 'readonly',
+            },
+        },
+        rules: {
+            'no-undef': 'error',
+            'no-unused-vars': ['error', {argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_'}],
+            'no-var': 'error',
+            'prefer-const': 'error',
+            eqeqeq: ['error', 'always'],
+            'no-implicit-globals': 'error',
+            'no-eval': 'error',
+            'no-implied-eval': 'error',
+            'no-new-func': 'error',
+            'no-throw-literal': 'error',
+            'no-shadow-restricted-names': 'error',
+            'no-unsafe-finally': 'error',
+            'no-unreachable': 'error',
+            'consistent-return': 'error',
+            'no-else-return': 'error',
+            'no-lonely-if': 'error',
+            'no-useless-return': 'error',
+            'no-prototype-builtins': 'error',
+            'no-await-in-loop': 'off',
+            'no-restricted-properties': ['error',
+                {object: 'GLib', property: 'spawn_command_line_sync', message: 'no synchronous subprocesses in the Shell'},
+                {object: 'GLib', property: 'spawn_sync', message: 'no synchronous subprocesses in the Shell'},
+            ],
+        },
+    },
+];
