@@ -14,7 +14,7 @@ use libadwaita as adw;
 use libadwaita::prelude::*;
 use panora_core::i18n::{fill, Strings};
 use panora_core::ipc::{health, HealthItem, QueryRequest, Request, ResponseData};
-use panora_core::model::{ContentKind, Entry};
+use panora_core::model::{ContentKind, Entry, Selection};
 use panora_core::search::{mark_matches, ParsedQuery};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -1262,6 +1262,7 @@ pub fn recall_with(ui: &Rc<Ui>, id: i64, mime: Option<&'static str>) {
             id,
             paste,
             mime: mime.map(String::from),
+            to: Selection::Clipboard,
         };
         call_async(request, move |result| match result {
             Ok(ResponseData::Recalled { pasted }) => {
@@ -1289,6 +1290,7 @@ pub fn recall_as(ui: &Rc<Ui>, id: i64, mime: &str) -> bool {
         id,
         paste: false,
         mime: Some(mime.to_string()),
+        to: Selection::Clipboard,
     }) {
         Ok(_) => true,
         Err(_) => {

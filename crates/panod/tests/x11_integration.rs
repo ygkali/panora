@@ -80,6 +80,36 @@ async fn offer_serves_every_format_and_text_aliases() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn clear_releases_ownership() {
+    // CAP-07: after `clear`, the selection has no owner at all — not just
+    // empty content, actually released, the way ICCCM expects a clipboard
+    // manager to behave when it decides to let go.
+    let Some(backend) = backend() else { return };
+    backend
+        .offer(
+            Selection::Clipboard,
+            data(vec![MimePayload::new("text/plain", "to be cleared")]),
+        )
+        .await
+        .unwrap();
+    assert!(!backend
+        .read_targets(Selection::Clipboard)
+        .await
+        .unwrap()
+        .is_empty());
+
+    backend.clear(Selection::Clipboard).await.unwrap();
+    assert!(
+        backend
+            .read_targets(Selection::Clipboard)
+            .await
+            .unwrap()
+            .is_empty(),
+        "no owner means no TARGETS"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn large_payload_roundtrips_through_incr() {
     let Some(backend) = backend() else { return };
     let big: Vec<u8> = (0..3 * 1024 * 1024).map(|i| (i % 251) as u8).collect();

@@ -425,12 +425,17 @@ pub async fn handle_request(request: Request, daemon: &Daemon) -> Response {
                 daemon.query(&q.into()).map(ResponseData::Entries)
             }
         }
-        Request::Recall { id, paste, mime } => {
+        Request::Recall {
+            id,
+            paste,
+            mime,
+            to,
+        } => {
             if daemon.is_app_locked() {
                 Err(locked_error())
             } else {
                 daemon
-                    .recall(id, paste, mime.as_deref())
+                    .recall(id, paste, mime.as_deref(), to)
                     .await
                     .map(|outcome| ResponseData::Recalled {
                         pasted: outcome.pasted,

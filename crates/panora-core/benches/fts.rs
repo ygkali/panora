@@ -29,6 +29,7 @@ fn seeded_database() -> Database {
             i,
             "bench-device",
             i,
+            true,
         )
         .unwrap();
     }

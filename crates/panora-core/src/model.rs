@@ -6,9 +6,10 @@
 use serde::{Deserialize, Serialize};
 
 /// Which selection an entry came from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum Selection {
     /// The Ctrl+C / Ctrl+V clipboard.
+    #[default]
     Clipboard,
     /// The X11/Wayland primary selection (mouse highlight, middle-click).
     Primary,

@@ -16,7 +16,7 @@ use panora_core::config::Config;
 use panora_core::error::Error;
 use panora_core::i18n::{fill, Language, Strings};
 use panora_core::ipc::{client, QueryRequest, Request, ResponseData, MAX_FRAME_BYTES};
-use panora_core::model::{Entry, MimePayload};
+use panora_core::model::{Entry, MimePayload, Selection};
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -80,12 +80,15 @@ enum Command {
     Copy {
         /// Entry id as shown by `list`
         id: i64,
-        /// Also send a paste keystroke to the focused window
+        /// Also send a paste keystroke to the focused window (ignored with --primary)
         #[arg(long)]
         paste: bool,
         /// Offer only this format (e.g. text/plain to drop the HTML of a rich-text entry)
         #[arg(long, value_name = "TYPE")]
         mime: Option<String>,
+        /// Put it on PRIMARY (middle-click paste) instead of CLIPBOARD
+        #[arg(long)]
+        primary: bool,
     },
     /// Print or export the decrypted payloads of an entry
     #[command(alias = "show")]
@@ -583,7 +586,21 @@ fn to_invocation(command: Command) -> Invocation {
         Command::Pick { format, filter } => {
             listing(Request::List(query_request(None, filter)), Some(format))
         }
-        Command::Copy { id, paste, mime } => plain(Request::Recall { id, paste, mime }),
+        Command::Copy {
+            id,
+            paste,
+            mime,
+            primary,
+        } => plain(Request::Recall {
+            id,
+            paste,
+            mime,
+            to: if primary {
+                Selection::Primary
+            } else {
+                Selection::Clipboard
+            },
+        }),
         Command::Preview { id, mime, out } => Invocation {
             request: Request::Preview {
                 id,
@@ -1065,13 +1082,24 @@ mod tests {
             Request::Recall {
                 id: 7,
                 paste: true,
-                mime: None
+                mime: None,
+                to: Selection::Clipboard,
             }
         ));
         let cli = parse(&["recall", "8", "--mime", "text/plain"]).unwrap();
         assert!(matches!(
             to_invocation(cli.command).request,
-            Request::Recall { id: 8, paste: false, mime: Some(m) } if m == "text/plain"
+            Request::Recall { id: 8, paste: false, mime: Some(m), to: Selection::Clipboard } if m == "text/plain"
+        ));
+        let cli = parse(&["copy", "9", "--primary"]).unwrap();
+        assert!(matches!(
+            to_invocation(cli.command).request,
+            Request::Recall {
+                id: 9,
+                paste: false,
+                mime: None,
+                to: Selection::Primary,
+            }
         ));
         let cli = parse(&["preview", "3", "--mime", "image/png", "--out", "x.png"]).unwrap();
         let inv = to_invocation(cli.command);

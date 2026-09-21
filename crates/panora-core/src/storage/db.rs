@@ -555,8 +555,12 @@ impl Database {
         Ok(())
     }
 
-    /// Insert a new entry or bump `last_seen_at` when the same content
-    /// is copied again (dedup). Returns the entry id.
+    /// Insert a new entry or, when the same content is copied again
+    /// (dedup), either bump `last_seen_at` to the top or leave the
+    /// existing row exactly where it is (`bump_on_duplicate`, CAP-08: the
+    /// live capture path ties this to `history.duplicate_policy`; a
+    /// restore from a backup always bumps, since it is not a live re-copy
+    /// the user would want to leave in place). Returns the entry id.
     #[allow(clippy::too_many_arguments)]
     pub fn upsert_entry(
         &self,
@@ -570,6 +574,7 @@ impl Database {
         now: i64,
         device_id: &str,
         lamport: i64,
+        bump_on_duplicate: bool,
     ) -> Result<i64> {
         let preview_aad = Self::preview_aad(content_hash);
         let sealed_preview = self
@@ -586,14 +591,16 @@ impl Database {
             )
             .ok();
         let id = if let Some((id, false)) = existing {
-            tx.execute(
-                // Same-second re-copies must still move to the top, so the
-                // timestamp never ties with the current newest row.
-                "UPDATE entries SET last_seen_at = MAX(?1,
-                    (SELECT COALESCE(MAX(last_seen_at), 0) FROM entries WHERE id != ?2) + 1)
-                 WHERE id = ?2",
-                params![now, id],
-            )?;
+            if bump_on_duplicate {
+                tx.execute(
+                    // Same-second re-copies must still move to the top, so
+                    // the timestamp never ties with the current newest row.
+                    "UPDATE entries SET last_seen_at = MAX(?1,
+                        (SELECT COALESCE(MAX(last_seen_at), 0) FROM entries WHERE id != ?2) + 1)
+                     WHERE id = ?2",
+                    params![now, id],
+                )?;
+            }
             id
         } else if let Some((id, true)) = existing {
             // Revive a tombstoned row: its blobs were removed with it, so the
@@ -1260,6 +1267,7 @@ mod tests {
             ts,
             "dev0",
             1,
+            true,
         )
         .unwrap()
     }
@@ -1285,6 +1293,53 @@ mod tests {
         assert_eq!(id1, id2, "same content must dedup to one row");
         assert_eq!(db.count().unwrap(), 1);
         assert_eq!(db.get(id1).unwrap().last_seen_at, 2000);
+    }
+
+    #[test]
+    fn duplicate_policy_ignore_leaves_the_row_in_place() {
+        // CAP-08: bump_on_duplicate = false is what
+        // history.duplicate_policy = "ignore" wires up. A re-copy still
+        // dedups to the same row (never a second row), but its position
+        // and last_seen_at are left exactly where they were.
+        let db = db();
+        let hash = crate::storage::crypto::content_hash(b"same text");
+        let id1 = db
+            .upsert_entry(
+                &hash,
+                "same text",
+                ContentKind::Text,
+                "text/plain",
+                9,
+                None,
+                Selection::Clipboard,
+                1000,
+                "dev0",
+                1,
+                true,
+            )
+            .unwrap();
+        let id2 = db
+            .upsert_entry(
+                &hash,
+                "same text",
+                ContentKind::Text,
+                "text/plain",
+                9,
+                None,
+                Selection::Clipboard,
+                2000,
+                "dev0",
+                2,
+                false,
+            )
+            .unwrap();
+        assert_eq!(id1, id2, "same content must still dedup to one row");
+        assert_eq!(db.count().unwrap(), 1);
+        assert_eq!(
+            db.get(id1).unwrap().last_seen_at,
+            1000,
+            "ignore must not bump last_seen_at"
+        );
     }
 
     #[test]
@@ -1439,6 +1494,7 @@ mod tests {
             1,
             "dev0",
             41,
+            true,
         )
         .unwrap();
         let hash_b = crate::storage::crypto::content_hash(b"b");
@@ -1453,6 +1509,7 @@ mod tests {
             2,
             "dev0",
             42,
+            true,
         )
         .unwrap();
         assert_eq!(db.max_lamport().unwrap(), 42);
@@ -1566,6 +1623,7 @@ mod lifecycle_tests {
             1,
             "dev0",
             1,
+            true,
         )
         .unwrap();
     }
@@ -1841,6 +1899,7 @@ mod lifecycle_tests {
                 ts,
                 "dev",
                 ts,
+                true,
             )
             .unwrap()
         };
@@ -1895,6 +1954,7 @@ mod lifecycle_tests {
                 ts,
                 "dev",
                 ts,
+                true,
             )
             .unwrap()
         };
@@ -1934,6 +1994,7 @@ mod lifecycle_tests {
                 ts,
                 "dev",
                 ts,
+                true,
             )
             .unwrap()
         };
@@ -1974,6 +2035,7 @@ mod lifecycle_tests {
                 now,
                 "dev",
                 now,
+                true,
             )
             .unwrap()
         };
@@ -2116,6 +2178,7 @@ mod lifecycle_tests {
                 1,
                 "dev0",
                 1,
+                true,
             )
             .unwrap();
         db.tombstone(deleted_id, 1).unwrap();

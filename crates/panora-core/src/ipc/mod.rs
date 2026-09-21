@@ -9,7 +9,7 @@
 //! drift between binaries built from the same tree.
 
 use crate::error::{Error, Result};
-use crate::model::{ContentKind, Entry, MimePayload};
+use crate::model::{ContentKind, Entry, MimePayload, Selection};
 use crate::storage::QueryFilter;
 use serde::{Deserialize, Serialize};
 
@@ -47,13 +47,19 @@ pub enum Request {
     Recall {
         /// Entry id.
         id: i64,
-        /// Synthesize a paste keystroke after the clipboard is set.
+        /// Synthesize a paste keystroke after the clipboard is set. Only
+        /// meaningful with the default `to: Clipboard` — there is no
+        /// keyboard shortcut for a PRIMARY paste, only middle-click.
         #[serde(default)]
         paste: bool,
         /// Offer only this format (e.g. `text/plain` to drop the HTML of a
         /// rich-text entry). `None` offers every stored format.
         #[serde(default)]
         mime: Option<String>,
+        /// Which selection to put the entry on: `Clipboard` (Ctrl+V) or
+        /// `Primary` (CAP-10: middle-click paste). Defaults to `Clipboard`.
+        #[serde(default)]
+        to: Selection,
     },
     /// Set pin state.
     Pin {
@@ -483,7 +489,8 @@ mod tests {
             Request::Recall {
                 id: 3,
                 paste: false,
-                mime: None
+                mime: None,
+                to: Selection::Clipboard,
             }
         ));
     }

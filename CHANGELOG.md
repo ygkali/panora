@@ -318,6 +318,42 @@ real-machine verification in `docs/RELEASING.md` is done.
   UTF-8) and the `wanted_order` invariants (only known MIME types kept,
   sorted by preference, deduplicated, at most one plain-text flavour,
   idempotent).
+- Clear the system clipboard after a recall (CAP-07): `privacy.
+  clear_clipboard_after_seconds` (0, the default, disables it). Fires only
+  if the clipboard still holds exactly what that recall put there — a
+  generation counter bumped on every real clipboard change, not a
+  MIME-list comparison, since two different plain-text copies advertise
+  the same targets and a comparison that only looked at those would clear
+  the wrong one. Two real bugs turned up building this: X11's
+  `SetSelectionOwner` needs a round trip (`.check()`) before the release
+  is guaranteed to have reached the server, and — caught only by a
+  headless-sway run of `scripts/wayland-e2e.sh`, not by the mocked unit
+  tests — a deliberate clear looks exactly like a source application
+  exiting to `handle_event`, so Wayland's clipboard-persistence feature
+  was immediately re-offering the entry the clear had just removed; a
+  flag set right before the clear and consumed by the very next
+  `OwnerGone` event fixes it without touching persistence's normal
+  behaviour for a real exit.
+- Recall to PRIMARY for a middle-click paste (CAP-10): `panora-cli copy
+  <id> --primary`; `--paste` is ignored with it (there is no keyboard
+  shortcut for a PRIMARY paste). `Request::Recall` gained a `to: Selection`
+  field, defaulting to `Clipboard` so existing JSON callers are unaffected.
+- `history.duplicate_policy` (CAP-08): `bump` (default, unchanged — a
+  re-copy of content already in the history moves it to the top with a
+  fresh timestamp) or `ignore` (the entry still dedups to the same row,
+  never a second one, but its position and timestamp are left alone).
+- Fixed a real, pre-existing bug surfaced while building the above:
+  `panora-gui`'s `--features fixture` build (used by `scripts/wayland-e2e.
+  sh`, `scripts/capture-screenshots.sh` and `scripts/a11y-check.sh`) had
+  not actually compiled since SEC-01 — `StatusData`'s `app_locked`/
+  `lock_password_set` fields and nine `Request` variants added since then
+  (`RotateKey`, `Lock`, `Unlock`, `SetLockPassword`, `Wipe`, `Export`,
+  `Import`, `Hello`, `Subscribe`) were never reflected in the fixture,
+  because nothing in the regular `cargo build`/`test --workspace` loop
+  passes that feature flag; the fixture now answers each of those with an
+  explicit "not supported by the GUI fixture" error instead of failing to
+  compile, since the popup never sends any of them. `docs/ROADMAP.md`
+  §11.4 has the fuller story of how this stayed invisible.
 
 ### Changed
 - The popup no longer waits on the daemon: history pages, previews, image
