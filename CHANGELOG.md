@@ -278,6 +278,19 @@ real-machine verification in `docs/RELEASING.md` is done.
   the `lock_after_idle_minutes` (SEC-02) config key and the CLI reference
   page gained `watch`/`rotate-key`/`lock`/`unlock`/`wipe`/`export`/`import`/
   `import-legacy`, none of which had made it into the docs yet.
+- Public D-Bus API (INT-05): `io.github.ygkali.Panora1` on the session bus
+  (`/io/github/ygkali/Panora1`) mirrors the Unix socket for third-party
+  integrations (Waybar modules, `gdbus`/`dbus-send` scripts) that would
+  rather speak D-Bus — `List`, `Recall`, `Pin`, `Delete`, `Clear`,
+  `SetPrivate`, `Status`, and a `Changed(t revision)` signal fed by the same
+  `Subscribe` stream CLI-02's `watch` uses. A thin translation layer, not a
+  second implementation: every call becomes exactly the request the Unix
+  socket already accepts (`panod` is its own IPC client here), so the
+  privacy gates, encryption and dedup logic live in exactly one place.
+  Payload content, export/import, the lock password and key rotation/wipe
+  stay Unix-socket only — the session bus is a broadcast medium other
+  processes can watch, a worse place for any of that than a private 0600
+  socket. `docs/dbus-api.md`, tested against a real session bus.
 
 ### Changed
 - The popup no longer waits on the daemon: history pages, previews, image

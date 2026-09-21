@@ -6,6 +6,7 @@
 
 use crate::backend::select_backend;
 use crate::daemon::Daemon;
+use crate::dbus_api;
 use crate::gnome::{self, GnomeBridge, BUS_NAME, OBJECT_PATH};
 use crate::keyring::load_or_create_master_key;
 use panora_core::config::{config_path, data_dir, socket_path, Config};
@@ -100,6 +101,17 @@ async fn run_app() -> anyhow::Result<()> {
     set_socket_permissions(&path)?;
     let socket_uid = socket_owner_uid(&path)?;
     info!(socket = %path.display(), uid = socket_uid, "panod IPC service ready");
+
+    // INT-05: a public D-Bus mirror of the Unix socket, for third-party
+    // integrations that would rather speak D-Bus. Talks to the socket
+    // above as its own client (must be bound already, which it is by
+    // this point), so it needs nothing from `daemon` directly and a
+    // failure here never affects capture or the primary IPC path.
+    tokio::task::spawn_local(async move {
+        if let Err(e) = dbus_api::run().await {
+            warn!(error = %e, "public D-Bus API (INT-05) unavailable");
+        }
+    });
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::mpsc::channel(1);
     let capture = daemon.clone();

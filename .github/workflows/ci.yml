@@ -71,6 +71,20 @@ jobs:
       - name: Master key round trip through gnome-keyring
         run: bash scripts/keyring-test.sh
 
+  dbus-api:
+    name: Public D-Bus API integration (INT-05)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev dbus-daemon
+      - name: io.github.ygkali.Panora1 round trip over a real session bus
+        run: bash scripts/dbus-test.sh
+
   wayland:
     name: Wayland backend on headless sway
     runs-on: ubuntu-latest

@@ -8,6 +8,8 @@
 
 pub mod backend;
 pub mod daemon;
+#[cfg(unix)]
+pub mod dbus_api;
 pub mod gnome;
 #[cfg(unix)]
 pub mod keyring;
