@@ -454,6 +454,7 @@ pub async fn handle_request(request: Request, daemon: &Daemon) -> Response {
         }
         Request::Toggle => gnome::activate_gui().await.map(|_| ResponseData::Empty),
         Request::Status => daemon.status().map(ResponseData::Status),
+        Request::Stats => daemon.stats().map(ResponseData::Stats),
         Request::Preview { id, thumbnail } => {
             if daemon.is_app_locked() {
                 Err(locked_error())

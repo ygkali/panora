@@ -209,10 +209,10 @@ Matches are shown in bold in the popup.
 ```sh
 panora-cli list [query] [--kind image] [--pinned] [--limit 20] [--offset 20]
 panora-cli search <text>
-panora-cli copy <id> [--paste] [--mime text/plain]
+panora-cli copy <id> [--paste] [--mime text/plain] [--primary]
 panora-cli preview <id> [--mime image/png] [--out photo.png]
 panora-cli pin|unpin|delete|restore <id>
-panora-cli clear | private on|off | status | toggle | reload
+panora-cli clear | private on|off | status | stats | toggle | reload
 panora-cli store [FILE] [--mime TYPE] [--app NAME] [--no-copy]   # record text from a file or stdin
 panora-cli pick [--format '{id}\t{kind}\t{preview}']              # one line per entry for pickers
 panora-cli --json status

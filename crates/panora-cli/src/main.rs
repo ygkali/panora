@@ -127,6 +127,9 @@ enum Command {
     },
     /// Show daemon health, backend capabilities and history size
     Status,
+    /// Show history statistics: counts by kind, pinned/sensitive, total
+    /// payload bytes, oldest and newest entry
+    Stats,
     /// Show or hide the popup
     Toggle,
     /// Re-read config.toml and apply it without restarting the daemon
@@ -619,6 +622,7 @@ fn to_invocation(command: Command) -> Invocation {
             enabled: state == OnOff::On,
         }),
         Command::Status => plain(Request::Status),
+        Command::Stats => plain(Request::Stats),
         Command::Toggle => plain(Request::Toggle),
         Command::Reload => plain(Request::ReloadConfig),
         Command::Completions { .. }
@@ -979,6 +983,21 @@ fn print_response(
                 println!("health={} {}", item.code, item.message);
             }
         }
+        ResponseData::Stats(stats) => {
+            println!(
+                "total={} pinned={} sensitive={} total_size={}",
+                stats.total,
+                stats.pinned,
+                stats.sensitive,
+                human_size(stats.total_bytes)
+            );
+            for (kind, count) in &stats.by_kind {
+                println!("  {kind}: {count}");
+            }
+            if let (Some(oldest), Some(newest)) = (stats.oldest_at, stats.newest_at) {
+                println!("oldest={oldest} newest={newest}");
+            }
+        }
         ResponseData::Count(count) => println!("{}", fill(s.cli_count, "n", &count.to_string())),
         ResponseData::Payloads(payloads) => {
             if let Some(mime) = &invocation.mime {
@@ -1026,6 +1045,25 @@ fn print_response(
         ResponseData::Archive(bytes) => println!("{} bytes", bytes.len()),
     }
     Ok(())
+}
+
+/// `1536` -> `"1.5 KiB"`. Binary (1024) units, one decimal, `B` under 1 KiB.
+fn human_size(bytes: i64) -> String {
+    const UNITS: &[&str] = &["KiB", "MiB", "GiB", "TiB"];
+    let bytes = bytes.max(0) as f64;
+    if bytes < 1024.0 {
+        return format!("{bytes} B");
+    }
+    let mut value = bytes / 1024.0;
+    let mut unit = UNITS[0];
+    for &next in &UNITS[1..] {
+        if value < 1024.0 {
+            break;
+        }
+        value /= 1024.0;
+        unit = next;
+    }
+    format!("{value:.1} {unit}")
 }
 
 fn write_payload(data: &[u8], out: Option<&std::path::Path>) -> Result<(), Failure> {
@@ -1127,6 +1165,10 @@ mod tests {
             Request::Status
         ));
         assert!(matches!(
+            to_invocation(parse(&["stats"]).unwrap().command).request,
+            Request::Stats
+        ));
+        assert!(matches!(
             to_invocation(parse(&["toggle"]).unwrap().command).request,
             Request::Toggle
         ));
@@ -1149,6 +1191,20 @@ mod tests {
                 pinned: false
             }
         ));
+    }
+
+    #[test]
+    fn human_size_formats_binary_units() {
+        assert_eq!(human_size(0), "0 B");
+        assert_eq!(human_size(1023), "1023 B");
+        assert_eq!(human_size(1024), "1.0 KiB");
+        assert_eq!(human_size(1536), "1.5 KiB");
+        assert_eq!(human_size(10 * 1024 * 1024), "10.0 MiB");
+        assert_eq!(
+            human_size(-5),
+            "0 B",
+            "negative sizes never occur but must not panic"
+        );
     }
 
     #[test]

@@ -354,6 +354,10 @@ real-machine verification in `docs/RELEASING.md` is done.
   explicit "not supported by the GUI fixture" error instead of failing to
   compile, since the popup never sends any of them. `docs/ROADMAP.md`
   §11.4 has the fuller story of how this stayed invisible.
+- `panora-cli stats` (CLI-06): counts by kind, pinned/sensitive counts,
+  total payload bytes and the oldest/newest entry's time, computed in SQL
+  server-side (`Database::stats`) rather than by paging through every
+  entry. `--json` gets the same shape as every other command.
 
 ### Changed
 - The popup no longer waits on the daemon: history pages, previews, image

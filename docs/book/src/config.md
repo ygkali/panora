@@ -22,6 +22,7 @@ persist_on_wayland = "auto"
 index_full_text = true
 max_total_bytes = 536870912
 max_images = 200
+duplicate_policy = "bump"
 ```
 
 | Key | Default | What it does |
@@ -34,6 +35,7 @@ max_images = 200
 | `index_full_text` | `true` | Index up to 64 KiB of an entry's text, not just its 500-character preview, so search finds words anywhere in it. The index is in the same 0600 file. |
 | `max_total_bytes` | `536870912` (512 MiB) | Payload bytes the history may hold. Over the limit, the oldest unpinned entries go first; pinned entries count towards it but are never evicted. `0` means no limit. |
 | `max_images` | `200` | Image entries kept, oldest unpinned first. `0` means no limit. |
+| `duplicate_policy` | `"bump"` | What a re-copy of content already in the history does (CAP-08). `bump` moves it to the top with a fresh timestamp. `ignore` still dedups to the same entry — never a second row — but leaves its position and timestamp alone, for content you re-copy often and do not want hogging the top of the list. |
 
 ## `[privacy]`
 
@@ -49,6 +51,7 @@ capture_kinds = []
 sensitive_policy = "mask"
 sensitive_ttl_minutes = 10
 lock_after_idle_minutes = 0
+clear_clipboard_after_seconds = 0
 ```
 
 | Key | Default | What it does |
@@ -63,6 +66,7 @@ lock_after_idle_minutes = 0
 | `sensitive_policy` | `"mask"` | What happens to text that looks like a key, a token, a card number or an IBAN. `mask` records it with a masked *preview* and no full-text index — the real content is still stored and still comes back on recall/preview/export, like any other entry; this is a display policy, not a way to make the secret itself inaccessible. `drop` never records it at all. `store` treats it like anything else, preview included. |
 | `sensitive_ttl_minutes` | `10` | Flagged entries are removed after this long, under `mask` and `store` alike. `0` leaves them to the normal retention rules. Pinned entries stay either way. |
 | `lock_after_idle_minutes` | `0` | Engage the second-layer lock (`panora-cli lock`, SEC-02) on its own after this many minutes of inactivity. `0` disables idle locking; a lock password has to be set first either way (`panora-cli lock set-password`), or this does nothing. |
+| `clear_clipboard_after_seconds` | `0` | Clear the live clipboard this many seconds after a recall (CAP-07), the way a password manager times out what it copied. `0` disables it. Fires only if the clipboard still holds exactly what that recall put there — copying something else in the meantime cancels it; the history entry itself is untouched either way. At most `3600` (an hour). |
 
 `excluded_apps` is enforced on the MIME list **before** a payload is read,
 along with the secret markers password managers set

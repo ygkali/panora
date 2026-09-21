@@ -1225,6 +1225,46 @@ impl Database {
         Ok(n)
     }
 
+    /// Aggregate statistics over the visible history (CLI-06). Computed in
+    /// SQL rather than by loading every entry, so it stays cheap regardless
+    /// of history size.
+    pub fn stats(&self) -> Result<crate::ipc::StatsData> {
+        let (total, pinned, sensitive, total_bytes, oldest_at, newest_at) = self.conn.query_row(
+            "SELECT COUNT(*), COALESCE(SUM(pinned), 0), COALESCE(SUM(sensitive), 0),
+                    COALESCE(SUM(size_bytes), 0), MIN(last_seen_at), MAX(last_seen_at)
+             FROM entries WHERE deleted = 0",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, Option<i64>>(4)?,
+                    row.get::<_, Option<i64>>(5)?,
+                ))
+            },
+        )?;
+        let mut stmt = self.conn.prepare(
+            "SELECT kind, COUNT(*) FROM entries WHERE deleted = 0
+             GROUP BY kind ORDER BY COUNT(*) DESC",
+        )?;
+        let by_kind = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(crate::ipc::StatsData {
+            total,
+            pinned,
+            sensitive,
+            by_kind,
+            total_bytes,
+            oldest_at,
+            newest_at,
+        })
+    }
+
     /// Highest lamport clock seen (sync-ready; v1.0 keeps it monotonic).
     pub fn max_lamport(&self) -> Result<i64> {
         let n: i64 =
@@ -1340,6 +1380,54 @@ mod tests {
             1000,
             "ignore must not bump last_seen_at"
         );
+    }
+
+    #[test]
+    fn stats_aggregates_the_visible_history() {
+        // CLI-06.
+        let db = db();
+        let a = insert(&db, "aaa", ContentKind::Text, 100);
+        let b = insert(&db, "bbbbb", ContentKind::Image, 200);
+        let c = insert(&db, "cc", ContentKind::Text, 300);
+        db.set_pinned(a, true).unwrap();
+        db.mark_sensitive(b).unwrap();
+        let deleted = insert(&db, "deleted", ContentKind::Text, 400);
+        db.tombstone(deleted, 500).unwrap();
+        let _ = c;
+
+        let stats = db.stats().unwrap();
+        assert_eq!(stats.total, 3, "the tombstoned entry must not count");
+        assert_eq!(stats.pinned, 1);
+        assert_eq!(stats.sensitive, 1);
+        assert_eq!(stats.total_bytes, 3 + 5 + 2);
+        assert_eq!(stats.oldest_at, Some(100));
+        assert_eq!(stats.newest_at, Some(300));
+        assert_eq!(
+            stats
+                .by_kind
+                .iter()
+                .find(|(k, _)| k == "text")
+                .map(|&(_, c)| c),
+            Some(2)
+        );
+        assert_eq!(
+            stats
+                .by_kind
+                .iter()
+                .find(|(k, _)| k == "image")
+                .map(|&(_, c)| c),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn stats_on_an_empty_history() {
+        let db = db();
+        let stats = db.stats().unwrap();
+        assert_eq!(stats.total, 0);
+        assert!(stats.by_kind.is_empty());
+        assert_eq!(stats.oldest_at, None);
+        assert_eq!(stats.newest_at, None);
     }
 
     #[test]

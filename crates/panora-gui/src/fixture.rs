@@ -226,12 +226,14 @@ pub fn call(request: &Request) -> Result<ResponseData> {
                     .unwrap_or_default(),
             ),
             // The popup never sends these: key rotation, the second-layer
-            // lock, panic wipe, export/import and the v3 handshake are all
-            // CLI/D-Bus-only operations (see docs/dbus-api.md and the CLI
-            // reference). Fail loudly instead of faking a response, so a
-            // popup change that starts sending one of these is caught here
-            // rather than silently misbehaving against the fixture.
-            Request::RotateKey
+            // lock, panic wipe, export/import, stats and the v3 handshake
+            // are all CLI/D-Bus-only operations (see docs/dbus-api.md and
+            // the CLI reference). Fail loudly instead of faking a
+            // response, so a popup change that starts sending one of these
+            // is caught here rather than silently misbehaving against the
+            // fixture.
+            Request::Stats
+            | Request::RotateKey
             | Request::Lock
             | Request::Unlock { .. }
             | Request::SetLockPassword { .. }

@@ -7,12 +7,12 @@ open.
 ```sh
 panora-cli list [QUERY] [--kind image] [--pinned] [--limit 20] [--offset 20] [--format TEMPLATE]
 panora-cli search <TEXT> [--format TEMPLATE]
-panora-cli copy <ID> [--paste] [--mime text/plain]
+panora-cli copy <ID> [--paste] [--mime text/plain] [--primary]
 panora-cli preview <ID> [--mime image/png] [--out photo.png]
 panora-cli pin <ID> | unpin <ID> | delete <ID> | restore <ID>
 panora-cli clear
 panora-cli private on|off
-panora-cli status | toggle | reload
+panora-cli status | stats | toggle | reload
 panora-cli store [FILE] [--mime TYPE] [--app NAME] [--no-copy]
 panora-cli pick [--format '{id}\t{kind}\t{preview}']
 panora-cli watch
@@ -84,6 +84,17 @@ panora-cli preview 42 --mime image/png --out shot.png
 
 With `--mime` the payload is written raw and nothing else, which is what
 you want in a pipe.
+
+`panora-cli copy <ID> --primary` puts the entry on PRIMARY instead of
+CLIPBOARD, so a middle-click pastes it; `--paste` is ignored with it, since
+there is no keyboard shortcut for a PRIMARY paste. `privacy.
+clear_clipboard_after_seconds` (`config.toml`, 0 = disabled) clears whichever
+selection a recall was put on that many seconds later — the way a password
+manager times out what it copied — but only if nothing else was copied in
+the meantime.
+
+`panora-cli stats` prints counts by kind, how many entries are pinned or
+flagged sensitive, total payload bytes, and the oldest/newest entry's time.
 
 ## Watching the daemon
 

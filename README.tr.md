@@ -210,10 +210,10 @@ Eşleşmeler popup'ta kalın gösterilir.
 ```sh
 panora-cli list [arama] [--kind image] [--pinned] [--limit 20] [--offset 20]
 panora-cli search <metin>
-panora-cli copy <id> [--paste] [--mime text/plain]
+panora-cli copy <id> [--paste] [--mime text/plain] [--primary]
 panora-cli preview <id> [--mime image/png] [--out foto.png]
 panora-cli pin|unpin|delete|restore <id>
-panora-cli clear | private on|off | status | toggle | reload
+panora-cli clear | private on|off | status | stats | toggle | reload
 panora-cli store [DOSYA] [--mime TÜR] [--app AD] [--no-copy]   # dosyadan / stdin'den metin kaydet
 panora-cli pick [--format '{id}\t{kind}\t{preview}']           # seçiciler için satır satır liste
 panora-cli --json status

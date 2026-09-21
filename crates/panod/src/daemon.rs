@@ -679,6 +679,11 @@ impl Daemon {
         })
     }
 
+    /// Aggregate history statistics for `panora-cli stats` (CLI-06).
+    pub fn stats(&self) -> Result<panora_core::ipc::StatsData> {
+        self.db.stats()
+    }
+
     /// Run the capture loop until the shutdown channel closes.
     pub async fn run(&self, mut shutdown: mpsc::Receiver<()>) -> Result<()> {
         let mut rx = self.backend.watch(Selection::Clipboard).await?;

@@ -84,6 +84,9 @@ pub enum Request {
     Toggle,
     /// Return health/capability info.
     Status,
+    /// Return aggregate history statistics (CLI-06): counts by kind,
+    /// pinned/sensitive counts, total payload bytes, oldest/newest entry.
+    Stats,
     /// Return the decrypted payloads for one entry (preview or export).
     Preview {
         /// Entry id.
@@ -247,6 +250,8 @@ pub enum ResponseData {
     Count(usize),
     /// Daemon status.
     Status(StatusData),
+    /// Reply to `Stats` (CLI-06).
+    Stats(StatsData),
     /// Empty successful response.
     Empty,
     /// Payloads for a selected entry.
@@ -344,6 +349,30 @@ pub struct StatusData {
     /// message for clients that know no better.
     #[serde(default)]
     pub health: Vec<HealthItem>,
+}
+
+/// Aggregate history statistics (CLI-06). Computed server-side (SQL
+/// aggregates over the visible, non-tombstoned entries) rather than by
+/// having the client page through every entry.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StatsData {
+    /// Visible (non-deleted) entry count.
+    pub total: i64,
+    /// Of those, how many are pinned.
+    pub pinned: i64,
+    /// Of those, how many are flagged sensitive (`crate::sensitive`).
+    pub sensitive: i64,
+    /// `(kind, count)`, one row per `ContentKind` with at least one entry,
+    /// ordered by count descending.
+    pub by_kind: Vec<(String, i64)>,
+    /// Sum of `size_bytes` across visible entries (the payload sizes
+    /// recorded at capture time, not on-disk blob size after dedup).
+    pub total_bytes: i64,
+    /// `last_seen_at` of the oldest visible entry, Unix seconds; `None`
+    /// when the history is empty.
+    pub oldest_at: Option<i64>,
+    /// `last_seen_at` of the newest visible entry.
+    pub newest_at: Option<i64>,
 }
 
 /// One health finding of the daemon.
