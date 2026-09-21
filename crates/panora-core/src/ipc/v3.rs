@@ -304,6 +304,18 @@ pub(crate) fn recv_once<S: AsFd>(
     Ok(result.bytes)
 }
 
+/// SEC-06: exercises the exact `serde_json::from_slice::<FrameHeaderIn<
+/// Request>>` call every v3 frame's header goes through
+/// (`server::FrameReader`/`decode`), on `bytes` straight from the network
+/// with no other validation first — the header length prefix bounds it to
+/// `MAX_FRAME_BYTES`, nothing about its content. Not meant to be called
+/// outside the `panora-core-fuzz` harness; hidden from generated docs
+/// because it exists for that alone.
+#[doc(hidden)]
+pub fn fuzz_parse_request_header(bytes: &[u8]) {
+    let _ = serde_json::from_slice::<FrameHeaderIn<Request>>(bytes);
+}
+
 /// One non-consuming (`MSG_PEEK`) read of the connection's very first byte:
 /// `Some(true)` if it opens a v3 connection (matches `MAGIC[0]`), `Some(false)`
 /// for a v2 JSON-lines request, `None` if the peer closed before sending

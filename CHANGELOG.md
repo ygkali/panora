@@ -233,6 +233,15 @@ real-machine verification in `docs/RELEASING.md` is done.
   manager's history through the normal privacy-gated `Store` path instead;
   best-effort, since none of the three tools are available to test
   against in this project's CI (only their documented output formats are).
+- Fuzzing (SEC-06): `crates/panora-core/fuzz` (`cargo fuzz`), 7 targets —
+  IPC decoding (v2 JSON-lines and the v3 frame header, STO-08), the search
+  query grammar, the FTS5 `MATCH` expression builder, the storage
+  envelope's `open`/`open_with_aad`, the secret/concealed-type MIME flag
+  check (ADR 0003), and clipboard content classification. A `fuzz-build`
+  CI job compiles every target on each push (a real fuzzing campaign is
+  hours, not a CI job's budget); `scripts/fuzz-smoke.sh` runs a short
+  timed pass of all of them locally. No crashes found in ~1.8M combined
+  executions across an initial smoke run.
 
 ### Changed
 - The popup no longer waits on the daemon: history pages, previews, image

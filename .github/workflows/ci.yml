@@ -126,6 +126,29 @@ jobs:
       - run: typos
       - run: cargo machete
 
+  fuzz-build:
+    name: Fuzz targets build (SEC-06)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/panora-core/fuzz
+      - name: Install clang (libFuzzer's sanitizer runtime)
+        run: sudo apt-get update && sudo apt-get install -y clang
+      - run: cargo install cargo-fuzz --locked
+      # Compile check only: a real fuzzing campaign is unattended and
+      # measured in hours, not a CI job's budget. This just keeps every
+      # target buildable as panora-core's own code changes underneath it.
+      - name: Build every fuzz target
+        working-directory: crates/panora-core
+        run: |
+          set -Eeuo pipefail
+          for target in fuzz/fuzz_targets/*.rs; do
+            cargo fuzz build "$(basename "$target" .rs)"
+          done
+
   coverage:
     name: Coverage (informational)
     runs-on: ubuntu-latest

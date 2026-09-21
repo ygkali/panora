@@ -1,0 +1,68 @@
+[package]
+name = "panora-core-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+# Deliberately its own workspace, not a member of the root one: fuzzing
+# needs nightly plus sanitizer flags neither the root workspace nor its CI
+# jobs should have to carry.
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.panora-core]
+path = ".."
+
+[[bin]]
+name = "ipc_v2_decode"
+path = "fuzz_targets/ipc_v2_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ipc_v3_header"
+path = "fuzz_targets/ipc_v3_header.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "search_parse"
+path = "fuzz_targets/search_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fts_query"
+path = "fuzz_targets/fts_query.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "envelope_open"
+path = "fuzz_targets/envelope_open.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "secret_flag"
+path = "fuzz_targets/secret_flag.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "classify"
+path = "fuzz_targets/classify.rs"
+test = false
+doc = false
+bench = false
