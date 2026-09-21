@@ -1163,6 +1163,31 @@ impl Database {
         Ok(())
     }
 
+    /// Hard-delete every entry, blob reference and search-index row, pinned
+    /// or not (SEC-03 panic wipe).
+    ///
+    /// Unlike `clear_all`, this is not a tombstone: nothing is left behind
+    /// to `purge_tombstones` later, and pinned entries are not spared — a
+    /// panic wipe has no exceptions. `VACUUM` afterward compacts the file
+    /// so the freed pages do not go on holding the old encrypted bytes
+    /// indefinitely. Does not touch the key or the lock password by
+    /// itself; `panod::daemon::Daemon::wipe` pairs this with `rekey` so the
+    /// key that encrypted what was just deleted is retired too, and clears
+    /// the lock secret since it protected a history that no longer exists.
+    pub fn wipe(&self) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute("DELETE FROM entries", [])?;
+        tx.execute("DELETE FROM entry_blobs", [])?;
+        tx.execute("DELETE FROM entries_fts", [])?;
+        tx.execute(
+            "DELETE FROM meta WHERE key IN ('lock_verifier', 'lock_kek_salt', 'rotation_state')",
+            [],
+        )?;
+        tx.commit()?;
+        self.conn.execute_batch("VACUUM")?;
+        Ok(())
+    }
+
     /// Clear the history, keeping pinned entries. Returns the cleared ids.
     ///
     /// Pinning means "keep this", which is why `enforce_limit` and
@@ -2207,5 +2232,62 @@ mod lifecycle_tests {
 
         db.set_lock_secret(None).unwrap();
         assert_eq!(db.lock_secret().unwrap(), None);
+    }
+
+    // --- SEC-03: panic wipe ---
+
+    #[test]
+    fn wipe_hard_deletes_everything_pinned_and_tombstoned_included() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = open_with(&dir.path().join("history.db"), &MasterKey::generate()).unwrap();
+        insert_one(&db, "ordinary entry");
+        insert_one(&db, "pinned entry");
+        insert_one(&db, "tombstoned entry");
+        let entries = db.query(&QueryFilter::recent(10)).unwrap();
+        let pinned_id = entries
+            .iter()
+            .find(|e| e.preview == "pinned entry")
+            .unwrap()
+            .id;
+        let tombstoned_id = entries
+            .iter()
+            .find(|e| e.preview == "tombstoned entry")
+            .unwrap()
+            .id;
+        db.set_pinned(pinned_id, true).unwrap();
+        db.tombstone(tombstoned_id, 1).unwrap();
+        db.set_lock_secret(Some(
+            &crate::lock::LockSecret::new("doomed password").unwrap(),
+        ))
+        .unwrap();
+        db.set_rotation_state(Some("doomed rotation")).unwrap();
+
+        db.wipe().unwrap();
+
+        assert_eq!(db.count().unwrap(), 0);
+        // clear_all would have spared the pinned entry and tombstoned the
+        // rest; wipe leaves nothing at all, including the already-
+        // tombstoned row a later purge would otherwise have handled.
+        let raw_rows: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM entries", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(raw_rows, 0);
+        let fts_rows: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM entries_fts", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(fts_rows, 0);
+        let blob_refs: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM entry_blobs", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(blob_refs, 0);
+        assert_eq!(
+            db.lock_secret().unwrap(),
+            None,
+            "wipe clears the lock secret too"
+        );
+        assert_eq!(db.rotation_state().unwrap(), None);
     }
 }

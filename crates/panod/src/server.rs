@@ -460,6 +460,7 @@ pub async fn handle_request(request: Request, daemon: &Daemon) -> Response {
             .set_lock_password(new_password.as_deref(), current_password.as_deref())
             .await
             .map(|_| ResponseData::Empty),
+        Request::Wipe => daemon.wipe().await.map(|_| ResponseData::Empty),
         Request::Restore { id } => daemon.restore(id).await.map(|_| ResponseData::Empty),
         Request::Store {
             payloads,

@@ -308,6 +308,30 @@ pub async fn finish_rotation(key: &MasterKey) -> Result<()> {
     Ok(())
 }
 
+/// SEC-03 panic wipe: retire every stored key item (the live one, a
+/// pending rotation if one was in progress, and the lock-password backup)
+/// and store `fresh` as the new live key. Call only after `Database::wipe`
+/// and `BlobStore::wipe` have already destroyed the ciphertext those old
+/// items protected, so nothing depends on an item this removes.
+pub async fn wipe_and_replace(fresh: &MasterKey) -> Result<()> {
+    let collection = open_collection().await?;
+    for attrs in [pending_attributes(), lock_backup_attributes()] {
+        let items = collection
+            .search_items(&attrs)
+            .await
+            .map_err(|e| keyring_err("keyring search failed", e))?;
+        for item in items {
+            item.delete(None)
+                .await
+                .map_err(|e| keyring_err("cannot remove a retired key during wipe", e))?;
+        }
+    }
+    // Replaces the live item in place (`store_key` uses `replace: true`)
+    // rather than deleting then recreating it, so there is no window with
+    // no key item at all if this is interrupted between the two steps.
+    store_key(&collection, fresh).await
+}
+
 /// Store (or replace) the password-gated backup copy of the master key.
 pub async fn store_lock_backup(wrapped: &[u8]) -> Result<()> {
     let collection = open_collection().await?;

@@ -214,6 +214,12 @@ real-machine verification in `docs/RELEASING.md` is done.
   keyring, independent of the daemon's normal unlock flow. Passwords are
   always read from standard input, never a command-line argument.
   `panora-cli status` reports `app_locked`/`lock_password_set`.
+- `panora-cli wipe --yes` (SEC-03, panic wipe): hard-deletes the whole
+  history — pinned entries included, no undo, unlike `clear` — and retires
+  the master key for a freshly generated one, so what was just deleted is
+  unrecoverable from the file system too, not only inaccessible through
+  Panora. Works regardless of the second-layer lock's state, since a panic
+  action has to work under duress, not only after unlocking first.
 
 ### Changed
 - The popup no longer waits on the daemon: history pages, previews, image

@@ -4,9 +4,10 @@
 #
 # Runs the Secret Service integration tests (key load/store; rotate-key
 # including a simulated mid-rotation crash, SEC-01; the lock password's
-# keyring backup, SEC-02) against a throwaway gnome-keyring in a private
-# session bus, so the developer's own keyring is never touched. Needs
-# gnome-keyring and dbus-daemon installed.
+# keyring backup, SEC-02; the panic wipe's key replacement, SEC-03)
+# against a throwaway gnome-keyring in a private session bus, so the
+# developer's own keyring is never touched. Needs gnome-keyring and
+# dbus-daemon installed.
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -34,4 +35,5 @@ dbus-run-session -- bash -c '
   cargo test -p panod --test keyring -- --ignored "$@"
   cargo test -p panod --test rotate_key -- --ignored --test-threads=1 "$@"
   cargo test -p panod --test lock -- --ignored --test-threads=1 "$@"
+  cargo test -p panod --test wipe -- --ignored --test-threads=1 "$@"
 ' -- "$@"

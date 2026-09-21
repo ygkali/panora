@@ -494,6 +494,38 @@ impl Daemon {
         Ok(())
     }
 
+    /// Panic wipe (SEC-03): hard-delete the whole history and retire the
+    /// key that encrypted it, in that order, so nothing depends on the old
+    /// key by the time it is destroyed. A fresh key is generated and
+    /// adopted immediately afterward — by both storage (`rekey`, so a
+    /// memory dump taken after this returns cannot recover the old key
+    /// through the running process either) and the keyring — rather than
+    /// leaving the daemon with no key at all, which would need someone
+    /// there to supply one before capture could resume.
+    ///
+    /// Deliberately not gated by `is_app_locked`: the whole point of a
+    /// panic action is that it still works under duress, not only after
+    /// unlocking first.
+    pub async fn wipe(&self) -> Result<()> {
+        self.db.wipe()?;
+        self.blobs.wipe()?;
+        let fresh = panora_core::storage::MasterKey::generate();
+        self.db.rekey(panora_core::storage::Cipher::new(&fresh))?;
+        self.blobs
+            .rekey(panora_core::storage::Cipher::new(&fresh))?;
+        crate::keyring::wipe_and_replace(&fresh).await?;
+        self.app_locked.store(false, Ordering::Relaxed);
+        if let Ok(mut slot) = self.last_stored.lock() {
+            slot.clear();
+        }
+        if let Ok(mut slot) = self.last_recall.lock() {
+            *slot = None;
+        }
+        info!("panic wipe completed");
+        self.bump();
+        Ok(())
+    }
+
     /// Status report for IPC clients.
     pub fn status(&self) -> Result<StatusData> {
         let caps = self.backend.capabilities();

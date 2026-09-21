@@ -150,6 +150,19 @@ enum Command {
     ///
     /// Reads the password from standard input.
     Unlock,
+    /// Panic wipe: hard-delete the whole history and retire the encryption
+    /// key for a fresh one (SEC-03)
+    ///
+    /// Pinned entries are not spared and there is no undo — unlike
+    /// `clear`, which keeps pinned entries and only tombstones the rest.
+    /// The old key is destroyed, so what was just deleted is unrecoverable
+    /// from the file system too, not only inaccessible through Panora.
+    Wipe {
+        /// Skip the confirmation prompt; required, since this is
+        /// irreversible
+        #[arg(long)]
+        yes: bool,
+    },
     /// Bring back an entry deleted in the last 30 seconds
     Restore {
         /// Entry id
@@ -378,6 +391,17 @@ fn run(cli: Cli, s: &Strings) -> Result<(), Failure> {
             let data = client::call(&request)?;
             return print_response(s, json, &no_reply_shape(request), data);
         }
+        Command::Wipe { yes } => {
+            if !yes {
+                return Err(
+                    "this deletes the whole history with no undo; re-run with --yes"
+                        .to_string()
+                        .into(),
+                );
+            }
+            let data = client::call(&Request::Wipe)?;
+            return print_response(s, json, &no_reply_shape(Request::Wipe), data);
+        }
         Command::Lock { action: None } => {
             let data = client::call(&Request::Lock)?;
             return print_response(s, json, &no_reply_shape(Request::Lock), data);
@@ -492,7 +516,8 @@ fn to_invocation(command: Command) -> Invocation {
         | Command::Watch
         | Command::RotateKey
         | Command::Lock { .. }
-        | Command::Unlock => {
+        | Command::Unlock
+        | Command::Wipe { .. } => {
             unreachable!("handled before reaching the daemon")
         }
     }

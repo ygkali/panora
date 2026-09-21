@@ -139,6 +139,14 @@ impl BlobStore {
         Ok(())
     }
 
+    /// Delete every blob file (SEC-03 panic wipe).
+    pub fn wipe(&self) -> Result<()> {
+        for hash in self.list()? {
+            self.remove(&hash)?;
+        }
+        Ok(())
+    }
+
     /// Delete a blob by hash. Missing files are not an error.
     pub fn remove(&self, hash: &str) -> Result<()> {
         let path = self.path_for(hash)?;
@@ -391,5 +399,19 @@ mod tests {
         store.rekey(Cipher::new(&new_key)).unwrap();
 
         assert_eq!(store.get(&hash).unwrap(), b"resumed rotation payload");
+    }
+
+    #[test]
+    fn wipe_deletes_every_blob() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = store(&dir);
+        let a = store.put(b"first").unwrap();
+        let b = store.put(b"second").unwrap();
+
+        store.wipe().unwrap();
+
+        assert!(!store.exists(&a));
+        assert!(!store.exists(&b));
+        assert!(store.list().unwrap().is_empty());
     }
 }

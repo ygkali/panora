@@ -116,6 +116,13 @@ pub enum Request {
         #[serde(default)]
         current_password: Option<String>,
     },
+    /// Panic wipe (SEC-03): hard-delete the whole history — pinned entries
+    /// included, no undo — and retire the key that encrypted it in favour
+    /// of a fresh one, so the old ciphertext is unrecoverable regardless of
+    /// what happens to the deleted bytes on disk afterward. Not gated by
+    /// the second-layer lock: a panic action has to work under duress, not
+    /// only after unlocking first.
+    Wipe,
     /// Bring back an entry deleted moments ago, while its tombstone is still
     /// inside the undo grace period.
     Restore {
