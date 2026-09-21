@@ -163,6 +163,37 @@ enum Command {
         #[arg(long)]
         yes: bool,
     },
+    /// Export the whole history as an encrypted archive (CLI-03)
+    ///
+    /// Reads the passphrase from standard input; there is no way to
+    /// recover a forgotten one, the same as any other encrypted backup.
+    Export {
+        /// Output file
+        #[arg(long, value_name = "FILE")]
+        out: PathBuf,
+    },
+    /// Restore entries from an archive `export` produced (CLI-03)
+    ///
+    /// Reads the passphrase from standard input. Bypasses the privacy gate
+    /// (the archive is the user's own previously-exported data) and
+    /// deduplicates by content hash exactly like a live capture: importing
+    /// the same archive twice does not duplicate anything.
+    Import {
+        /// Archive file
+        file: PathBuf,
+    },
+    /// Import history from another clipboard manager (CLI-03)
+    ///
+    /// Each item goes through the normal privacy gate and dedup, the same
+    /// as a live copy — unlike `import`, which is for Panora's own
+    /// archives. Best-effort: not tested against the real tools in this
+    /// project's CI, only against sample output of their documented
+    /// formats (see docs/ROADMAP.md CLI-03).
+    ImportLegacy {
+        /// Which tool to read from
+        #[arg(value_enum)]
+        source: LegacySource,
+    },
     /// Bring back an entry deleted in the last 30 seconds
     Restore {
         /// Entry id
@@ -287,6 +318,17 @@ enum LockAction {
     Remove,
 }
 
+/// Clipboard managers `import-legacy` can read history from (CLI-03).
+#[derive(ValueEnum, Clone, Copy, Debug)]
+enum LegacySource {
+    /// `copyq eval` (a small script dumps the history as JSON)
+    Copyq,
+    /// `gpaste-client history --raw`
+    Gpaste,
+    /// `~/.cache/clipboard-indicator@tudmotu.com/registry.txt`
+    ClipboardIndicator,
+}
+
 /// What a command needs from the daemon and how its reply is shown.
 struct Invocation {
     request: Request,
@@ -307,6 +349,7 @@ const STORE_MAX_BYTES: usize = MAX_FRAME_BYTES / 4 * 3 - 1024;
 const ROTATE_KEY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
 
 /// A failure with the exit status it maps to.
+#[derive(Debug)]
 struct Failure {
     code: u8,
     message: String,
@@ -401,6 +444,57 @@ fn run(cli: Cli, s: &Strings) -> Result<(), Failure> {
             }
             let data = client::call(&Request::Wipe)?;
             return print_response(s, json, &no_reply_shape(Request::Wipe), data);
+        }
+        Command::Export { out } => {
+            let passphrase = read_password_line()?;
+            let archive = export_via_v3(&passphrase)?;
+            std::fs::write(&out, &archive)
+                .map_err(|e| format!("cannot write {}: {e}", out.display()))?;
+            if json {
+                println!("{{\"bytes\":{}}}", archive.len());
+            } else {
+                println!("exported {} bytes to {}", archive.len(), out.display());
+            }
+            return Ok(());
+        }
+        Command::Import { file } => {
+            let passphrase = read_password_line()?;
+            let archive =
+                std::fs::read(&file).map_err(|e| format!("cannot read {}: {e}", file.display()))?;
+            let count = import_via_v3(&passphrase, archive)?;
+            if json {
+                println!("{{\"imported\":{count}}}");
+            } else {
+                println!("{}", fill(s.cli_count, "n", &count.to_string()));
+            }
+            return Ok(());
+        }
+        Command::ImportLegacy { source } => {
+            let items = read_legacy_entries(source)?;
+            let mut imported = 0usize;
+            for text in items {
+                let request = Request::Store {
+                    payloads: vec![MimePayload::new(
+                        "text/plain;charset=utf-8",
+                        text.into_bytes(),
+                    )],
+                    source_app: Some(legacy_source_name(source).to_string()),
+                    copy: false,
+                };
+                // Each item still goes through the daemon's normal privacy
+                // gate; a rejected one (an excluded app pattern, an empty
+                // string after trimming, ...) is skipped rather than
+                // aborting the whole import.
+                if client::call(&request).is_ok() {
+                    imported += 1;
+                }
+            }
+            if json {
+                println!("{{\"imported\":{imported}}}");
+            } else {
+                println!("{}", fill(s.cli_count, "n", &imported.to_string()));
+            }
+            return Ok(());
         }
         Command::Lock { action: None } => {
             let data = client::call(&Request::Lock)?;
@@ -517,7 +611,10 @@ fn to_invocation(command: Command) -> Invocation {
         | Command::RotateKey
         | Command::Lock { .. }
         | Command::Unlock
-        | Command::Wipe { .. } => {
+        | Command::Wipe { .. }
+        | Command::Export { .. }
+        | Command::Import { .. }
+        | Command::ImportLegacy { .. } => {
             unreachable!("handled before reaching the daemon")
         }
     }
@@ -550,6 +647,148 @@ fn read_password_line() -> Result<String, Failure> {
         return Err("no password given on standard input".into());
     }
     Ok(line.to_string())
+}
+
+/// `export`/`import` (CLI-03) go over the v3 protocol directly instead of
+/// `client::call` (v2): an archive can hold everything in the history at
+/// once, which base64-in-JSON's `MAX_RESPONSE_BYTES` cap was never sized
+/// for — v3 carries it as a passed file descriptor instead once it is
+/// larger than a few KiB (`panora_core::ipc::v3::INLINE_LIMIT`).
+fn call_via_v3(request: Request) -> Result<ResponseData, Failure> {
+    use std::os::unix::net::UnixStream;
+    let stream = UnixStream::connect(panora_core::config::socket_path())
+        .map_err(|e| Error::Ipc(format!("daemon unavailable: {e}")))?;
+    panora_core::ipc::v3::write_magic_blocking(&stream)?;
+    panora_core::ipc::v3::write_request_blocking(&stream, request)?;
+    Ok(panora_core::ipc::v3::read_response_blocking(&stream)?.into_result()?)
+}
+
+fn export_via_v3(passphrase: &str) -> Result<Vec<u8>, Failure> {
+    match call_via_v3(Request::Export {
+        passphrase: passphrase.to_string(),
+    })? {
+        ResponseData::Archive(bytes) => Ok(bytes),
+        other => Err(format!("unexpected daemon reply: {other:?}").into()),
+    }
+}
+
+fn import_via_v3(passphrase: &str, archive: Vec<u8>) -> Result<usize, Failure> {
+    let request = Request::Import {
+        passphrase: passphrase.to_string(),
+        archive,
+    };
+    match call_via_v3(request)? {
+        ResponseData::Count(n) => Ok(n),
+        other => Err(format!("unexpected daemon reply: {other:?}").into()),
+    }
+}
+
+/// Human-readable name of a legacy source, recorded as `source_app` on
+/// import so the privacy gate's `excluded_apps` can match it like anything
+/// else, and so imported entries are identifiable afterward.
+fn legacy_source_name(source: LegacySource) -> &'static str {
+    match source {
+        LegacySource::Copyq => "copyq",
+        LegacySource::Gpaste => "gpaste",
+        LegacySource::ClipboardIndicator => "clipboard-indicator",
+    }
+}
+
+/// Fetch the raw text entries `import-legacy` records, from whichever tool
+/// `source` names. The parsing itself (`parse_copyq_json`/
+/// `parse_gpaste_raw`/`parse_clipboard_indicator_registry`) is tested
+/// against sample output of each tool's documented format; running the
+/// actual tool here is not (none of them are available in this project's
+/// CI/dev environment).
+fn read_legacy_entries(source: LegacySource) -> Result<Vec<String>, Failure> {
+    match source {
+        LegacySource::Copyq => {
+            let output = std::process::Command::new("copyq")
+                .arg("eval")
+                .arg(
+                    "tab(); var n = size(); var out = []; \
+                     for (var i = 0; i < n; ++i) { out.push(str(read(i))); } \
+                     print(JSON.stringify(out));",
+                )
+                .output()
+                .map_err(|e| format!("cannot run copyq: {e}"))?;
+            if !output.status.success() {
+                return Err(format!(
+                    "copyq eval failed: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                )
+                .into());
+            }
+            parse_copyq_json(&String::from_utf8_lossy(&output.stdout))
+        }
+        LegacySource::Gpaste => {
+            let output = std::process::Command::new("gpaste-client")
+                .arg("history")
+                .arg("--raw")
+                .output()
+                .map_err(|e| format!("cannot run gpaste-client: {e}"))?;
+            if !output.status.success() {
+                return Err(format!(
+                    "gpaste-client history failed: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                )
+                .into());
+            }
+            Ok(parse_gpaste_raw(&String::from_utf8_lossy(&output.stdout)))
+        }
+        LegacySource::ClipboardIndicator => {
+            let path = xdg_cache_home()?.join("clipboard-indicator@tudmotu.com/registry.txt");
+            let text = std::fs::read_to_string(&path)
+                .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+            parse_clipboard_indicator_registry(&text)
+        }
+    }
+}
+
+fn xdg_cache_home() -> Result<PathBuf, Failure> {
+    std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))
+        .ok_or_else(|| "neither XDG_CACHE_HOME nor HOME is set".into())
+}
+
+/// Parse CopyQ's `eval`-dumped JSON array of strings.
+fn parse_copyq_json(output: &str) -> Result<Vec<String>, Failure> {
+    let items: Vec<String> = serde_json::from_str(output.trim())
+        .map_err(|e| format!("could not parse copyq's output as a JSON array of strings: {e}"))?;
+    Ok(items.into_iter().filter(|s| !s.trim().is_empty()).collect())
+}
+
+/// Parse GPaste's `history --raw` output: one entry per line.
+fn parse_gpaste_raw(output: &str) -> Vec<String> {
+    output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Parse the GNOME Shell Clipboard Indicator extension's `registry.txt`: a
+/// JSON array, either of plain strings or of `{"contents": "...", ...}`
+/// objects, depending on the version installed.
+fn parse_clipboard_indicator_registry(text: &str) -> Result<Vec<String>, Failure> {
+    #[derive(serde::Deserialize)]
+    #[serde(untagged)]
+    enum Item {
+        Plain(String),
+        Object { contents: String },
+    }
+    let items: Vec<Item> = serde_json::from_str(text.trim())
+        .map_err(|e| format!("could not parse the Clipboard Indicator registry as JSON: {e}"))?;
+    Ok(items
+        .into_iter()
+        .map(|item| match item {
+            Item::Plain(s) => s,
+            Item::Object { contents } => contents,
+        })
+        .filter(|s| !s.trim().is_empty())
+        .collect())
 }
 
 /// Read the content for `store` from a file or standard input, bounded by
@@ -764,6 +1003,10 @@ fn print_response(
         // Only ever produced on a v3 connection's own `Hello` negotiation,
         // which `client::call` (v2) never sends; kept for exhaustiveness.
         ResponseData::Hello { protocol } => println!("protocol={protocol}"),
+        // `export`/`import` handle their own reply directly (they need the
+        // v3 client for a large archive) and never call this; kept for
+        // exhaustiveness.
+        ResponseData::Archive(bytes) => println!("{} bytes", bytes.len()),
     }
     Ok(())
 }
@@ -964,5 +1207,51 @@ mod tests {
         let main_page = std::fs::read_to_string(dir.join("panora-cli.1")).unwrap();
         assert!(main_page.contains("Exit status"));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    // --- CLI-03: legacy clipboard manager import, against sample output of
+    // each tool's documented format (the tools themselves are not
+    // available to run in this project's CI/dev environment).
+
+    #[test]
+    fn copyq_json_array_of_strings_is_parsed() {
+        let items = parse_copyq_json(r#"["first item", "second item", ""]"#).unwrap();
+        assert_eq!(
+            items,
+            vec!["first item", "second item"],
+            "empty strings are dropped"
+        );
+    }
+
+    #[test]
+    fn copyq_output_that_is_not_a_json_array_is_rejected() {
+        assert!(parse_copyq_json("not json at all").is_err());
+    }
+
+    #[test]
+    fn gpaste_raw_history_is_split_by_line() {
+        let items = parse_gpaste_raw("first entry\nsecond entry\n\nthird entry\n");
+        assert_eq!(items, vec!["first entry", "second entry", "third entry"]);
+    }
+
+    #[test]
+    fn clipboard_indicator_registry_accepts_plain_strings() {
+        let items = parse_clipboard_indicator_registry(r#"["plain one", "plain two"]"#).unwrap();
+        assert_eq!(items, vec!["plain one", "plain two"]);
+    }
+
+    #[test]
+    fn clipboard_indicator_registry_accepts_content_objects() {
+        let items = parse_clipboard_indicator_registry(
+            r#"[{"favorite":false,"contents":"object one","mimetype":null},
+                {"favorite":true,"contents":"object two"}]"#,
+        )
+        .unwrap();
+        assert_eq!(items, vec!["object one", "object two"]);
+    }
+
+    #[test]
+    fn clipboard_indicator_registry_that_is_not_json_is_rejected() {
+        assert!(parse_clipboard_indicator_registry("not json").is_err());
     }
 }

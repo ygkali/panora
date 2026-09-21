@@ -461,6 +461,20 @@ pub async fn handle_request(request: Request, daemon: &Daemon) -> Response {
             .await
             .map(|_| ResponseData::Empty),
         Request::Wipe => daemon.wipe().await.map(|_| ResponseData::Empty),
+        Request::Export { passphrase } => {
+            if daemon.is_app_locked() {
+                Err(locked_error())
+            } else {
+                daemon.export(&passphrase).map(ResponseData::Archive)
+            }
+        }
+        Request::Import {
+            passphrase,
+            archive,
+        } => daemon
+            .import(&passphrase, &archive)
+            .await
+            .map(ResponseData::Count),
         Request::Restore { id } => daemon.restore(id).await.map(|_| ResponseData::Empty),
         Request::Store {
             payloads,

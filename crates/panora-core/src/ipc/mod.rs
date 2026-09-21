@@ -123,6 +123,23 @@ pub enum Request {
     /// the second-layer lock: a panic action has to work under duress, not
     /// only after unlocking first.
     Wipe,
+    /// Export the whole history as an encrypted archive (CLI-03).
+    /// `passphrase` derives the archive's key with Argon2id; nothing about
+    /// it is stored anywhere, so losing it means losing access to that
+    /// archive, the same as any other encrypted backup.
+    Export {
+        /// Passphrase the archive is encrypted with.
+        passphrase: String,
+    },
+    /// Restore entries from an archive `Export` produced (CLI-03). Bypasses
+    /// the privacy gate and deduplicates by content hash exactly like a
+    /// live capture.
+    Import {
+        /// The archive's own passphrase.
+        passphrase: String,
+        /// The archive bytes, as `Export` returned them.
+        archive: Vec<u8>,
+    },
     /// Bring back an entry deleted moments ago, while its tombstone is still
     /// inside the undo grace period.
     Restore {
@@ -240,6 +257,8 @@ pub enum ResponseData {
         /// Negotiated protocol version.
         protocol: u32,
     },
+    /// Reply to `Export` (CLI-03): the encrypted archive's bytes.
+    Archive(Vec<u8>),
 }
 
 /// A message the daemon pushes on its own initiative, over v3 framing, after

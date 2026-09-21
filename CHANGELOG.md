@@ -220,6 +220,19 @@ real-machine verification in `docs/RELEASING.md` is done.
   unrecoverable from the file system too, not only inaccessible through
   Panora. Works regardless of the second-layer lock's state, since a panic
   action has to work under duress, not only after unlocking first.
+- `panora-cli export`/`import` (CLI-03): the whole history as one encrypted
+  `.panora` archive (tar of `entries.json` + content-addressed blobs,
+  sealed with an Argon2id-derived, passphrase-only key — no verifier is
+  stored anywhere, so the AEAD tag failing to open on `import` is itself
+  the "wrong passphrase" answer). `import` bypasses the privacy gate (the
+  archive is the user's own previously-exported data) and deduplicates by
+  content hash exactly like a live capture. Both travel over the v3
+  protocol directly, so an archive is not limited by the v2 JSON-lines
+  response cap the way a `Preview` payload still is. `panora-cli import-
+  legacy <copyq|gpaste|clipboard-indicator>` reads another clipboard
+  manager's history through the normal privacy-gated `Store` path instead;
+  best-effort, since none of the three tools are available to test
+  against in this project's CI (only their documented output formats are).
 
 ### Changed
 - The popup no longer waits on the daemon: history pages, previews, image

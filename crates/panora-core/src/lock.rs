@@ -44,6 +44,19 @@ use rand::RngCore;
 /// Length of the independent salt used for KEK derivation.
 const KEK_SALT_LEN: usize = 16;
 
+/// Derive a 32-byte key from a passphrase and a salt via Argon2id — the
+/// primitive `LockSecret::derive_kek` uses for its KEK, exposed standalone
+/// for a caller that needs an Argon2id key without a stored verifier
+/// alongside it (CLI-03's export archive: the AEAD tag failing to
+/// authenticate on open already answers "wrong passphrase").
+pub fn derive_key(passphrase: &str, salt: &[u8]) -> Result<[u8; 32]> {
+    let mut key = [0u8; 32];
+    Argon2::default()
+        .hash_password_into(passphrase.as_bytes(), salt, &mut key)
+        .map_err(|_| Error::Crypto)?;
+    Ok(key)
+}
+
 /// What gets stored (in the database's `meta` table, next to
 /// `key_fingerprint`) to check future unlock attempts and re-derive the
 /// KEK. Safe to keep there in the clear: a PHC hash is meant to be
@@ -88,11 +101,7 @@ impl LockSecret {
     /// verifier's own salt (see the module docs on why that matters).
     fn derive_kek(&self, password: &str) -> Result<[u8; 32]> {
         let salt = hex_decode(&self.kek_salt).ok_or(Error::Crypto)?;
-        let mut kek = [0u8; 32];
-        Argon2::default()
-            .hash_password_into(password.as_bytes(), &salt, &mut kek)
-            .map_err(|_| Error::Crypto)?;
-        Ok(kek)
+        derive_key(password, &salt)
     }
 
     /// Wrap `key` under `password`'s KEK, for password-gated backup storage

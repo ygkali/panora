@@ -708,3 +708,135 @@ async fn lock_over_ipc_refuses_without_a_password_set() {
         })
         .await;
 }
+
+// --- CLI-03: encrypted export/import over the real v3 socket, including a
+// payload larger than v3's inline limit so the archive travels as a
+// passed fd, not inline bytes.
+
+#[tokio::test]
+async fn export_and_import_round_trip_over_v3() {
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let server = start(None);
+            capture(&server, "exported over the real socket").await;
+            // A payload past INLINE_LIMIT, so the *archive* (which embeds
+            // it) is comfortably large enough that a naive implementation
+            // would only work by accident at small sizes.
+            let big_text = "x".repeat(panora_core::ipc::v3::INLINE_LIMIT * 3);
+            server
+                .backend
+                .offer(
+                    Selection::Clipboard,
+                    ClipboardData {
+                        selection: Selection::Clipboard,
+                        payloads: vec![MimePayload::new("text/plain", big_text.as_bytes())],
+                        offered_mimes: vec!["text/plain".into()],
+                        source_app: Some("test".into()),
+                    },
+                )
+                .await
+                .unwrap();
+            server
+                .daemon
+                .handle_event(ClipboardEvent::changed(
+                    Selection::Clipboard,
+                    vec!["text/plain".into()],
+                    Some("test".into()),
+                ))
+                .await;
+            assert_eq!(server.daemon.db().count().unwrap(), 2);
+
+            let socket = server.socket.clone();
+            let archive = tokio::task::spawn_blocking(move || {
+                let stream = std::os::unix::net::UnixStream::connect(&socket).unwrap();
+                panora_core::ipc::v3::write_magic_blocking(&stream).unwrap();
+                panora_core::ipc::v3::write_request_blocking(
+                    &stream,
+                    Request::Export {
+                        passphrase: "export test passphrase".into(),
+                    },
+                )
+                .unwrap();
+                match panora_core::ipc::v3::read_response_blocking(&stream)
+                    .unwrap()
+                    .into_result()
+                    .unwrap()
+                {
+                    ResponseData::Archive(bytes) => bytes,
+                    other => panic!("unexpected {other:?}"),
+                }
+            })
+            .await
+            .unwrap();
+            assert!(
+                archive.len() > panora_core::ipc::v3::INLINE_LIMIT,
+                "the archive itself must be past the inline threshold too"
+            );
+
+            // A fresh, empty daemon on its own socket, importing the
+            // archive the first one just exported.
+            let dest = start(None);
+            let dest_socket = dest.socket.clone();
+            let imported = tokio::task::spawn_blocking(move || {
+                let stream = std::os::unix::net::UnixStream::connect(&dest_socket).unwrap();
+                panora_core::ipc::v3::write_magic_blocking(&stream).unwrap();
+                panora_core::ipc::v3::write_request_blocking(
+                    &stream,
+                    Request::Import {
+                        passphrase: "export test passphrase".into(),
+                        archive,
+                    },
+                )
+                .unwrap();
+                match panora_core::ipc::v3::read_response_blocking(&stream)
+                    .unwrap()
+                    .into_result()
+                    .unwrap()
+                {
+                    ResponseData::Count(n) => n,
+                    other => panic!("unexpected {other:?}"),
+                }
+            })
+            .await
+            .unwrap();
+
+            assert_eq!(imported, 2);
+            assert_eq!(dest.daemon.db().count().unwrap(), 2);
+            let restored = dest
+                .daemon
+                .query(&panora_core::storage::QueryFilter::recent(10))
+                .unwrap();
+            assert!(restored
+                .iter()
+                .any(|e| e.preview.contains("exported over the real socket")));
+        })
+        .await;
+}
+
+#[tokio::test]
+async fn export_refuses_while_locked() {
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let server = start(None);
+            let secret = panora_core::lock::LockSecret::new("blocks export").unwrap();
+            server.daemon.db().set_lock_secret(Some(&secret)).unwrap();
+            server.daemon.engage_lock().unwrap();
+
+            let reply = raw_call(
+                &server.socket,
+                &encode(&Request::Export {
+                    passphrase: "irrelevant".into(),
+                })
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+            match reply {
+                Response::Failure { message } => assert!(message.contains("locked"), "{message}"),
+                other => panic!("Export must be refused while locked, got {other:?}"),
+            }
+        })
+        .await;
+}

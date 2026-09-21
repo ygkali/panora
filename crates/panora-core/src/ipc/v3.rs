@@ -101,8 +101,9 @@ struct RecvFrame<T> {
     payload_bytes: VecDeque<Vec<u8>>,
 }
 
-// --- payload extraction/restoration: the only two message shapes that ever
-// carry a MimePayload are Request::Store and ResponseData::Payloads. ---
+// --- payload extraction/restoration: the message shapes that carry large
+// binary data are Request::Store/Import and ResponseData::Payloads/
+// Archive. Everything else's `take_*` is a no-op (empty vec). ---
 
 fn take_request_payloads(request: &mut Request) -> Vec<Vec<u8>> {
     match request {
@@ -110,38 +111,58 @@ fn take_request_payloads(request: &mut Request) -> Vec<Vec<u8>> {
             .iter_mut()
             .map(|p| std::mem::take(&mut p.data))
             .collect(),
+        // CLI-03: an export archive can be large (every payload in the
+        // history), so it travels the same way — inline if small, a passed
+        // fd if not — instead of always inflating it 4/3 through base64.
+        Request::Import { archive, .. } => vec![std::mem::take(archive)],
         _ => Vec::new(),
     }
 }
 
 fn restore_request_payloads(request: &mut Request, mut bytes: VecDeque<Vec<u8>>) {
-    if let Request::Store { payloads, .. } = request {
-        for p in payloads.iter_mut() {
-            if let Some(b) = bytes.pop_front() {
-                p.data = b;
+    match request {
+        Request::Store { payloads, .. } => {
+            for p in payloads.iter_mut() {
+                if let Some(b) = bytes.pop_front() {
+                    p.data = b;
+                }
             }
         }
+        Request::Import { archive, .. } => {
+            if let Some(b) = bytes.pop_front() {
+                *archive = b;
+            }
+        }
+        _ => {}
     }
 }
 
 fn take_response_payloads(response: &mut Response) -> Vec<Vec<u8>> {
-    if let Response::Success(ResponseData::Payloads(payloads)) = response {
-        payloads
+    match response {
+        Response::Success(ResponseData::Payloads(payloads)) => payloads
             .iter_mut()
             .map(|p| std::mem::take(&mut p.data))
-            .collect()
-    } else {
-        Vec::new()
+            .collect(),
+        Response::Success(ResponseData::Archive(archive)) => vec![std::mem::take(archive)],
+        _ => Vec::new(),
     }
 }
 
 fn restore_response_payloads(response: &mut Response, mut bytes: VecDeque<Vec<u8>>) {
-    if let Response::Success(ResponseData::Payloads(payloads)) = response {
-        for p in payloads.iter_mut() {
-            if let Some(b) = bytes.pop_front() {
-                p.data = b;
+    match response {
+        Response::Success(ResponseData::Payloads(payloads)) => {
+            for p in payloads.iter_mut() {
+                if let Some(b) = bytes.pop_front() {
+                    p.data = b;
+                }
             }
         }
+        Response::Success(ResponseData::Archive(archive)) => {
+            if let Some(b) = bytes.pop_front() {
+                *archive = b;
+            }
+        }
+        _ => {}
     }
 }
 

@@ -526,6 +526,115 @@ impl Daemon {
         Ok(())
     }
 
+    /// CLI-03: export the whole history (pinned and unpinned alike,
+    /// tombstoned entries excluded the same way `query` excludes them by
+    /// default) as an encrypted archive `import` can restore from.
+    pub fn export(&self, passphrase: &str) -> Result<Vec<u8>> {
+        let entries = self.db.query(&QueryFilter::recent(usize::MAX))?;
+        let mut records = Vec::with_capacity(entries.len());
+        for entry in entries {
+            let payloads = self.load_payloads(entry.id)?;
+            let record = panora_core::backup::BackupEntry {
+                content_hash: entry.content_hash,
+                preview: entry.preview,
+                kind: entry.kind.as_str().to_string(),
+                primary_mime: entry.primary_mime,
+                size_bytes: entry.size_bytes,
+                source_app: entry.source_app,
+                selection: entry.selection.as_str().to_string(),
+                created_at: entry.created_at,
+                last_seen_at: entry.last_seen_at,
+                pinned: entry.pinned,
+                sensitive: entry.sensitive,
+                payloads: payloads
+                    .iter()
+                    .map(|p| (p.mime.clone(), panora_core::storage::content_hash(&p.data)))
+                    .collect(),
+            };
+            records.push((record, payloads));
+        }
+        panora_core::backup::build_archive(&records, passphrase)
+    }
+
+    /// CLI-03: restore entries from an archive `export` produced. Bypasses
+    /// the privacy gate — the archive is the user's own previously-
+    /// exported data, not a live capture to be screened — and deduplicates
+    /// by content hash exactly like one: importing an entry that is
+    /// already present (the same archive twice, or overlapping backups)
+    /// bumps it instead of duplicating it. Returns the number of entries
+    /// processed (imported or deduplicated into an existing row alike).
+    pub async fn import(&self, passphrase: &str, archive: &[u8]) -> Result<usize> {
+        let records = panora_core::backup::open_archive(passphrase, archive)?;
+        let count = records.len();
+        for (record, payloads) in records {
+            self.import_entry(&record, payloads).await?;
+        }
+        if count > 0 {
+            self.bump();
+        }
+        Ok(count)
+    }
+
+    async fn import_entry(
+        &self,
+        record: &panora_core::backup::BackupEntry,
+        payloads: Vec<MimePayload>,
+    ) -> Result<Entry> {
+        let kind = ContentKind::parse(&record.kind);
+        let selection = if record.selection == Selection::Primary.as_str() {
+            Selection::Primary
+        } else {
+            Selection::Clipboard
+        };
+        let mut hasher = blake3::Hasher::new();
+        for p in &payloads {
+            hasher.update(p.mime.as_bytes());
+            hasher.update(&p.data);
+        }
+        let content_hash = hasher.finalize().to_hex().to_string();
+        let lamport = self.db.max_lamport()? + 1;
+        // `upsert_entry` only takes one timestamp for a fresh row (used for
+        // both created_at and last_seen_at); last_seen_at is what drives
+        // sort order and freshness, so a restored entry keeps that one
+        // exactly and created_at collapses to it rather than the true
+        // original creation time.
+        let id = self.db.upsert_entry(
+            &content_hash,
+            &record.preview,
+            kind,
+            &record.primary_mime,
+            record.size_bytes,
+            record.source_app.as_deref(),
+            selection,
+            record.last_seen_at,
+            &self.device_id,
+            lamport,
+        )?;
+        if record.sensitive {
+            self.db.mark_sensitive(id)?;
+        } else if self.config().history.index_full_text {
+            let data = ClipboardData {
+                selection,
+                offered_mimes: payloads.iter().map(|p| p.mime.clone()).collect(),
+                payloads: payloads.clone(),
+                source_app: record.source_app.clone(),
+            };
+            if let Some(text) = data.text() {
+                if let Some(content) = index_text(&text, kind) {
+                    self.db.index_content(id, &content)?;
+                }
+            }
+        }
+        for payload in &payloads {
+            let blob_ref = self.blobs.put(&payload.data)?;
+            self.db.attach_blob(id, &payload.mime, &blob_ref)?;
+        }
+        if record.pinned {
+            self.db.set_pinned(id, true)?;
+        }
+        self.db.get(id)
+    }
+
     /// Status report for IPC clients.
     pub fn status(&self) -> Result<StatusData> {
         let caps = self.backend.capabilities();
@@ -2891,5 +3000,106 @@ mod tests {
         daemon.backdate_activity_for_test(120);
         daemon.maybe_auto_lock();
         assert!(!daemon.is_app_locked(), "nothing to lock with");
+    }
+
+    // --- CLI-03: encrypted export/import ---
+
+    #[tokio::test]
+    async fn export_then_import_into_an_empty_history_restores_the_same_records() {
+        let source_dir = tempfile::tempdir().unwrap();
+        let (source, source_backend) = test_daemon(&source_dir);
+        offer_text(&source_backend, "first exported entry").await;
+        source.handle_event(text_event()).await;
+        offer_text(&source_backend, "second exported entry, pinned").await;
+        source.handle_event(text_event()).await;
+        let pinned_id = source.query(&QueryFilter::recent(1)).unwrap()[0].id;
+        source.set_pinned(pinned_id, true).await.unwrap();
+        let png = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        source_backend
+            .offer(
+                Selection::Clipboard,
+                ClipboardData {
+                    selection: Selection::Clipboard,
+                    payloads: vec![MimePayload::new("image/png", png.clone())],
+                    offered_mimes: vec!["image/png".into()],
+                    source_app: Some("test".into()),
+                },
+            )
+            .await
+            .unwrap();
+        source
+            .handle_event(ClipboardEvent::changed(
+                Selection::Clipboard,
+                vec!["image/png".into()],
+                Some("test".into()),
+            ))
+            .await;
+        assert_eq!(source.db().count().unwrap(), 3);
+
+        let archive = source.export("correct horse battery staple").unwrap();
+
+        let dest_dir = tempfile::tempdir().unwrap();
+        let (dest, _dest_backend) = test_daemon(&dest_dir);
+        let imported = dest
+            .import("correct horse battery staple", &archive)
+            .await
+            .unwrap();
+        assert_eq!(imported, 3);
+        assert_eq!(dest.db().count().unwrap(), 3);
+
+        let by_preview = |d: &Daemon, preview: &str| -> Entry {
+            d.query(&QueryFilter::recent(10))
+                .unwrap()
+                .into_iter()
+                .find(|e| e.preview == preview)
+                .unwrap()
+        };
+        let first = by_preview(&dest, "first exported entry");
+        assert!(!first.pinned);
+        assert_eq!(
+            dest.load_payloads(first.id).unwrap()[0].data,
+            b"first exported entry"
+        );
+
+        let second = by_preview(&dest, "second exported entry, pinned");
+        assert!(second.pinned, "pinned state survives the round trip");
+
+        let image = dest
+            .query(&QueryFilter::recent(10))
+            .unwrap()
+            .into_iter()
+            .find(|e| e.kind == ContentKind::Image)
+            .unwrap();
+        assert_eq!(dest.load_payloads(image.id).unwrap()[0].data, png);
+    }
+
+    #[tokio::test]
+    async fn import_deduplicates_by_content_hash_like_a_live_capture() {
+        let dir = tempfile::tempdir().unwrap();
+        let (daemon, backend) = test_daemon(&dir);
+        offer_text(&backend, "will be exported and re-imported").await;
+        daemon.handle_event(text_event()).await;
+        assert_eq!(daemon.db().count().unwrap(), 1);
+
+        let archive = daemon.export("pw").unwrap();
+        let imported = daemon.import("pw", &archive).await.unwrap();
+
+        assert_eq!(imported, 1);
+        assert_eq!(
+            daemon.db().count().unwrap(),
+            1,
+            "importing an entry already present must not duplicate it"
+        );
+    }
+
+    #[tokio::test]
+    async fn import_rejects_the_wrong_passphrase() {
+        let dir = tempfile::tempdir().unwrap();
+        let (daemon, backend) = test_daemon(&dir);
+        offer_text(&backend, "protected by a passphrase").await;
+        daemon.handle_event(text_event()).await;
+        let archive = daemon.export("right passphrase").unwrap();
+
+        assert!(daemon.import("wrong passphrase", &archive).await.is_err());
     }
 }

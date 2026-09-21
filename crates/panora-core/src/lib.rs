@@ -19,6 +19,8 @@
 pub mod apps;
 /// Clipboard backend abstraction (trait + event types).
 pub mod backend;
+/// Encrypted export/import archive format (CLI-03).
+pub mod backup;
 /// Configuration loading and defaults.
 pub mod config;
 /// Error types shared across the crate.
