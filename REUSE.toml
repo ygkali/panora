@@ -6,7 +6,7 @@ SPDX-PackageDownloadLocation = "https://github.com/ygkali/panora"
 # Sources carry their own SPDX headers; everything below has none and is
 # covered here.
 [[annotations]]
-path = ["**/*.md", "**/*.toml", "**/*.json", "**/*.yml", "**/*.yaml", "**/*.xml", "**/*.desktop", "**/*.service", "**/*.svg", "**/*.1", "**/*.hbs", "**/Cargo.lock", ".gitattributes", "**/.gitignore", "packaging/copyright", ".github/CODEOWNERS", "KUR.sh", "TEST.sh", "KALDIR.sh", "**/*.mjs", "packaging/aur/PKGBUILD", "packaging/aur/.SRCINFO", "packaging/nix/flake.nix", "packaging/rpm/panora.spec", "po/*.po", "po/*.pot"]
+path = ["**/*.md", "**/*.toml", "**/*.json", "**/*.yml", "**/*.yaml", "**/*.xml", "**/*.desktop", "**/*.service", "**/*.svg", "**/*.1", "**/*.hbs", "**/Cargo.lock", ".gitattributes", "**/.gitignore", "packaging/copyright", ".github/CODEOWNERS", "KUR.sh", "TEST.sh", "KALDIR.sh", "**/*.mjs", "packaging/aur/PKGBUILD", "packaging/aur/.SRCINFO", "packaging/nix/flake.nix", "packaging/rpm/panora.spec", "po/*.po", "po/*.pot", "debian/control", "debian/changelog", "debian/copyright", "debian/panora.links", "debian/panora.lintian-overrides", "debian/source/format"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Panora contributors"
 SPDX-License-Identifier = "GPL-3.0-only"

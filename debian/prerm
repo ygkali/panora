@@ -1,0 +1,16 @@
+#!/bin/sh
+# Copyright (C) 2026 Panora contributors
+# SPDX-License-Identifier: GPL-3.0-only
+set -e
+if [ "$1" = "remove" ] || [ "$1" = "upgrade" ]; then
+    # Stop the daemon for every logged-in user before the binary disappears.
+    if command -v loginctl >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1; then
+        for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+            systemctl --user --machine="${uid}@.host" stop panod.service >/dev/null 2>&1 || true
+        done
+    fi
+fi
+
+#DEBHELPER#
+
+exit 0

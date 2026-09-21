@@ -1,0 +1,3 @@
+# panod.service is a systemd *user* unit; deb-systemd-helper only handles
+# system units, so postinst/prerm restart it for logged-in users directly.
+panora: maintainer-script-calls-systemctl

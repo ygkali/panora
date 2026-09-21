@@ -1,0 +1,87 @@
+#!/usr/bin/make -f
+# Copyright (C) 2026 Panora contributors
+# SPDX-License-Identifier: GPL-3.0-only
+#
+# Standard debhelper entry point: `dpkg-buildpackage -b` (or `sbuild`/
+# `pbuilder`) builds the same package packaging/build-deb.sh does, through
+# the tooling Debian/Ubuntu infrastructure and a source-package review
+# actually expect. The staging steps below are kept in step with
+# packaging/build-deb.sh by hand; docs/DISTRIBUTION.md notes that.
+
+export DH_VERBOSE = 1
+export CARGO_HOME := $(CURDIR)/debian/.cargo-home
+
+APP_ID := io.github.ygkali.Panora
+EXT_UUID := panora@ygkali.github.io
+PKGDIR := debian/panora
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	cargo build --release --workspace
+
+# No autotools-style configure step for a Cargo workspace.
+override_dh_auto_configure:
+
+# cargo test needs Xvfb/a Secret Service/a session bus that a package
+# build environment does not provide; CI runs the real test suite
+# separately (`cargo test --workspace`, scripts/keyring-test.sh, the
+# Wayland/X11 e2e scripts). A package build only builds and stages.
+override_dh_auto_test:
+
+override_dh_auto_install:
+	install -d $(PKGDIR)/usr/bin
+	install -d $(PKGDIR)/usr/lib/systemd/user
+	install -d $(PKGDIR)/usr/share/applications
+	install -d $(PKGDIR)/usr/share/dbus-1/services
+	install -d $(PKGDIR)/usr/share/icons/hicolor/scalable/apps
+	install -d $(PKGDIR)/usr/share/icons/hicolor/symbolic/apps
+	install -d $(PKGDIR)/usr/share/metainfo
+	install -d $(PKGDIR)/usr/share/man/man1
+	install -d $(PKGDIR)/usr/share/bash-completion/completions
+	install -d $(PKGDIR)/usr/share/zsh/vendor-completions
+	install -d $(PKGDIR)/usr/share/fish/vendor_completions.d
+	install -d $(PKGDIR)/usr/share/gnome-shell/extensions/$(EXT_UUID)/schemas
+
+	install -m 0755 target/release/panod $(PKGDIR)/usr/bin/panod
+	install -m 0755 target/release/panora-gui $(PKGDIR)/usr/bin/panora-gui
+	install -m 0755 target/release/panora-cli $(PKGDIR)/usr/bin/panora-cli
+	install -m 0755 scripts/panora-doctor $(PKGDIR)/usr/bin/panora-doctor
+	ln -s panora-gui $(PKGDIR)/usr/bin/panora
+
+	install -m 0644 packaging/panod.service $(PKGDIR)/usr/lib/systemd/user/panod.service
+	install -m 0644 packaging/$(APP_ID).desktop $(PKGDIR)/usr/share/applications/$(APP_ID).desktop
+	install -m 0644 packaging/$(APP_ID).service $(PKGDIR)/usr/share/dbus-1/services/$(APP_ID).service
+	install -m 0644 packaging/$(APP_ID).metainfo.xml $(PKGDIR)/usr/share/metainfo/$(APP_ID).metainfo.xml
+	install -m 0644 packaging/icons/$(APP_ID).svg \
+		$(PKGDIR)/usr/share/icons/hicolor/scalable/apps/$(APP_ID).svg
+	install -m 0644 packaging/icons/$(APP_ID)-symbolic.svg \
+		$(PKGDIR)/usr/share/icons/hicolor/symbolic/apps/$(APP_ID)-symbolic.svg
+
+	install -m 0644 gnome-extension/metadata.json \
+		$(PKGDIR)/usr/share/gnome-shell/extensions/$(EXT_UUID)/metadata.json
+	install -m 0644 gnome-extension/extension.js \
+		$(PKGDIR)/usr/share/gnome-shell/extensions/$(EXT_UUID)/extension.js
+	install -m 0644 gnome-extension/prefs.js \
+		$(PKGDIR)/usr/share/gnome-shell/extensions/$(EXT_UUID)/prefs.js
+	install -m 0644 gnome-extension/schemas/*.gschema.xml \
+		$(PKGDIR)/usr/share/gnome-shell/extensions/$(EXT_UUID)/schemas/
+	glib-compile-schemas $(PKGDIR)/usr/share/gnome-shell/extensions/$(EXT_UUID)/schemas
+
+	target/release/panora-cli man $(PKGDIR)/usr/share/man/man1
+	install -m 0644 packaging/man/panod.1 packaging/man/panora-gui.1 packaging/man/panora-doctor.1 \
+		$(PKGDIR)/usr/share/man/man1/
+
+	target/release/panora-cli completions bash \
+		> $(PKGDIR)/usr/share/bash-completion/completions/panora-cli
+	target/release/panora-cli completions zsh \
+		> $(PKGDIR)/usr/share/zsh/vendor-completions/_panora-cli
+	target/release/panora-cli completions fish \
+		> $(PKGDIR)/usr/share/fish/vendor_completions.d/panora-cli.fish
+
+override_dh_installsystemd:
+	# panod.service is a per-user unit; debhelper's systemd integration
+	# targets system units. debian/postinst/prerm restart it for logged-in
+	# users directly instead (same as packaging/build-deb.sh), guarded and
+	# non-fatal, so there is nothing for dh_installsystemd to enable here.

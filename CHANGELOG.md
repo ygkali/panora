@@ -291,6 +291,17 @@ real-machine verification in `docs/RELEASING.md` is done.
   stay Unix-socket only — the session bus is a broadcast medium other
   processes can watch, a worse place for any of that than a private 0600
   socket. `docs/dbus-api.md`, tested against a real session bus.
+- Debian source package (PKG-03): `debian/` at the repository root builds
+  through the standard Debian tooling — `dpkg-buildpackage -b`, `sbuild`,
+  `pbuilder` — instead of only the hand-rolled `packaging/build-deb.sh`,
+  staging the same binaries, systemd user unit, desktop entry, D-Bus service
+  file, metainfo, icons, man pages, shell completions and GNOME Shell
+  extension. The maintainer scripts restart `panod` for every logged-in user
+  the same way the shell script does; a `lintian-overrides` file documents
+  why (a per-user systemd unit, not a system one). Verified with a real
+  `dpkg-buildpackage -b` and a lintian-clean `.deb`. Getting `panora` into
+  the official Debian/Ubuntu archives is a separate, manual process
+  (`docs/DISTRIBUTION.md`) this does not automate.
 
 ### Changed
 - The popup no longer waits on the daemon: history pages, previews, image

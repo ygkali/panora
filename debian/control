@@ -1,0 +1,34 @@
+Source: panora
+Section: utils
+Priority: optional
+Maintainer: ygkali <kompansebuyucu@proton.me>
+Build-Depends: debhelper-compat (= 13),
+               cargo,
+               rustc (>= 1.85),
+               libgtk-4-dev (>= 4.12),
+               libadwaita-1-dev (>= 1.5),
+               libglib2.0-dev,
+               libglib2.0-bin,
+               binutils
+Standards-Version: 4.6.2
+Homepage: https://github.com/ygkali/panora
+Vcs-Browser: https://github.com/ygkali/panora
+Vcs-Git: https://github.com/ygkali/panora.git
+Rules-Requires-Root: no
+
+Package: panora
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends},
+         libgtk-4-1 (>= 4.12), libadwaita-1-0 (>= 1.5),
+         libglib2.0-0t64 (>= 2.76) | libglib2.0-0 (>= 2.76),
+         adwaita-icon-theme, librsvg2-common
+Recommends: gnome-keyring | kwalletmanager
+Suggests: wtype, ydotool, xclip, wl-clipboard
+Description: Secure, lightweight clipboard manager for Debian desktops
+ Panora keeps an encrypted clipboard history with a GTK4/libadwaita popup,
+ FTS5 search, pinning and a private mode. Payloads are stored as
+ XChaCha20-Poly1305 encrypted blobs and never leave the machine.
+ .
+ It speaks the X11 and Wayland clipboard protocols natively and ships a
+ GNOME Shell extension for Super+V and for GNOME releases without a
+ data-control protocol.

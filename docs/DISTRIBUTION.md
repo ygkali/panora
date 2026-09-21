@@ -13,7 +13,7 @@ package (see below).
 |---|---|---|---|
 | [GitHub Releases](https://github.com/ygkali/panora/releases) | `panora_<version>_<arch>.deb` for amd64 and arm64, the install kit, `SHA256SUMS`, an SPDX SBOM | `SHA256SUMS.minisig` (minisign) | manual |
 | APT repository — `https://ygkali.github.io/panora/apt` | the same `.deb` files in a `stable main` suite | the repository key, `InRelease` (GPG) | `apt upgrade` |
-| Source | this git repository; `./packaging/build-deb.sh` or `cargo build --release` | git tags | `git pull` |
+| Source | this git repository; `./packaging/build-deb.sh`, `debian/` (`dpkg-buildpackage -b`), or `cargo build --release` | git tags | `git pull` |
 
 The install kit (`panora-<version>-install-kit.tar.gz`) is the `.deb` plus
 `install.sh`, `uninstall.sh` and `test-local.sh` for people who would rather
@@ -111,6 +111,13 @@ README can link to it and so release notes can mention the lag.
 - **Build:** Rust 1.92 or newer, `pkg-config`, `libgtk-4-dev` ≥ 4.12,
   `libadwaita-1-dev` ≥ 1.5. `cargo build --release --workspace`, or
   `packaging/build-deb.sh` to see every install path in one place.
+- **Debian source package:** `debian/` at the repository root builds through
+  the standard tooling — `dpkg-buildpackage -b`, `sbuild`, `pbuilder` — and
+  stages the same files `packaging/build-deb.sh` does; `debian/rules` is kept
+  in step with it by hand. This is only the source-package plumbing: getting
+  `panora` into the official Debian/Ubuntu archives is a separate, manual ITP
+  (Intent To Package) process this repository does not automate, and no
+  archive upload happens from here.
 - **Runtime:** GTK 4, libadwaita, an icon theme, and a Secret Service
   provider (`gnome-keyring` or `kwallet` with the Secret Service interface).
   `xclip`/`wl-clipboard` are only needed by the test scripts, `wtype` or
