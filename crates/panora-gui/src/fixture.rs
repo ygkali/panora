@@ -213,6 +213,8 @@ pub fn call(request: &Request) -> Result<ResponseData> {
                     needs_bridge: false,
                 },
                 locked: false,
+                app_locked: false,
+                lock_password_set: false,
                 health: fixture_health(),
             }),
             Request::Preview { id, .. } => ResponseData::Payloads(
@@ -223,6 +225,25 @@ pub fn call(request: &Request) -> Result<ResponseData> {
                     .map(payloads_for)
                     .unwrap_or_default(),
             ),
+            // The popup never sends these: key rotation, the second-layer
+            // lock, panic wipe, export/import and the v3 handshake are all
+            // CLI/D-Bus-only operations (see docs/dbus-api.md and the CLI
+            // reference). Fail loudly instead of faking a response, so a
+            // popup change that starts sending one of these is caught here
+            // rather than silently misbehaving against the fixture.
+            Request::RotateKey
+            | Request::Lock
+            | Request::Unlock { .. }
+            | Request::SetLockPassword { .. }
+            | Request::Wipe
+            | Request::Export { .. }
+            | Request::Import { .. }
+            | Request::Hello { .. }
+            | Request::Subscribe => {
+                return Err(panora_core::error::Error::Ipc(
+                    "not supported by the GUI fixture".into(),
+                ))
+            }
         })
     })
 }
