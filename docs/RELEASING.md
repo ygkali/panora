@@ -32,7 +32,8 @@ needs them; `docs/COMPATIBILITY.md` lists what each version accepts.
 6. Green locally: `cargo fmt --all -- --check`, `cargo clippy --workspace
    --all-targets -- -D warnings`, `cargo test --workspace`, the Xvfb X11
    tests, `scripts/keyring-test.sh`, `shellcheck`, `./packaging/build-deb.sh`
-   + `lintian --fail-on error,warning dist/*.deb`.
+   (needs `cargo install cargo-auditable --locked`) + `lintian --fail-on
+   error,warning dist/*.deb`, `scripts/check-reproducible-build.sh` (SEC-08).
 7. **Upgrade path** (`PKG-10`): `scripts/upgrade-test.sh --deb <previous
    release .deb>` (or `--from vX.Y.Z-1`) records entries with the old daemon
    and reopens the same data directory with this build: the entries have to
@@ -57,6 +58,15 @@ The `Release` workflow builds amd64 and arm64 packages, the install kit,
 `MINISIGN_PASSWORD` secrets exist), an SPDX SBOM, and publishes the GitHub
 release with the CHANGELOG section as its notes. A tag containing `-` (for
 example `v1.4.0-rc1`) is marked as a pre-release.
+
+Binaries are built with `cargo auditable` (SEC-08): each one carries its own
+dependency manifest, so `cargo audit bin panod` (or `panora-gui`/
+`panora-cli`) checks it against the RustSec advisory database without
+needing the source tree that built it. A separate `reproducible` job builds
+the same commit again on its own runner and compares SHA256 hashes against
+the `build` job's binaries (`scripts/check-reproducible-build.sh`, which
+anyone can also run locally against a checkout of the tagged commit); the
+`publish` job only runs once both succeed.
 
 `workflow_dispatch` on the same workflow runs the build without publishing;
 use it to try the pipeline from a branch.

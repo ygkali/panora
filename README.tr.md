@@ -82,7 +82,13 @@ systemctl --user enable --now panod.service
 
 [Sürümler sayfasından](https://github.com/ygkali/panora/releases)
 `panora_<sürüm>_<mimari>.deb` dosyasını indirin (amd64 ve arm64),
-`SHA256SUMS` ile doğrulayın, sonra:
+`SHA256SUMS` ile doğrulayın (bir sürüm anahtarı tanımlıysa minisign ile
+imzalı). İkili dosyalar yeniden üretilebilir şekilde ve `cargo auditable`
+ile derleniyor (bkz. `docs/RELEASING.md`): `scripts/check-reproducible-
+build.sh` etiketlenmiş bir commit'i yeniden derleyip bayt bayt eşleştiğini
+doğruluyor, `cargo audit bin panod` ise kaynak ağacına ihtiyaç duymadan bir
+ikili dosyanın bağımlılıklarını RustSec danışma veritabanına karşı
+kontrol ediyor. Sonra:
 
 ```sh
 sudo apt install ./panora_*.deb

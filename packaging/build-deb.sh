@@ -26,6 +26,12 @@ for tool in cargo dpkg-deb dpkg gzip; do
     exit 1
   fi
 done
+if ! cargo auditable --version >/dev/null 2>&1; then
+  echo "Error: cargo-auditable not found (SEC-08: embeds a dependency manifest in each" >&2
+  echo "       binary, so 'cargo audit bin <binary>' works without the source tree)." >&2
+  echo "       cargo install cargo-auditable --locked" >&2
+  exit 1
+fi
 
 ARCH="$(dpkg --print-architecture)"
 STAGE="$(mktemp -d)"
@@ -33,7 +39,13 @@ trap 'rm -rf "$STAGE"' EXIT
 TARGET_DIR="${CARGO_TARGET_DIR:-target}"
 
 echo "[1/5] Building release binaries (panod, panora-gui, panora-cli)..."
-cargo build --release --workspace
+# SEC-08: `auditable` embeds a dependency manifest in each binary (`cargo
+# audit bin <binary>` reads it back without needing the source tree); the
+# path remap keeps this build machine's absolute paths out of debug info
+# and panic messages, which `scripts/check-reproducible-build.sh` depends
+# on for two builds of the same commit to come out byte-identical.
+RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$ROOT_DIR=/build" \
+  cargo auditable build --release --workspace
 
 echo "[2/5] Staging the package tree: $STAGE"
 install -d "$STAGE/DEBIAN"

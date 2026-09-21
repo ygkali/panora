@@ -82,7 +82,12 @@ systemctl --user enable --now panod.service
 
 Download `panora_<version>_<arch>.deb` from the
 [releases page](https://github.com/ygkali/panora/releases) (amd64 and arm64),
-verify it against `SHA256SUMS`, then:
+verify it against `SHA256SUMS` (signed with minisign when a release key is
+configured). The binaries are built reproducibly and with `cargo auditable`
+(see `docs/RELEASING.md`): `scripts/check-reproducible-build.sh` rebuilds a
+tagged commit and confirms it matches byte for byte, and `cargo audit bin
+panod` checks a binary's dependencies against the RustSec advisory database
+without needing the source tree. Then:
 
 ```sh
 sudo apt install ./panora_*.deb

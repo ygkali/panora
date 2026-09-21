@@ -36,6 +36,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-4-dev libadwaita-1-dev binutils libglib2.0-bin lintian
+      - run: cargo install cargo-auditable --locked
       - name: Tag must match Cargo.toml
         if: github.ref_type == 'tag'
         run: |
@@ -57,9 +58,27 @@ jobs:
             dist/panora-*-install-kit.tar.gz
           if-no-files-found: error
 
+  # SEC-08: builds panod/panora-gui/panora-cli twice on independent runners
+  # and compares SHA256 hashes, so a release only ships once the same
+  # commit is confirmed to produce byte-identical binaries no matter where
+  # or when it is built (README has the same check for anyone to repeat
+  # against a published release).
+  reproducible:
+    name: Reproducible build check (amd64)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev
+      - run: cargo install cargo-auditable --locked
+      - run: ./scripts/check-reproducible-build.sh
+
   publish:
     name: Publish
-    needs: build
+    needs: [build, reproducible]
     runs-on: ubuntu-latest
     env:
       # Secrets cannot be read in `if:`; this flag can.

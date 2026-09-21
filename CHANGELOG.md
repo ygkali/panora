@@ -242,6 +242,17 @@ real-machine verification in `docs/RELEASING.md` is done.
   hours, not a CI job's budget); `scripts/fuzz-smoke.sh` runs a short
   timed pass of all of them locally. No crashes found in ~1.8M combined
   executions across an initial smoke run.
+- Supply chain hardening (SEC-08): release binaries are built with `cargo
+  auditable` (each one carries its own dependency manifest, so `cargo audit
+  bin panod` works without the source tree) and with build-machine paths
+  stripped (`--remap-path-prefix`). A new `reproducible` release CI job
+  rebuilds the same commit on its own runner and compares SHA256 hashes
+  against the `build` job's binaries — `publish` only runs once both
+  agree — and `scripts/check-reproducible-build.sh` lets anyone repeat the
+  same check locally. Verified locally: `panod`/`panora-gui`/`panora-cli`
+  are currently byte-identical across independent builds. `PKG-01`
+  (1.3.0) already covers `SHA256SUMS` + minisign signing + an SPDX SBOM;
+  `cargo vet` is left out as the roadmap itself marks it optional.
 
 ### Changed
 - The popup no longer waits on the daemon: history pages, previews, image
