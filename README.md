@@ -166,14 +166,19 @@ max_images = 200              # image entries kept, oldest unpinned first (0 = n
 
 [privacy]
 start_private = false
-excluded_apps = ["keepassxc", "bitwarden", "1password", "gnome-secrets"]
+excluded_apps = ["keepassxc", "bitwarden", "1password", "org.keepassxc", "com.bitwarden", "secrets"]
 excluded_window_titles = []   # phrases; nothing is recorded while the focused window's title contains one (X11, GNOME)
 min_text_length = 1           # shorter text is not recorded (characters)
 ignore_whitespace_only = true
 ignore_patterns = []          # regexes; matching text is not recorded, e.g. "^\d{16}$"
 capture_kinds = []            # [] = all; or a list of text, richtext, link, image, files, color
-sensitive_policy = "mask"     # mask | drop | store: text that looks like a key, token, card or IBAN
+# mask | drop | store: text that looks like a key, token, card or IBAN. "mask" only
+# replaces the *preview* shown in the list; the real content is still stored and still
+# comes back on recall/preview/export, the same as any other entry — it is a display
+# policy, not a way to make a secret itself inaccessible. Use "drop" for that.
+sensitive_policy = "mask"
 sensitive_ttl_minutes = 10    # flagged entries are removed after this long (0 = keep)
+lock_after_idle_minutes = 0   # engage the second-layer lock after this much inactivity (0 = never; SEC-02, needs a lock password set first)
 
 [ui]
 language = "system"      # system | tr | en

@@ -166,14 +166,19 @@ max_images = 200              # tutulan görsel kaydı, önce en eski sabitlenme
 
 [privacy]
 start_private = false
-excluded_apps = ["keepassxc", "bitwarden", "1password", "gnome-secrets"]
+excluded_apps = ["keepassxc", "bitwarden", "1password", "org.keepassxc", "com.bitwarden", "secrets"]
 excluded_window_titles = []   # ifadeler; odaktaki pencerenin başlığı birini içerirken hiçbir şey kaydedilmez (X11, GNOME)
 min_text_length = 1           # daha kısa metin kaydedilmez (karakter)
 ignore_whitespace_only = true
 ignore_patterns = []          # regex; eşleşen metin kaydedilmez, örn. "^\d{16}$"
 capture_kinds = []            # [] = hepsi; ya da text, richtext, link, image, files, color listesi
-sensitive_policy = "mask"     # mask | drop | store: anahtar, jeton, kart ya da IBAN'a benzeyen metin
+# mask | drop | store: anahtar, jeton, kart ya da IBAN'a benzeyen metin. "mask" yalnızca
+# listede görünen *önizlemeyi* değiştirir; gerçek içerik yine de saklanır ve geri
+# çağırma/önizleme/dışa aktarmada başka bir kayıt gibi geri döner — bu bir görünüm
+# politikasıdır, sırrı erişilemez kılan bir yöntem değil. Bunun için "drop" kullanın.
+sensitive_policy = "mask"
 sensitive_ttl_minutes = 10    # işaretli kayıtlar bu kadar dakika sonra silinir (0 = tutulur)
+lock_after_idle_minutes = 0   # bu kadar dakika işlem yapılmazsa ikinci katman kilidi devreye girer (0 = asla; SEC-02, önce bir kilit parolası kurulmalı)
 
 [ui]
 language = "system"      # system | tr | en

@@ -264,6 +264,20 @@ real-machine verification in `docs/RELEASING.md` is done.
   this VM's disk latency, a bare-metal run should confirm). `panod`'s idle
   RSS and the popup's open time still need a real desktop session (STO-07,
   out of scope here).
+- Exclusion list, single source (SEC-10, B-15): `PrivacyConfig::default`'s
+  `excluded_apps` used to be a second, independently maintained copy of
+  `privacy::DEFAULT_EXCLUDED_APPS` with different contents in each (config.rs
+  was missing `org.keepassxc`/`com.bitwarden`/`secrets`) — `PrivacyEngine::
+  new` always unions the real one in regardless, so this was a documentation
+  drift risk rather than a live gap, but a real one. `config.rs` now builds
+  its default straight from `privacy::DEFAULT_EXCLUDED_APPS`, with a
+  regression test pinning that down. `sensitive_policy = "mask"` is now
+  documented explicitly as a *preview* policy: the real content is still
+  stored and still comes back on recall/preview/export, not a way to make a
+  secret inaccessible (`drop` is). README/README.tr/docs/book also gained
+  the `lock_after_idle_minutes` (SEC-02) config key and the CLI reference
+  page gained `watch`/`rotate-key`/`lock`/`unlock`/`wipe`/`export`/`import`/
+  `import-legacy`, none of which had made it into the docs yet.
 
 ### Changed
 - The popup no longer waits on the daemon: history pages, previews, image

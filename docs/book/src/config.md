@@ -40,7 +40,7 @@ max_images = 200
 ```toml
 [privacy]
 start_private = false
-excluded_apps = ["keepassxc", "bitwarden", "1password", "gnome-secrets"]
+excluded_apps = ["keepassxc", "bitwarden", "1password", "org.keepassxc", "com.bitwarden", "secrets"]
 excluded_window_titles = []
 min_text_length = 1
 ignore_whitespace_only = true
@@ -48,19 +48,21 @@ ignore_patterns = []
 capture_kinds = []
 sensitive_policy = "mask"
 sensitive_ttl_minutes = 10
+lock_after_idle_minutes = 0
 ```
 
 | Key | Default | What it does |
 |---|---|---|
 | `start_private` | `false` | Start with recording paused. |
-| `excluded_apps` | the four password managers | Source application names that are never recorded. Matched case-insensitively as a substring, so `keepass` covers `keepassxc`. Needs a session that can name the source — see below. |
+| `excluded_apps` | the three password managers (plus their reverse-DNS app id variants) and `secrets` (the gnome-keyring prompt) | Source application names that are never recorded. Matched case-insensitively as a substring, so `keepass` covers `keepassxc`. The one list lives in `panora_core::privacy::DEFAULT_EXCLUDED_APPS`; this default is generated from it, not maintained separately (SEC-10). Needs a session that can name the source — see below. |
 | `excluded_window_titles` | `[]` | Phrases; nothing is recorded while the focused window's title contains one, case-insensitively. The title itself is never stored. X11 and the GNOME extension report titles. |
 | `min_text_length` | `1` | Text shorter than this many characters, after trimming, is not recorded. |
 | `ignore_whitespace_only` | `true` | Skip text that is nothing but whitespace. |
 | `ignore_patterns` | `[]` | Rust regular expressions; matching text is not recorded. At most 32 patterns, 512 bytes each. A pattern that does not compile is refused when you save it, not silently ignored. |
 | `capture_kinds` | `[]` | Kinds to record: `text`, `richtext`, `link`, `image`, `files`, `color`, `binary`. Empty means all of them. |
-| `sensitive_policy` | `"mask"` | What happens to text that looks like a key, a token, a card number or an IBAN. `mask` records it with a masked preview and no full-text index, `drop` never records it, `store` treats it like anything else. |
+| `sensitive_policy` | `"mask"` | What happens to text that looks like a key, a token, a card number or an IBAN. `mask` records it with a masked *preview* and no full-text index — the real content is still stored and still comes back on recall/preview/export, like any other entry; this is a display policy, not a way to make the secret itself inaccessible. `drop` never records it at all. `store` treats it like anything else, preview included. |
 | `sensitive_ttl_minutes` | `10` | Flagged entries are removed after this long, under `mask` and `store` alike. `0` leaves them to the normal retention rules. Pinned entries stay either way. |
+| `lock_after_idle_minutes` | `0` | Engage the second-layer lock (`panora-cli lock`, SEC-02) on its own after this many minutes of inactivity. `0` disables idle locking; a lock password has to be set first either way (`panora-cli lock set-password`), or this does nothing. |
 
 `excluded_apps` is enforced on the MIME list **before** a payload is read,
 along with the secret markers password managers set

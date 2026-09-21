@@ -104,12 +104,15 @@ impl Default for PrivacyConfig {
     fn default() -> Self {
         Self {
             start_private: false,
-            excluded_apps: vec![
-                "keepassxc".into(),
-                "bitwarden".into(),
-                "1password".into(),
-                "gnome-secrets".into(),
-            ],
+            // SEC-10 (B-15): the one source for the default list is
+            // `privacy::DEFAULT_EXCLUDED_APPS` — `PrivacyEngine::new`
+            // always unions it in regardless of what a config.toml says,
+            // so a second, independently maintained copy here could drift
+            // from what is actually enforced without anyone noticing.
+            excluded_apps: crate::privacy::DEFAULT_EXCLUDED_APPS
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
             excluded_window_titles: Vec::new(),
             min_text_length: 1,
             ignore_whitespace_only: true,
@@ -404,6 +407,20 @@ mod tests {
         assert_eq!(cfg.history.max_mime_bytes, 10 * 1024 * 1024);
         assert!(!cfg.privacy.excluded_apps.is_empty());
         assert_eq!(cfg.ui.theme, "system");
+    }
+
+    /// SEC-10 (B-15): the default exclusion list used to be duplicated
+    /// here and in `privacy::DEFAULT_EXCLUDED_APPS`, with different
+    /// contents in each copy. Now `PrivacyConfig::default` is built
+    /// straight from the one in `privacy`; this pins that down so a
+    /// hardcoded list cannot quietly come back and drift from it again.
+    #[test]
+    fn excluded_apps_default_has_one_source() {
+        let expected: Vec<String> = crate::privacy::DEFAULT_EXCLUDED_APPS
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(PrivacyConfig::default().excluded_apps, expected);
     }
 
     #[test]
