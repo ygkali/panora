@@ -109,7 +109,7 @@ jobs:
           path: artifacts/*
       - name: GitHub release
         if: github.ref_type == 'tag'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: Panora ${{ github.ref_name }}
           body_path: notes.md
