@@ -50,18 +50,25 @@ const MAX_PHRASES: usize = 8;
 
 impl ParsedQuery {
     /// The FTS5 `MATCH` expression for the words and phrases, if any.
+    ///
+    /// `"` is stripped so a term or phrase can never close its quoted span
+    /// early. `\0` is stripped too: SQLite's FTS5 query-string parser scans
+    /// the `MATCH` argument as if it were NUL-terminated even though it
+    /// arrives as length-prefixed TEXT, so an embedded NUL truncates the
+    /// scan mid-quote and the whole query fails with "unterminated string"
+    /// instead of just not matching that byte.
     pub fn fts_expression(&self) -> Option<String> {
         let mut parts: Vec<String> = self
             .terms
             .iter()
             .take(MAX_TERMS)
-            .map(|term| format!("\"{}\"*", term.replace('"', "")))
+            .map(|term| format!("\"{}\"*", term.replace(['"', '\0'], "")))
             .collect();
         parts.extend(
             self.phrases
                 .iter()
                 .take(MAX_PHRASES)
-                .map(|phrase| format!("\"{}\"", phrase.replace('"', ""))),
+                .map(|phrase| format!("\"{}\"", phrase.replace(['"', '\0'], ""))),
         );
         if parts.is_empty() {
             None
@@ -412,6 +419,16 @@ mod tests {
         );
         assert!(parse("   ", NOW).is_empty());
         assert!(parse("", NOW).fts_expression().is_none());
+    }
+
+    #[test]
+    fn embedded_nul_is_stripped_from_the_fts_expression() {
+        // SQLite's FTS5 query-string parser scans MATCH text as if
+        // NUL-terminated; an unstripped '\0' truncates the scan mid-quote
+        // and the query fails outright ("unterminated string") instead of
+        // just not matching that byte. Caught by QA-07's fts_query proptest.
+        let q = parse("a\0b \"c\0d\"", NOW);
+        assert_eq!(q.fts_expression().unwrap(), r#""ab"* "cd""#);
     }
 
     #[test]

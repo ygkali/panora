@@ -302,6 +302,22 @@ real-machine verification in `docs/RELEASING.md` is done.
   `dpkg-buildpackage -b` and a lintian-clean `.deb`. Getting `panora` into
   the official Debian/Ubuntu archives is a separate, manual process
   (`docs/DISTRIBUTION.md`) this does not automate.
+- Property-based tests (QA-07, `proptest`) for `search::fts_expression`
+  (`fts_query`), the ciphertext envelope (`Cipher::seal`/`open` and the
+  `_with_aad` pair), `percent_decode` and `wanted_order` — run against
+  thousands of generated inputs instead of the handful the unit tests
+  happened to type. Found and fixed a real bug: a `\0` byte anywhere in a
+  search string made every search fail outright. SQLite's FTS5
+  query-string parser scans the `MATCH` argument as if it were
+  NUL-terminated even though it arrives as length-prefixed TEXT, so the
+  embedded NUL truncated the scan mid-quote and SQLite reported
+  "unterminated string" instead of the query just not matching that byte —
+  `search::fts_expression` now strips `\0` the same way it already strips
+  `"`. The crash-free property tests also cover byte-for-byte round-trips
+  (envelope, `percent_decode` against a full percent-encoding of arbitrary
+  UTF-8) and the `wanted_order` invariants (only known MIME types kept,
+  sorted by preference, deduplicated, at most one plain-text flavour,
+  idempotent).
 
 ### Changed
 - The popup no longer waits on the daemon: history pages, previews, image

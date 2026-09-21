@@ -2291,3 +2291,53 @@ mod lifecycle_tests {
         assert_eq!(db.rotation_state().unwrap(), None);
     }
 }
+
+/// Property tests (QA-07): `fts_query` runs against a real database rather
+/// than asserting on the string shape, so a change that keeps the unit
+/// tests green but produces FTS5-invalid syntax (an unescaped operator, an
+/// unbalanced quote) still fails here.
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use crate::storage::crypto::MasterKey;
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Whatever the user types — including FTS5 syntax characters like
+        /// `AND`, `NEAR`, `^`, `-`, `(`, `)`, stray quotes, or `NUL` bytes —
+        /// the expression `fts_query` builds must be syntax SQLite's FTS5
+        /// parser accepts. A search that fails to parse would surface as a
+        /// broken popup (an error where the user expects an empty list), so
+        /// this must hold for every input, not just the cases the unit
+        /// tests happened to type.
+        #[test]
+        fn fts_query_output_is_always_valid_fts5_syntax(search in ".{0,200}") {
+            let db = Database::open_in_memory(Cipher::new(&MasterKey::generate())).unwrap();
+            let result = db.query(&QueryFilter {
+                search: Some(search),
+                ..QueryFilter::recent(10)
+            });
+            prop_assert!(result.is_ok());
+        }
+
+        /// The expression, when there is one, always has balanced double
+        /// quotes: every term becomes exactly `"term"*` and every phrase
+        /// exactly `"phrase"`, with the user's own `"` characters stripped
+        /// first — so arbitrary input can never close a quoted span early
+        /// and splice raw FTS5 syntax into the query.
+        #[test]
+        fn fts_query_quotes_are_always_balanced(search in ".{0,200}") {
+            if let Some(expr) = fts_query(&search) {
+                let quote_count = expr.chars().filter(|&c| c == '"').count();
+                prop_assert_eq!(quote_count % 2, 0);
+            }
+        }
+
+        /// Only whitespace never produces a MATCH expression, whatever mix
+        /// of spaces, tabs and newlines it is.
+        #[test]
+        fn whitespace_only_has_no_expression(spaces in "[ \t\n]{0,20}") {
+            prop_assert_eq!(fts_query(&spaces), None);
+        }
+    }
+}

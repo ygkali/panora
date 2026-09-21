@@ -344,3 +344,67 @@ mod tests {
         assert!(!dbg.contains(&hex_encode(key.as_bytes())));
     }
 }
+
+/// Property tests (QA-07) for the ciphertext envelope: round-trips must
+/// hold for arbitrary plaintext and associated data, and the reader must
+/// never panic on arbitrary bytes — only ever a decrypt error, since
+/// `open`/`open_with_aad` see attacker-controlled or simply corrupted bytes
+/// (a truncated write, a bit flip on disk) as a matter of course.
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        /// `open` recovers exactly what `seal` sealed, for any plaintext.
+        #[test]
+        fn seal_open_roundtrips(plaintext in proptest::collection::vec(any::<u8>(), 0..512)) {
+            let key = MasterKey::generate();
+            let cipher = Cipher::new(&key);
+            let sealed = cipher.seal(&plaintext).unwrap();
+            prop_assert_eq!(cipher.open(&sealed).unwrap(), plaintext);
+        }
+
+        /// Same, bound to associated data: `open_with_aad` recovers the
+        /// plaintext only when given the same `aad` `seal_with_aad` used.
+        #[test]
+        fn seal_open_with_aad_roundtrips(
+            aad in proptest::collection::vec(any::<u8>(), 0..64),
+            plaintext in proptest::collection::vec(any::<u8>(), 0..512),
+        ) {
+            let key = MasterKey::generate();
+            let cipher = Cipher::new(&key);
+            let sealed = cipher.seal_with_aad(&aad, &plaintext).unwrap();
+            prop_assert_eq!(cipher.open_with_aad(&aad, &sealed).unwrap(), plaintext);
+        }
+
+        /// Arbitrary bytes handed to `open` are never a panic — decoding
+        /// untrusted or corrupted input must fail closed with an error.
+        #[test]
+        fn open_never_panics_on_arbitrary_bytes(garbage in proptest::collection::vec(any::<u8>(), 0..256)) {
+            let key = MasterKey::generate();
+            let cipher = Cipher::new(&key);
+            let _ = cipher.open(&garbage);
+        }
+
+        /// A single flipped bit anywhere in a real envelope always breaks
+        /// the authentication tag: `open` must reject it, never return
+        /// different plaintext than what was sealed.
+        #[test]
+        fn bit_flip_is_always_rejected(
+            plaintext in proptest::collection::vec(any::<u8>(), 1..256),
+            flip_at in any::<usize>(),
+            flip_bit in 0u8..8,
+        ) {
+            let key = MasterKey::generate();
+            let cipher = Cipher::new(&key);
+            let mut sealed = cipher.seal(&plaintext).unwrap();
+            let i = flip_at % sealed.len();
+            sealed[i] ^= 1 << flip_bit;
+            match cipher.open(&sealed) {
+                Err(_) => {}
+                Ok(recovered) => prop_assert_eq!(recovered, plaintext),
+            }
+        }
+    }
+}

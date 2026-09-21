@@ -3103,3 +3103,111 @@ mod tests {
         assert!(daemon.import("wrong passphrase", &archive).await.is_err());
     }
 }
+
+/// Property tests (QA-07): `percent_decode` and `wanted_order` both parse
+/// or reorder data a remote clipboard owner controls (a URI list, the set
+/// of MIME types a window offers), so they need to hold for input no unit
+/// test happened to type, not just the handful of cases above.
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    /// Percent-encode every byte as `%XX` (uppercase hex), the inverse of
+    /// `percent_decode` for the escaped path.
+    fn percent_encode_all(bytes: &[u8]) -> String {
+        let mut out = String::with_capacity(bytes.len() * 3);
+        for b in bytes {
+            out.push_str(&format!("%{b:02X}"));
+        }
+        out
+    }
+
+    proptest! {
+        /// Never panics on arbitrary text: a file name inside a
+        /// `text/uri-list` payload is exactly the kind of untrusted string
+        /// this decodes, and the byte-oriented loop must stay in bounds
+        /// whatever `%`-runs or multi-byte characters it holds.
+        #[test]
+        fn percent_decode_never_panics(s in ".{0,200}") {
+            let _ = percent_decode(&s);
+        }
+
+        /// A string with no `%` byte passes through unchanged.
+        #[test]
+        fn percent_decode_is_identity_without_percent(s in "[^%]{0,100}") {
+            prop_assert_eq!(percent_decode(&s), s);
+        }
+
+        /// Fully percent-encoding a valid UTF-8 string and decoding it back
+        /// recovers the original — the round trip the file-name-in-a-URI
+        /// case actually relies on.
+        #[test]
+        fn percent_decode_roundtrips_encoded_utf8(s in ".{0,80}") {
+            let encoded = percent_encode_all(s.as_bytes());
+            prop_assert_eq!(percent_decode(&encoded), s);
+        }
+    }
+
+    /// A handful of real offered types plus junk strings, so most runs mix
+    /// recognised MIME types (to exercise ordering/dedup) with values the
+    /// grammar does not know at all (to exercise the "unknown" filter).
+    fn offered_mime_strategy() -> impl Strategy<Value = Vec<String>> {
+        let known = prop_oneof![
+            Just("text/plain;charset=utf-8".to_string()),
+            Just("text/plain".to_string()),
+            Just("TEXT/PLAIN".to_string()),
+            Just("UTF8_STRING".to_string()),
+            Just("text/html".to_string()),
+            Just("image/png".to_string()),
+            Just("text/uri-list".to_string()),
+        ];
+        let junk = "[a-zA-Z0-9/;=_-]{0,20}";
+        prop::collection::vec(prop_oneof![known, junk.prop_map(String::from)], 0..15)
+    }
+
+    proptest! {
+        /// Every entry `wanted_order` keeps is one it recognises: dropping
+        /// unknown offered types is the whole point of the `mime_rank`
+        /// filter, so nothing unranked should ever survive.
+        #[test]
+        fn wanted_order_only_keeps_known_mimes(offered in offered_mime_strategy()) {
+            for m in wanted_order(&offered) {
+                prop_assert!(mime_rank(&m) < WANTED_MIMES.len(), "unranked mime kept: {m}");
+            }
+        }
+
+        /// The result is sorted by preference and holds no duplicate (by
+        /// the same case-insensitive comparison `dedup_by` uses) — a
+        /// capture loop that reads the same rank twice would waste work
+        /// fetching one flavour redundantly.
+        #[test]
+        fn wanted_order_is_sorted_and_deduped(offered in offered_mime_strategy()) {
+            let chosen = wanted_order(&offered);
+            for pair in chosen.windows(2) {
+                prop_assert!(mime_rank(&pair[0]) <= mime_rank(&pair[1]));
+                prop_assert!(!pair[0].eq_ignore_ascii_case(&pair[1]));
+            }
+        }
+
+        /// At most one plain-text flavour is kept, whichever of
+        /// `text/plain;charset=utf-8`, `text/plain` or `UTF8_STRING` was
+        /// offered — they carry the same bytes, so capturing more than one
+        /// would only double the blob work.
+        #[test]
+        fn wanted_order_keeps_at_most_one_text_flavour(offered in offered_mime_strategy()) {
+            let is_plain = |m: &str| m.starts_with("text/plain") || m == "UTF8_STRING";
+            let plain_count = wanted_order(&offered).iter().filter(|m| is_plain(m)).count();
+            prop_assert!(plain_count <= 1);
+        }
+
+        /// Idempotent: the chosen list is already in the shape `wanted_order`
+        /// produces, so filtering it again must be a no-op.
+        #[test]
+        fn wanted_order_is_idempotent(offered in offered_mime_strategy()) {
+            let once = wanted_order(&offered);
+            let twice = wanted_order(&once);
+            prop_assert_eq!(once, twice);
+        }
+    }
+}
