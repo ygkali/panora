@@ -192,6 +192,16 @@ real-machine verification in `docs/RELEASING.md` is done.
 - `panora-cli watch` (CLI-02): prints one line per history change (`--json`
   for the raw event) by holding a `Subscribe` connection open, instead of
   a caller having to poll `status` in a loop.
+- `panora-cli rotate-key` (SEC-01): generates a new master key and reseals
+  every stored preview and blob under it, then retires the old one. Safe to
+  interrupt at any point — the new key is written to the keyring's pending
+  slot before anything is touched, `Database::rekey`/`BlobStore::rekey` are
+  each idempotent (a row or file already under the new key is a no-op), and
+  the live keyring item is only replaced once both finish — so running
+  `rotate-key` again after a crash resumes the same rotation instead of
+  starting a new one or losing data. `panora-cli status` reports
+  `rotation_incomplete` under health when a previous attempt was left
+  unfinished.
 
 ### Changed
 - The popup no longer waits on the daemon: history pages, previews, image

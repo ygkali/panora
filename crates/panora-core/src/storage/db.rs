@@ -76,10 +76,10 @@ fn rebuild_search_index(db: &Database) -> Result<()> {
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     for (id, hash, sealed) in rows {
-        let preview = db
-            .cipher
+        let cipher = db.cipher.read().unwrap();
+        let preview = cipher
             .open_text_with_aad(Database::preview_aad(&hash).as_bytes(), &sealed)
-            .or_else(|_| db.cipher.open_text(&sealed))?;
+            .or_else(|_| cipher.open_text(&sealed))?;
         db.conn.execute(
             "INSERT INTO entries_fts(rowid, preview) VALUES (?1, ?2)",
             params![id, preview],
@@ -144,13 +144,17 @@ impl Default for &QueryFilter {
 /// The history database.
 pub struct Database {
     conn: Connection,
-    cipher: Cipher,
+    /// A lock, not a plain field, so `rekey` (SEC-01) can swap in a new
+    /// cipher once every stored preview is resealed under it. `Database`
+    /// lives behind `Rc<Daemon>`, never shared across threads, so the lock
+    /// is never contended; it exists purely for the interior mutability.
+    cipher: std::sync::RwLock<Cipher>,
 }
 
 impl std::fmt::Debug for Database {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Database")
-            .field("key_fingerprint", &self.cipher.fingerprint())
+            .field("key_fingerprint", &self.fingerprint())
             .finish_non_exhaustive()
     }
 }
@@ -166,7 +170,10 @@ impl Database {
             Self::restrict_directory_permissions(parent)?;
         }
         let conn = Connection::open(path)?;
-        let db = Self { conn, cipher };
+        let db = Self {
+            conn,
+            cipher: std::sync::RwLock::new(cipher),
+        };
         db.check_integrity()?;
         db.prepare(Some(path), MIGRATIONS, SCHEMA_VERSION)?;
         db.restrict_permissions(path)?;
@@ -176,9 +183,84 @@ impl Database {
     /// Open an in-memory database (tests).
     pub fn open_in_memory(cipher: Cipher) -> Result<Self> {
         let conn = Connection::open_in_memory()?;
-        let db = Self { conn, cipher };
+        let db = Self {
+            conn,
+            cipher: std::sync::RwLock::new(cipher),
+        };
         db.prepare(None, MIGRATIONS, SCHEMA_VERSION)?;
         Ok(db)
+    }
+
+    /// The key fingerprint of the cipher currently in use.
+    pub fn fingerprint(&self) -> String {
+        self.cipher.read().unwrap().fingerprint().to_string()
+    }
+
+    /// State of an in-progress key rotation (SEC-01), or `None` when there
+    /// isn't one. `panod` reports it in `Status.health` and resumes it
+    /// instead of starting a fresh rotation.
+    pub fn rotation_state(&self) -> Result<Option<String>> {
+        self.meta("rotation_state")
+    }
+
+    /// Set or clear the rotation marker. `panod`'s rotation orchestrator
+    /// (SEC-01) owns this across both `Database::rekey` and
+    /// `BlobStore::rekey`, so it lives here as a plain primitive rather than
+    /// being managed by `rekey` itself.
+    pub fn set_rotation_state(&self, state: Option<&str>) -> Result<()> {
+        match state {
+            Some(state) => {
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO meta(key, value) VALUES('rotation_state', ?1)",
+                    params![state],
+                )?;
+            }
+            None => {
+                self.conn
+                    .execute("DELETE FROM meta WHERE key = 'rotation_state'", [])?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Re-seal every stored preview (including tombstoned entries still
+    /// awaiting purge) under `new_cipher`, then start using it for
+    /// everything from here on.
+    ///
+    /// Safe to call again after an interruption: each row is opened with
+    /// whichever of the current cipher or `new_cipher` can read it, so a
+    /// row already resealed by a previous, interrupted attempt is a no-op
+    /// and one that was not reached yet is picked up normally.
+    pub fn rekey(&self, new_cipher: Cipher) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        {
+            let old_cipher = self.cipher.read().unwrap();
+            let mut stmt = tx.prepare("SELECT id, content_hash, preview FROM entries")?;
+            let rows: Vec<(i64, String, String)> = stmt
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            drop(stmt);
+            for (id, hash, sealed) in rows {
+                let aad = Self::preview_aad(&hash);
+                let plaintext = old_cipher
+                    .open_text_with_aad(aad.as_bytes(), &sealed)
+                    .or_else(|_| old_cipher.open_text(&sealed))
+                    .or_else(|_| new_cipher.open_text_with_aad(aad.as_bytes(), &sealed))
+                    .or_else(|_| new_cipher.open_text(&sealed))?;
+                let resealed = new_cipher.seal_text_with_aad(aad.as_bytes(), &plaintext)?;
+                tx.execute(
+                    "UPDATE entries SET preview = ?2 WHERE id = ?1",
+                    params![id, resealed],
+                )?;
+            }
+        }
+        tx.execute(
+            "INSERT OR REPLACE INTO meta(key, value) VALUES('key_fingerprint', ?1)",
+            params![new_cipher.fingerprint()],
+        )?;
+        tx.commit()?;
+        *self.cipher.write().unwrap() = new_cipher;
+        Ok(())
     }
 
     /// Refuse a damaged file before touching it. `quick_check` is the
@@ -297,7 +379,7 @@ impl Database {
     fn bind_key(&self) -> Result<()> {
         self.conn.execute(
             "INSERT OR IGNORE INTO meta(key, value) VALUES('key_fingerprint', ?1)",
-            params![self.cipher.fingerprint()],
+            params![self.fingerprint()],
         )?;
         Ok(())
     }
@@ -315,7 +397,7 @@ impl Database {
             )
         };
         match self.meta("key_fingerprint")? {
-            Some(stored) if stored == self.cipher.fingerprint() => Ok(()),
+            Some(stored) if stored == self.fingerprint() => Ok(()),
             Some(_) => Err(mismatch()),
             None => {
                 use rusqlite::OptionalExtension as _;
@@ -328,10 +410,10 @@ impl Database {
                     )
                     .optional()?;
                 if let Some((hash, sealed)) = probe {
-                    let opened = self
-                        .cipher
+                    let cipher = self.cipher.read().unwrap();
+                    let opened = cipher
                         .open_text_with_aad(Self::preview_aad(&hash).as_bytes(), &sealed)
-                        .or_else(|_| self.cipher.open_text(&sealed));
+                        .or_else(|_| cipher.open_text(&sealed));
                     if opened.is_err() {
                         return Err(mismatch());
                     }
@@ -453,6 +535,8 @@ impl Database {
         let preview_aad = Self::preview_aad(content_hash);
         let sealed_preview = self
             .cipher
+            .read()
+            .unwrap()
             .seal_text_with_aad(preview_aad.as_bytes(), preview)?;
         let tx = self.conn.unchecked_transaction()?;
         let existing: Option<(i64, bool)> = tx
@@ -730,10 +814,10 @@ impl Database {
     fn row_to_entry(&self, row: &rusqlite::Row) -> rusqlite::Result<Entry> {
         let content_hash: String = row.get(1)?;
         let sealed_preview: String = row.get(2)?;
-        let preview = self
-            .cipher
+        let cipher = self.cipher.read().unwrap();
+        let preview = cipher
             .open_text_with_aad(Self::preview_aad(&content_hash).as_bytes(), &sealed_preview)
-            .or_else(|_| self.cipher.open_text(&sealed_preview))
+            .or_else(|_| cipher.open_text(&sealed_preview))
             .unwrap_or_else(|_| "[decryption failed]".to_string());
         let selection_str: String = row.get(7)?;
         Ok(Entry {
@@ -1430,9 +1514,9 @@ mod lifecycle_tests {
         assert_eq!(db.schema_version().unwrap(), SCHEMA_VERSION);
         assert_eq!(
             db.meta("key_fingerprint").unwrap().as_deref(),
-            Some(db.cipher.fingerprint())
+            Some(db.fingerprint().as_str())
         );
-        assert_eq!(db.cipher.fingerprint().len(), 16);
+        assert_eq!(db.fingerprint().len(), 16);
     }
 
     #[test]
@@ -1447,7 +1531,7 @@ mod lifecycle_tests {
         let conn = Connection::open(&path).unwrap();
         let db = Database {
             conn,
-            cipher: Cipher::new(&key),
+            cipher: std::sync::RwLock::new(Cipher::new(&key)),
         };
         let fake = [(
             SCHEMA_VERSION + 1,
@@ -1491,7 +1575,7 @@ mod lifecycle_tests {
         drop(open_with(&path, &key).unwrap());
         let db = Database {
             conn: Connection::open(&path).unwrap(),
-            cipher: Cipher::new(&key),
+            cipher: std::sync::RwLock::new(Cipher::new(&key)),
         };
         // Target two versions ahead with only one migration: refuse rather
         // than stamp a schema the file does not have.
@@ -1546,7 +1630,7 @@ mod lifecycle_tests {
         let db = open_with(&path, &right).unwrap();
         assert_eq!(
             db.meta("key_fingerprint").unwrap().as_deref(),
-            Some(db.cipher.fingerprint()),
+            Some(db.fingerprint().as_str()),
             "the proven key is bound for next time"
         );
     }
@@ -1945,5 +2029,126 @@ mod lifecycle_tests {
         assert_eq!(search(&db, "rebuild"), vec![id], "previews were re-added");
         db.index_content(id, "and now content too").unwrap();
         assert_eq!(search(&db, "content"), vec![id]);
+    }
+
+    // --- SEC-01: master key rotation ---
+
+    #[test]
+    fn rekey_reseals_previews_including_tombstoned_entries_and_swaps_the_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let old_key = MasterKey::generate();
+        let db = open_with(&dir.path().join("history.db"), &old_key).unwrap();
+        insert_one(&db, "kept entry");
+        let deleted_hash = crate::storage::crypto::content_hash(b"deleted entry");
+        let deleted_id = db
+            .upsert_entry(
+                &deleted_hash,
+                "deleted entry",
+                ContentKind::Text,
+                "text/plain",
+                "deleted entry".len() as i64,
+                None,
+                Selection::Clipboard,
+                1,
+                "dev0",
+                1,
+            )
+            .unwrap();
+        db.tombstone(deleted_id, 1).unwrap();
+
+        let new_key = MasterKey::generate();
+        db.rekey(Cipher::new(&new_key)).unwrap();
+
+        assert_eq!(db.fingerprint(), Cipher::new(&new_key).fingerprint());
+        assert_eq!(
+            db.meta("key_fingerprint").unwrap().as_deref(),
+            Some(db.fingerprint().as_str())
+        );
+        // Live entries still read back correctly under the new key...
+        let entries = db.query(&QueryFilter::recent(2)).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].preview, "kept entry");
+        // ...and so does the tombstoned one, still resealed rather than
+        // left encrypted under the old key until it is purged.
+        let tombstoned: String = db
+            .conn
+            .query_row(
+                "SELECT preview FROM entries WHERE id = ?1",
+                params![deleted_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let content_hash: String = db
+            .conn
+            .query_row(
+                "SELECT content_hash FROM entries WHERE id = ?1",
+                params![deleted_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            Cipher::new(&new_key)
+                .open_text_with_aad(Database::preview_aad(&content_hash).as_bytes(), &tombstoned)
+                .unwrap(),
+            "deleted entry"
+        );
+    }
+
+    #[test]
+    fn rekey_refuses_the_old_key_afterwards() {
+        let dir = tempfile::tempdir().unwrap();
+        let old_key = MasterKey::generate();
+        let path = dir.path().join("history.db");
+        {
+            let db = open_with(&path, &old_key).unwrap();
+            insert_one(&db, "will be rotated away from");
+            db.rekey(Cipher::new(&MasterKey::generate())).unwrap();
+        }
+        // A fresh `Database::open` under the *old* key must fail closed,
+        // exactly like opening any file with the wrong key.
+        assert!(matches!(
+            open_with(&path, &old_key).unwrap_err(),
+            Error::Storage(_)
+        ));
+    }
+
+    #[test]
+    fn rekey_is_idempotent_so_an_interrupted_rotation_can_resume() {
+        // `rekey` itself commits in one SQLite transaction, so it can never
+        // leave the database file straddling two keys; what an interruption
+        // between `Database::rekey` and `BlobStore::rekey` (or the keyring
+        // update) leaves behind is a *repeat* call with the same target
+        // key, simulated here directly instead of through a real crash.
+        let dir = tempfile::tempdir().unwrap();
+        let old_key = MasterKey::generate();
+        let db = open_with(&dir.path().join("history.db"), &old_key).unwrap();
+        insert_one(&db, "resumed rotation");
+        let new_key = MasterKey::generate();
+
+        db.rekey(Cipher::new(&new_key)).unwrap();
+        let after_first = db.query(&QueryFilter::recent(1)).unwrap();
+
+        // The "resume": rekey runs again with the *same* new key, as
+        // `panod` would after restarting mid-rotation and finding
+        // `rotation_state` still set.
+        db.rekey(Cipher::new(&new_key)).unwrap();
+        let after_second = db.query(&QueryFilter::recent(1)).unwrap();
+
+        assert_eq!(after_first[0].preview, after_second[0].preview);
+        assert_eq!(db.fingerprint(), Cipher::new(&new_key).fingerprint());
+    }
+
+    #[test]
+    fn rotation_state_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = open_with(&dir.path().join("history.db"), &MasterKey::generate()).unwrap();
+        assert_eq!(db.rotation_state().unwrap(), None);
+        db.set_rotation_state(Some("resealing_previews")).unwrap();
+        assert_eq!(
+            db.rotation_state().unwrap().as_deref(),
+            Some("resealing_previews")
+        );
+        db.set_rotation_state(None).unwrap();
+        assert_eq!(db.rotation_state().unwrap(), None);
     }
 }

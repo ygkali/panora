@@ -18,7 +18,9 @@ use std::path::{Path, PathBuf};
 /// Encrypted content-addressed file store.
 pub struct BlobStore {
     root: PathBuf,
-    cipher: Cipher,
+    /// A lock, not a plain field, for the same reason as `Database`'s: only
+    /// `rekey` (SEC-01) ever swaps it, never a concurrent access.
+    cipher: std::sync::RwLock<Cipher>,
 }
 
 impl BlobStore {
@@ -27,7 +29,10 @@ impl BlobStore {
         let root = root.as_ref().to_path_buf();
         std::fs::create_dir_all(&root)?;
         restrict_permissions(&root, 0o700)?;
-        Ok(Self { root, cipher })
+        Ok(Self {
+            root,
+            cipher: std::sync::RwLock::new(cipher),
+        })
     }
 
     /// Filesystem path for a validated content hash: blobs/<hh>/<hash>.
@@ -53,45 +58,85 @@ impl BlobStore {
             std::fs::create_dir_all(parent)?;
             restrict_permissions(parent, 0o700)?;
         }
-        let sealed = self.cipher.seal_with_aad(&Self::aad(&hash), plaintext)?;
-        // Create a process-specific temporary file without following a
-        // pre-existing symlink, then atomically rename it into place.
+        let sealed = self
+            .cipher
+            .read()
+            .unwrap()
+            .seal_with_aad(&Self::aad(&hash), plaintext)?;
+        match Self::write_sealed(&path, &sealed) {
+            Ok(()) => Ok(hash),
+            // A concurrent writer may have completed the same deduplicated
+            // insert; preserve that success instead of surfacing a race.
+            Err(_) if path.exists() => Ok(hash),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Write `sealed` to `path` through a process-specific temporary file
+    /// (never following a pre-existing symlink) and an atomic rename — which
+    /// on Unix always replaces an existing target — so a reader never
+    /// observes a partially written blob, whether this is a fresh write
+    /// (`put`) or replacing one under a new key (`rekey`).
+    fn write_sealed(path: &Path, sealed: &[u8]) -> Result<()> {
         let mut suffix = [0u8; 8];
         rand::rngs::OsRng.fill_bytes(&mut suffix);
-        let tmp = path.with_file_name(format!(".{hash}.tmp-{}", u64::from_le_bytes(suffix)));
+        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("blob");
+        let tmp = path.with_file_name(format!(".{file_name}.tmp-{}", u64::from_le_bytes(suffix)));
         let mut file = OpenOptions::new().write(true).create_new(true).open(&tmp)?;
         restrict_permissions(&tmp, 0o600)?;
-        file.write_all(&sealed)?;
+        file.write_all(sealed)?;
         file.sync_all()?;
         drop(file);
-        match std::fs::rename(&tmp, &path) {
-            Ok(()) => Ok(hash),
-            Err(e) => {
-                let _ = std::fs::remove_file(&tmp);
-                // A concurrent writer may have completed the same deduplicated
-                // insert; preserve that success instead of surfacing a race.
-                if path.exists() {
-                    Ok(hash)
-                } else {
-                    Err(e.into())
-                }
-            }
+        if let Err(e) = std::fs::rename(&tmp, path) {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(e.into());
         }
+        Ok(())
     }
 
     /// Read and decrypt a blob by content hash.
     pub fn get(&self, hash: &str) -> Result<Vec<u8>> {
         let path = self.path_for(hash)?;
         let sealed = std::fs::read(path)?;
-        match self.cipher.open_with_aad(&Self::aad(hash), &sealed) {
+        let cipher = self.cipher.read().unwrap();
+        match cipher.open_with_aad(&Self::aad(hash), &sealed) {
             Ok(plaintext) => Ok(plaintext),
             Err(error) if !sealed.starts_with(super::crypto::ENVELOPE_MAGIC) => {
                 // One-way compatibility for pre-v1 local histories. New
                 // writes always use the versioned, context-bound envelope.
-                self.cipher.open(&sealed).map_err(|_| error)
+                cipher.open(&sealed).map_err(|_| error)
             }
             Err(error) => Err(error),
         }
+    }
+
+    /// Re-seal every blob on disk under `new_cipher`, then start using it
+    /// for everything from here on (SEC-01).
+    ///
+    /// Safe to call again after an interruption: each file is opened with
+    /// whichever of the current cipher or `new_cipher` can read it (a file
+    /// a previous, interrupted attempt already rewrote opens under the new
+    /// one and is simply rewritten again, unchanged), and each individual
+    /// file is replaced atomically, so a crash never leaves one half old
+    /// and half new.
+    pub fn rekey(&self, new_cipher: Cipher) -> Result<()> {
+        for hash in self.list()? {
+            let path = self.path_for(&hash)?;
+            let sealed = std::fs::read(&path)?;
+            let aad = Self::aad(&hash);
+            let plaintext = {
+                let old_cipher = self.cipher.read().unwrap();
+                old_cipher
+                    .open_with_aad(&aad, &sealed)
+                    .or_else(|_| old_cipher.open(&sealed))
+                    .or_else(|_| new_cipher.open_with_aad(&aad, &sealed))
+                    .or_else(|_| new_cipher.open(&sealed))?
+            };
+            let resealed = new_cipher.seal_with_aad(&aad, &plaintext)?;
+            Self::write_sealed(&path, &resealed)?;
+        }
+        *self.cipher.write().unwrap() = new_cipher;
+        Ok(())
     }
 
     /// Delete a blob by hash. Missing files are not an error.
@@ -309,5 +354,42 @@ mod tests {
             }
         }
         count
+    }
+
+    // --- SEC-01: master key rotation ---
+
+    #[test]
+    fn rekey_reseals_every_blob_and_old_key_stops_working() {
+        let dir = tempfile::tempdir().unwrap();
+        let old_key = MasterKey::generate();
+        let store = BlobStore::open(dir.path().join("blobs"), Cipher::new(&old_key)).unwrap();
+        let a = store.put(b"first blob").unwrap();
+        let b = store.put(b"second blob, a bit longer").unwrap();
+
+        let new_key = MasterKey::generate();
+        store.rekey(Cipher::new(&new_key)).unwrap();
+
+        assert_eq!(store.get(&a).unwrap(), b"first blob");
+        assert_eq!(store.get(&b).unwrap(), b"second blob, a bit longer");
+
+        // A fresh handle opened under the old key can no longer read it.
+        let reopened = BlobStore::open(dir.path().join("blobs"), Cipher::new(&old_key)).unwrap();
+        assert!(reopened.get(&a).is_err());
+    }
+
+    #[test]
+    fn rekey_is_idempotent_so_an_interrupted_rotation_can_resume() {
+        let dir = tempfile::tempdir().unwrap();
+        let old_key = MasterKey::generate();
+        let store = BlobStore::open(dir.path().join("blobs"), Cipher::new(&old_key)).unwrap();
+        let hash = store.put(b"resumed rotation payload").unwrap();
+        let new_key = MasterKey::generate();
+
+        store.rekey(Cipher::new(&new_key)).unwrap();
+        // The "resume": panod would call this again after restarting with
+        // the same pending key, having found `rotation_state` still set.
+        store.rekey(Cipher::new(&new_key)).unwrap();
+
+        assert_eq!(store.get(&hash).unwrap(), b"resumed rotation payload");
     }
 }

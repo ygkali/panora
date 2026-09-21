@@ -90,6 +90,13 @@ pub enum Request {
     },
     /// Re-read `config.toml` and apply history/privacy limits live.
     ReloadConfig,
+    /// Generate a new master key and reseal every stored preview and blob
+    /// under it (SEC-01). Resumable: if a previous attempt was interrupted,
+    /// this finishes it (the same pending key, picked back up from the
+    /// keyring) instead of starting a fresh rotation. Blocks until done —
+    /// there is no progress reporting, since it runs on the daemon's own
+    /// task and reseals a whole history in one go.
+    RotateKey,
     /// Bring back an entry deleted moments ago, while its tombstone is still
     /// inside the undo grace period.
     Restore {
@@ -296,6 +303,11 @@ pub mod health {
     pub const EXTENSION_MISSING: &str = "extension_missing";
     /// UUID of the GNOME Shell extension, as `gnome-extensions` knows it.
     pub const EXTENSION_UUID: &str = "panora@ygkali.github.io";
+    /// A previous `RotateKey` (SEC-01) was interrupted before finishing;
+    /// the pending key is still in the keyring and history is still fully
+    /// readable (nothing is left half-resealed across a restart), but
+    /// running `rotate-key` again is needed to retire it.
+    pub const ROTATION_INCOMPLETE: &str = "rotation_incomplete";
 }
 
 /// Encode a value as one newline-terminated JSON frame.
@@ -325,10 +337,19 @@ pub mod client {
 
     /// Send one request and wait for its response.
     pub fn call(request: &Request) -> Result<ResponseData> {
+        call_with_timeout(request, IPC_TIMEOUT)
+    }
+
+    /// Like `call`, but with a caller-chosen timeout instead of
+    /// `IPC_TIMEOUT`. For requests the daemon can legitimately take a while
+    /// to answer — `RotateKey` (SEC-01) reseals the whole history inline
+    /// before replying — 5 seconds would fail a request that is still
+    /// working, not hung.
+    pub fn call_with_timeout(request: &Request, timeout: Duration) -> Result<ResponseData> {
         let stream = UnixStream::connect(socket_path())
             .map_err(|e| Error::Ipc(format!("daemon unavailable: {e}")))?;
-        stream.set_read_timeout(Some(IPC_TIMEOUT))?;
-        stream.set_write_timeout(Some(IPC_TIMEOUT))?;
+        stream.set_read_timeout(Some(timeout))?;
+        stream.set_write_timeout(Some(timeout))?;
         let mut writer = &stream;
         writer.write_all(&encode(request)?)?;
         let mut line = String::new();

@@ -209,6 +209,14 @@ impl Daemon {
                 ),
             });
         }
+        if matches!(self.db.rotation_state(), Ok(Some(_))) {
+            items.push(HealthItem {
+                code: health::ROTATION_INCOMPLETE.into(),
+                message: "A previous key rotation was interrupted before finishing; history is \
+                          still fully readable. Finish it with: panora-cli rotate-key"
+                    .into(),
+            });
+        }
         items
     }
 
@@ -289,6 +297,38 @@ impl Daemon {
     /// Re-read `config.toml` and apply it.
     pub fn reload_config(&self) -> Result<()> {
         self.apply_config(Config::load()?)
+    }
+
+    /// SEC-01: generate a new master key, reseal every stored preview and
+    /// blob under it, then retire the old one.
+    ///
+    /// Ordered so a crash at any point leaves the history fully readable
+    /// under *some* key this process (or a resumed one) still has: the new
+    /// key is written to the keyring's pending slot before anything is
+    /// resealed, `Database::rekey`/`BlobStore::rekey` are individually
+    /// idempotent (each re-checks what is already under the new key rather
+    /// than assuming nothing is), and the live keyring item is only
+    /// replaced — and the pending one only deleted — after both succeed.
+    /// Calling this again after an interruption picks the same pending key
+    /// back up instead of generating a new one, so it finishes the same
+    /// rotation rather than starting a second one on top of it.
+    pub async fn rotate_key(&self) -> Result<()> {
+        let key = match crate::keyring::load_pending_key().await? {
+            Some(key) => key,
+            None => {
+                let key = panora_core::storage::MasterKey::generate();
+                crate::keyring::store_pending_key(&key).await?;
+                key
+            }
+        };
+        self.db.set_rotation_state(Some("rotating"))?;
+        self.db.rekey(panora_core::storage::Cipher::new(&key))?;
+        self.blobs.rekey(panora_core::storage::Cipher::new(&key))?;
+        crate::keyring::finish_rotation(&key).await?;
+        self.db.set_rotation_state(None)?;
+        info!("master key rotation finished");
+        self.bump();
+        Ok(())
     }
 
     /// Status report for IPC clients.

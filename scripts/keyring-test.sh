@@ -2,7 +2,8 @@
 # Copyright (C) 2026 Panora contributors
 # SPDX-License-Identifier: GPL-3.0-only
 #
-# Runs the Secret Service integration test against a throwaway
+# Runs the Secret Service integration tests (key load/store, and rotate-key
+# including a simulated mid-rotation crash, SEC-01) against a throwaway
 # gnome-keyring in a private session bus, so the developer's own keyring is
 # never touched. Needs gnome-keyring and dbus-daemon installed.
 set -Eeuo pipefail
@@ -30,4 +31,5 @@ dbus-run-session -- bash -c '
   eval "$(printf "panora-test" | gnome-keyring-daemon --unlock --components=secrets 2>/dev/null | sed "s/^/export /")"
   sleep 1
   cargo test -p panod --test keyring -- --ignored "$@"
+  cargo test -p panod --test rotate_key -- --ignored --test-threads=1 "$@"
 ' -- "$@"

@@ -404,6 +404,7 @@ pub async fn handle_request(request: Request, daemon: &Daemon) -> Response {
                 }
             }
             Request::ReloadConfig => daemon.reload_config().map(|_| ResponseData::Empty),
+            Request::RotateKey => daemon.rotate_key().await.map(|_| ResponseData::Empty),
             Request::Restore { id } => daemon.restore(id).await.map(|_| ResponseData::Empty),
             Request::Store {
                 payloads,

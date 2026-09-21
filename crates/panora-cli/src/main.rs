@@ -128,6 +128,14 @@ enum Command {
     Toggle,
     /// Re-read config.toml and apply it without restarting the daemon
     Reload,
+    /// Generate a new master key and reseal the whole history under it
+    ///
+    /// Safe to interrupt (Ctrl+C, a crash, a daemon restart): history stays
+    /// fully readable throughout, and running this again finishes the same
+    /// rotation instead of starting a new one. `panora-cli status` reports
+    /// `rotation_incomplete` under health if a previous attempt was left
+    /// unfinished.
+    RotateKey,
     /// Bring back an entry deleted in the last 30 seconds
     Restore {
         /// Entry id
@@ -249,6 +257,10 @@ struct Invocation {
 /// request frame of `MAX_FRAME_BYTES`, with room for the JSON around it.
 const STORE_MAX_BYTES: usize = MAX_FRAME_BYTES / 4 * 3 - 1024;
 
+/// `rotate-key` reseals the whole history before replying; generous rather
+/// than tuned to any particular history size.
+const ROTATE_KEY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+
 /// A failure with the exit status it maps to.
 struct Failure {
     code: u8,
@@ -311,6 +323,23 @@ fn run(cli: Cli, s: &Strings) -> Result<(), Failure> {
             return Ok(());
         }
         Command::Watch => return run_watch(json),
+        Command::RotateKey => {
+            // Reseals the whole history inline before replying; 5s (the
+            // default IPC timeout) would misreport a still-working daemon
+            // as hung on anything but a tiny history.
+            let data = client::call_with_timeout(&Request::RotateKey, ROTATE_KEY_TIMEOUT)?;
+            return print_response(
+                s,
+                json,
+                &Invocation {
+                    request: Request::RotateKey,
+                    mime: None,
+                    out: None,
+                    format: None,
+                },
+                data,
+            );
+        }
         Command::Store {
             file,
             mime,
@@ -387,7 +416,8 @@ fn to_invocation(command: Command) -> Invocation {
         Command::Completions { .. }
         | Command::Man { .. }
         | Command::Store { .. }
-        | Command::Watch => {
+        | Command::Watch
+        | Command::RotateKey => {
             unreachable!("handled before reaching the daemon")
         }
     }

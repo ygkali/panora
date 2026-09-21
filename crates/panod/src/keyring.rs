@@ -34,8 +34,24 @@ const ITEM_ATTRS: &[(&str, &str)] = &[
     ("format_version", "1"),
 ];
 
+/// The key a `rotate-key` in progress is resealing everything under, kept
+/// separate from the live item so a crash mid-rotation still has somewhere
+/// durable to resume from (SEC-01): the live item is only replaced, and
+/// this one only deleted, once every stored ciphertext is already resealed.
+const PENDING_ITEM_LABEL: &str = "Panora master key (rotation pending)";
+const PENDING_ITEM_ATTRS: &[(&str, &str)] = &[
+    ("application", "panora"),
+    ("purpose", "clipboard-history-encryption"),
+    ("format_version", "1"),
+    ("role", "pending"),
+];
+
 fn attributes() -> HashMap<&'static str, &'static str> {
     ITEM_ATTRS.iter().copied().collect()
+}
+
+fn pending_attributes() -> HashMap<&'static str, &'static str> {
+    PENDING_ITEM_ATTRS.iter().copied().collect()
 }
 
 fn keyring_err(context: &str, e: impl std::fmt::Display) -> Error {
@@ -186,8 +202,21 @@ async fn open_collection() -> Result<Collection> {
 
 /// Read the key from the collection if the item is present.
 async fn load_key(collection: &Collection) -> Result<Option<MasterKey>> {
+    load_key_with(collection, &attributes()).await
+}
+
+/// The pending rotation key (SEC-01), if a `rotate-key` is in progress.
+pub async fn load_pending_key() -> Result<Option<MasterKey>> {
+    let collection = open_collection().await?;
+    load_key_with(&collection, &pending_attributes()).await
+}
+
+async fn load_key_with(
+    collection: &Collection,
+    attrs: &HashMap<&'static str, &'static str>,
+) -> Result<Option<MasterKey>> {
     let items = collection
-        .search_items(&attributes())
+        .search_items(attrs)
         .await
         .map_err(|e| keyring_err("keyring search failed", e))?;
 
@@ -215,6 +244,44 @@ async fn load_key(collection: &Collection) -> Result<Option<MasterKey>> {
         .try_into()
         .map_err(|_| Error::Keyring("stored master key has wrong length".into()))?;
     Ok(Some(MasterKey::from_bytes(bytes)))
+}
+
+/// Store the key a `rotate-key` (SEC-01) is resealing everything under,
+/// durably, before any stored ciphertext is touched — a crash after this
+/// still has somewhere to resume the same rotation from instead of losing
+/// track of which key half the data ends up under.
+pub async fn store_pending_key(key: &MasterKey) -> Result<()> {
+    let collection = open_collection().await?;
+    collection
+        .create_item(
+            PENDING_ITEM_LABEL,
+            &pending_attributes(),
+            Secret::blob(key.as_bytes()),
+            true,
+            None,
+        )
+        .await
+        .map_err(|e| keyring_err("cannot store the pending rotation key", e))?;
+    Ok(())
+}
+
+/// Finish a rotation: replace the live master key item with `key` and
+/// remove the pending one. Only called once `Database::rekey` and
+/// `BlobStore::rekey` have both already succeeded under `key`, so nothing
+/// stored ever depends on an item this deletes.
+pub async fn finish_rotation(key: &MasterKey) -> Result<()> {
+    let collection = open_collection().await?;
+    store_key(&collection, key).await?;
+    let pending = collection
+        .search_items(&pending_attributes())
+        .await
+        .map_err(|e| keyring_err("keyring search failed", e))?;
+    if let Some(item) = pending.first() {
+        item.delete(None)
+            .await
+            .map_err(|e| keyring_err("cannot remove the pending rotation key", e))?;
+    }
+    Ok(())
 }
 
 /// Store a freshly generated key in the unlocked collection.
