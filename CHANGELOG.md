@@ -180,6 +180,15 @@ real-machine verification in `docs/RELEASING.md` is done.
   `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, issue and pull
   request templates, Dependabot, `REUSE.toml`, `AUTHORS.md`, and
   `docs/ROADMAP.md` with every planned task identified.
+- IPC protocol v3 (STO-08): a binary framing (`u32` length + JSON header +
+  raw payload) replaces base64-in-JSON for anything large — payloads over
+  8 KiB travel as a `memfd_create` file descriptor passed over the socket
+  with `SCM_RIGHTS` instead of being inflated 4/3 and squeezed under the
+  64 MiB reply cap. `Hello` negotiates the protocol version and `Subscribe`
+  turns a connection into a push stream of `{event:"changed",revision}`
+  frames, so a client can wait for changes instead of polling `Status`.
+  v2 JSON-lines clients are still served on the same socket (the daemon
+  tells them apart by peeking the connection's first byte).
 
 ### Changed
 - The popup no longer waits on the daemon: history pages, previews, image

@@ -73,6 +73,9 @@ pub struct Daemon {
     config: RwLock<Config>,
     device_id: String,
     revision: AtomicU64,
+    /// Mirrors `revision`, but lets `Subscribe` connections `.changed()
+    /// .await` instead of polling the atomic. Sent to on every `bump()`.
+    revision_watch: tokio::sync::watch::Sender<u64>,
     /// Entry stored from the most recent change of each selection; the only
     /// content the persistence path may re-offer.
     last_stored: Mutex<HashMap<Selection, i64>>,
@@ -157,6 +160,7 @@ impl Daemon {
             config: RwLock::new(config),
             device_id,
             revision: AtomicU64::new(1),
+            revision_watch: tokio::sync::watch::channel(1).0,
             last_stored: Mutex::new(HashMap::new()),
             last_recall: Mutex::new(None),
             config_epoch: tokio::sync::watch::channel(0).0,
@@ -251,7 +255,15 @@ impl Daemon {
     }
 
     fn bump(&self) {
-        self.revision.fetch_add(1, Ordering::Relaxed);
+        let revision = self.revision.fetch_add(1, Ordering::Relaxed) + 1;
+        // No receivers (no `Subscribe` connection open) is not an error.
+        let _ = self.revision_watch.send(revision);
+    }
+
+    /// A receiver that resolves every time `revision` changes; used by
+    /// `Subscribe` connections (STO-08) instead of polling `Status`.
+    pub fn watch_revision(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.revision_watch.subscribe()
     }
 
     /// Replace the configuration (from `config.toml`) without a restart.

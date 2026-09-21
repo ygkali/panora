@@ -13,8 +13,18 @@ use crate::model::{ContentKind, Entry, MimePayload};
 use crate::storage::QueryFilter;
 use serde::{Deserialize, Serialize};
 
+#[cfg(unix)]
+pub mod v3;
+
 /// Protocol version reported by `Status`. Bump on incompatible changes.
-pub const PROTOCOL_VERSION: u32 = 2;
+///
+/// v3 adds a binary framing (see [`v3`]) that carries large payloads as raw
+/// bytes or passed file descriptors instead of base64-inflated JSON, plus
+/// `Hello` negotiation and `Subscribe` push events. v2 clients (plain
+/// JSON-lines, no preamble) are still served on the same socket for one
+/// release: the daemon tells them apart by peeking the first byte of the
+/// connection (`v3::MAGIC` vs. `{`).
+pub const PROTOCOL_VERSION: u32 = 3;
 
 /// Maximum accepted JSON-lines request frame size. This protects the daemon
 /// from unbounded memory growth through the local IPC boundary.
@@ -100,6 +110,20 @@ pub enum Request {
         #[serde(default)]
         copy: bool,
     },
+    /// v3 preamble: negotiate the protocol version before any other
+    /// request. v2 clients never send this (they have no preamble); a v3
+    /// connection always opens with it. Ignored (but accepted) over the
+    /// legacy JSON-lines transport, for tests that exercise both paths on
+    /// the same socket.
+    Hello {
+        /// Highest protocol version the client understands.
+        max_protocol: u32,
+    },
+    /// Turn this connection into a one-way event stream: the daemon stops
+    /// expecting further requests on it and pushes an `Event::Changed` frame
+    /// (starting with the current revision) every time `revision` changes,
+    /// until the client disconnects. v3 framing only.
+    Subscribe,
 }
 
 /// Serializable query parameters.
@@ -176,6 +200,27 @@ pub enum ResponseData {
     Recalled {
         /// Paste keystroke delivered.
         pasted: bool,
+    },
+    /// Reply to `Hello`: the protocol version the daemon will use for the
+    /// rest of this connection (`min(client max_protocol, daemon max)`).
+    Hello {
+        /// Negotiated protocol version.
+        protocol: u32,
+    },
+}
+
+/// A message the daemon pushes on its own initiative, over v3 framing, after
+/// a `Subscribe` request. Not part of the `Response`/`ResponseData` pair
+/// because it is not a reply to any one request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "event")]
+pub enum Event {
+    /// `revision` changed; clients re-fetch whatever view they hold instead
+    /// of polling `Status`.
+    #[serde(rename = "changed")]
+    Changed {
+        /// The new revision.
+        revision: u64,
     },
 }
 
@@ -296,6 +341,32 @@ pub mod client {
         let response: Response = decode(line.trim_end_matches(['\r', '\n']).as_bytes())
             .map_err(|e| Error::Ipc(format!("invalid daemon response: {e}")))?;
         response.into_result()
+    }
+
+    /// A live `Subscribe` connection (STO-08, v3-only): the daemon pushes an
+    /// [`super::Event`] every time its revision changes, starting with the
+    /// current one, instead of the caller polling `Status`. Used by
+    /// `panora-cli watch` and can back the GUI's live refresh too.
+    pub struct Subscription {
+        stream: UnixStream,
+    }
+
+    impl Subscription {
+        /// Open a new subscription. Deliberately has no read timeout:
+        /// callers block in `next` for as long as nothing changes.
+        pub fn open() -> Result<Self> {
+            let stream = UnixStream::connect(socket_path())
+                .map_err(|e| Error::Ipc(format!("daemon unavailable: {e}")))?;
+            stream.set_write_timeout(Some(IPC_TIMEOUT))?;
+            super::v3::write_magic_blocking(&stream)?;
+            super::v3::write_request_blocking(&stream, Request::Subscribe)?;
+            Ok(Self { stream })
+        }
+
+        /// Block for the next event.
+        pub fn next(&self) -> Result<super::Event> {
+            super::v3::read_event_blocking(&self.stream)
+        }
     }
 }
 

@@ -377,3 +377,212 @@ async fn foreign_peer_uid_is_dropped_without_a_reply() {
         })
         .await;
 }
+
+// --- protocol v3 (STO-08): binary framing, passed fds, Hello, Subscribe.
+// The client side is blocking (std sockets), same as `client::call`, so
+// every v3 call below runs on a blocking task, same pattern as the v2 tests
+// above.
+
+#[tokio::test]
+async fn v3_hello_negotiates_the_protocol_version() {
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let server = start(None);
+            let socket = server.socket.clone();
+            let protocol = tokio::task::spawn_blocking(move || {
+                let stream = std::os::unix::net::UnixStream::connect(&socket).unwrap();
+                panora_core::ipc::v3::write_magic_blocking(&stream).unwrap();
+                panora_core::ipc::v3::write_request_blocking(
+                    &stream,
+                    Request::Hello { max_protocol: 99 },
+                )
+                .unwrap();
+                match panora_core::ipc::v3::read_response_blocking(&stream)
+                    .unwrap()
+                    .into_result()
+                    .unwrap()
+                {
+                    ResponseData::Hello { protocol } => protocol,
+                    other => panic!("unexpected {other:?}"),
+                }
+            })
+            .await
+            .unwrap();
+            assert_eq!(protocol, panora_core::ipc::PROTOCOL_VERSION);
+        })
+        .await;
+}
+
+#[tokio::test]
+async fn v3_store_round_trips_a_small_and_a_large_payload() {
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let server = start(None);
+            let socket = server.socket.clone();
+            // Larger than v3's inline limit, so it travels as a passed fd
+            // instead of an inline blob — exactly what base64-in-JSON (v2)
+            // could not do without quadrupling it over three and hitting
+            // `MAX_RESPONSE_BYTES` far sooner.
+            let big = vec![0x99u8; panora_core::ipc::v3::INLINE_LIMIT * 3];
+            let entry_id = {
+                let big = big.clone();
+                tokio::task::spawn_blocking(move || {
+                    let stream = std::os::unix::net::UnixStream::connect(&socket).unwrap();
+                    panora_core::ipc::v3::write_magic_blocking(&stream).unwrap();
+                    panora_core::ipc::v3::write_request_blocking(
+                        &stream,
+                        Request::Store {
+                            payloads: vec![
+                                MimePayload::new("text/plain", b"small".to_vec()),
+                                MimePayload::new("image/png", big),
+                            ],
+                            source_app: Some("v3-test".into()),
+                            copy: false,
+                        },
+                    )
+                    .unwrap();
+                    match panora_core::ipc::v3::read_response_blocking(&stream)
+                        .unwrap()
+                        .into_result()
+                        .unwrap()
+                    {
+                        ResponseData::Entries(entries) => entries[0].id,
+                        other => panic!("unexpected {other:?}"),
+                    }
+                })
+                .await
+                .unwrap()
+            };
+
+            let socket = server.socket.clone();
+            let payloads = tokio::task::spawn_blocking(move || {
+                let stream = std::os::unix::net::UnixStream::connect(&socket).unwrap();
+                panora_core::ipc::v3::write_magic_blocking(&stream).unwrap();
+                panora_core::ipc::v3::write_request_blocking(
+                    &stream,
+                    Request::Preview {
+                        id: entry_id,
+                        thumbnail: false,
+                    },
+                )
+                .unwrap();
+                match panora_core::ipc::v3::read_response_blocking(&stream)
+                    .unwrap()
+                    .into_result()
+                    .unwrap()
+                {
+                    ResponseData::Payloads(payloads) => payloads,
+                    other => panic!("unexpected {other:?}"),
+                }
+            })
+            .await
+            .unwrap();
+            assert_eq!(payloads[0].data, b"small");
+            assert_eq!(payloads[1].data, big);
+        })
+        .await;
+}
+
+#[tokio::test]
+async fn subscribe_pushes_the_current_revision_then_every_change() {
+    // Dials the socket path directly, like the other v3 tests: `Subscription
+    // ::open` resolves the socket through `XDG_RUNTIME_DIR`, which is
+    // process-global and only `requests_round_trip_through_the_blocking_
+    // client` is allowed to touch (see its own comment).
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let server = start(None);
+            let starting_revision = server.daemon.revision();
+
+            let socket = server.socket.clone();
+            let stream = tokio::task::spawn_blocking(move || {
+                let stream = std::os::unix::net::UnixStream::connect(&socket).unwrap();
+                panora_core::ipc::v3::write_magic_blocking(&stream).unwrap();
+                panora_core::ipc::v3::write_request_blocking(&stream, Request::Subscribe).unwrap();
+                stream
+            })
+            .await
+            .unwrap();
+
+            let (stream, first_event) = tokio::task::spawn_blocking(move || {
+                let event = panora_core::ipc::v3::read_event_blocking(&stream).unwrap();
+                (stream, event)
+            })
+            .await
+            .unwrap();
+            let panora_core::ipc::Event::Changed { revision } = first_event;
+            assert_eq!(
+                revision, starting_revision,
+                "seeded with the current revision"
+            );
+
+            capture(&server, "subscribed entry").await;
+            assert!(server.daemon.revision() > starting_revision);
+
+            let (_stream, second_event) = tokio::task::spawn_blocking(move || {
+                let event = panora_core::ipc::v3::read_event_blocking(&stream).unwrap();
+                (stream, event)
+            })
+            .await
+            .unwrap();
+            let panora_core::ipc::Event::Changed { revision } = second_event;
+            assert!(revision > starting_revision);
+        })
+        .await;
+}
+
+#[tokio::test]
+async fn v2_and_v3_clients_share_the_same_socket() {
+    // Deliberately does not touch `client::call`/`XDG_RUNTIME_DIR`: that
+    // env var is process-global, and only one test in this file (see its
+    // own comment) is allowed to race on it. Both connections here dial
+    // the socket path directly instead.
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let server = start(None);
+            capture(&server, "shared socket entry").await;
+
+            let v2 = tokio::task::spawn_blocking({
+                let socket = server.socket.clone();
+                move || {
+                    let stream = std::os::unix::net::UnixStream::connect(&socket).unwrap();
+                    use std::io::{BufRead, BufReader, Write};
+                    (&stream)
+                        .write_all(&encode(&Request::Status).unwrap())
+                        .unwrap();
+                    let mut line = String::new();
+                    BufReader::new(&stream).read_line(&mut line).unwrap();
+                    decode::<Response>(line.trim_end().as_bytes())
+                        .unwrap()
+                        .into_result()
+                        .unwrap()
+                }
+            });
+            let socket = server.socket.clone();
+            let v3 = tokio::task::spawn_blocking(move || {
+                let stream = std::os::unix::net::UnixStream::connect(&socket).unwrap();
+                panora_core::ipc::v3::write_magic_blocking(&stream).unwrap();
+                panora_core::ipc::v3::write_request_blocking(&stream, Request::Status).unwrap();
+                panora_core::ipc::v3::read_response_blocking(&stream)
+                    .unwrap()
+                    .into_result()
+                    .unwrap()
+            });
+
+            let v2_status = match v2.await.unwrap() {
+                ResponseData::Status(status) => status,
+                other => panic!("unexpected {other:?}"),
+            };
+            let v3_status = match v3.await.unwrap() {
+                ResponseData::Status(status) => status,
+                other => panic!("unexpected {other:?}"),
+            };
+            assert_eq!(v2_status.entries, v3_status.entries);
+            assert_eq!(v2_status.entries, 1);
+        })
+        .await;
+}

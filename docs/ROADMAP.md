@@ -638,3 +638,13 @@ Bu bölüm planın hangi kısmının uygulandığını kaydeder. `fd1d966` (yol 
 - mdBook `{{#include}}` ile depo kökündeki belgeleri çekebiliyor; belge sitesi ikinci bir kopya üretmiyor.
 - `scripts/a11y-check.sh` elindeki **release** ikilisini kullanır; bayat bir ikili "satır etiketi yok" diye başarısız olur. Koşudan önce `cargo build -p panora-gui --features fixture --release` şart (CI zaten yapıyor).
 - Yerel derleme/test için WSL2 Ubuntu 24.04 yeterli: `cargo test`, Xvfb altında X11/GUI/AT-SPI testleri, headless sway ile Wayland e2e, `gnome-keyring-daemon` ile keyring testi.
+
+### 11.4 1.6.0 "Sertleştirme" — durum (başladı 2026-09-21)
+
+19 maddelik liste üzerinde madde madde ilerleniyor; her biri kendi commit'i, testi ve
+(gerekiyorsa) `CHANGELOG.md` satırıyla. Bu tablo ilerledikçe güncellenir.
+
+| Madde | Durum |
+|---|---|
+| STO-08 (IPC v3) | **Bitti.** `crates/panora-core/src/ipc/v3.rs`: `u32` uzunluk + JSON başlık + ham payload çerçevesi; 8 KiB üstü payload'lar `memfd_create` + `SCM_RIGHTS` (rustix) ile fd olarak geçiyor, altında satır içi. `Hello` sürüm pazarlığı, `Subscribe` → `daemon.revision()` değiştikçe `Event::Changed` akışı (`tokio::sync::watch`). v2 istemcileri aynı soket üzerinde `peek_first_byte` (MSG_PEEK) ile ayırt edilip eskisi gibi sunuluyor (`panod/src/server.rs dispatch_client`). Birim + gerçek soket entegrasyon testleri (`crates/panod/tests/ipc_server.rs`): küçük/büyük/karışık payload round-trip, Hello, Subscribe (ilk olay + değişiklik olayı), v2/v3 aynı soketi paylaşıyor. `panora_core::ipc::client::Subscription` istemci tarafı yardımcı (CLI-02 bunun üstüne kurulacak). GUI'nin `window.rs start_live_refresh` yoklamasını `Subscribe`'a taşıması (B-19) bu maddenin kapsamına alınmadı — ayrı, GTK-taraflı bir iş; not düşüldü. |
+| CLI-02, CLI-03, SEC-01, SEC-02, SEC-03, SEC-06, SEC-08, SEC-10, STO-06, STO-07, UI-05, UI-06, UI-07, UI-08, UI-14, INT-05, PKG-03, QA-07 | Sırada; `docs/ROADMAP.md` §6 ve bu dosyanın başındaki uygulama brief'indeki faz sırasına göre ilerleniyor. |

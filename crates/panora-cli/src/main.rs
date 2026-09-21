@@ -568,6 +568,9 @@ fn print_response(
             }
         }
         ResponseData::Empty => println!("{}", s.cli_ok),
+        // Only ever produced on a v3 connection's own `Hello` negotiation,
+        // which `client::call` (v2) never sends; kept for exhaustiveness.
+        ResponseData::Hello { protocol } => println!("protocol={protocol}"),
     }
     Ok(())
 }

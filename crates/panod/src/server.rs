@@ -10,13 +10,14 @@ use crate::gnome::{self, GnomeBridge, BUS_NAME, OBJECT_PATH};
 use crate::keyring::load_or_create_master_key;
 use panora_core::config::{config_path, data_dir, socket_path, Config};
 use panora_core::ipc::{
-    decode, encode, Request, Response, ResponseData, MAX_FRAME_BYTES, MAX_REQUESTS_PER_CONNECTION,
+    decode, encode, v3, Event, Request, Response, ResponseData, MAX_FRAME_BYTES,
+    MAX_REQUESTS_PER_CONNECTION, PROTOCOL_VERSION,
 };
 use panora_core::storage::{BlobStore, Cipher, Database};
 use panora_core::sync::NoopSync;
 use std::rc::Rc;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, Interest};
 use tokio::net::{UnixListener, UnixStream};
 use tracing::{error, info, warn};
 
@@ -283,10 +284,37 @@ pub async fn serve(
         let (stream, _) = listener.accept().await?;
         let d = daemon.clone();
         tokio::task::spawn_local(async move {
-            if let Err(e) = serve_client(stream, d, socket_uid).await {
+            if let Err(e) = dispatch_client(stream, d, socket_uid).await {
                 warn!(error = %e, "IPC client disconnected");
             }
         });
+    }
+}
+
+/// Peek the connection's first byte to tell a v3 client (opens with
+/// [`v3::MAGIC`]) from a v2 one (opens with a bare JSON request, always
+/// starting with `{`), then hand it to the matching handler. v2 clients pay
+/// nothing extra: the peek doesn't consume anything, so `serve_client`'s own
+/// read sees the same first byte it always has.
+async fn dispatch_client(
+    stream: UnixStream,
+    daemon: Rc<Daemon>,
+    socket_uid: u32,
+) -> anyhow::Result<()> {
+    loop {
+        stream.readable().await?;
+        match stream.try_io(Interest::READABLE, || v3::peek_first_byte(&stream)) {
+            Ok(first) => {
+                return match first {
+                    Some(b) if b == v3::MAGIC[0] => {
+                        serve_client_v3(stream, daemon, socket_uid).await
+                    }
+                    _ => serve_client(stream, daemon, socket_uid).await,
+                };
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
+            Err(e) => return Err(e.into()),
+        }
     }
 }
 
@@ -393,12 +421,155 @@ pub async fn handle_request(request: Request, daemon: &Daemon) -> Response {
                     .await
                     .map(|entry| ResponseData::Entries(vec![entry]))
             }
+            Request::Hello { max_protocol } => Ok(ResponseData::Hello {
+                protocol: max_protocol.min(PROTOCOL_VERSION),
+            }),
+            // Only meaningful on a v3 connection, where `serve_client_v3`
+            // intercepts it before it ever reaches here (it becomes an
+            // event stream, not a single reply). A v2 client cannot
+            // subscribe at all.
+            Request::Subscribe => Err(panora_core::error::Error::Ipc(
+                "Subscribe requires the v3 protocol".into(),
+            )),
         };
     match result {
         Ok(data) => Response::Success(data),
         Err(e) => Response::Failure {
             message: e.to_string(),
         },
+    }
+}
+
+/// Serve one v3 connection: peer UID check (same rule as v2), consume the
+/// magic preamble, then bounded binary-framed requests — until either the
+/// peer disconnects or a `Subscribe` turns the rest of the connection into
+/// an event stream.
+async fn serve_client_v3(
+    mut stream: UnixStream,
+    daemon: Rc<Daemon>,
+    socket_uid: u32,
+) -> anyhow::Result<()> {
+    if stream.peer_cred()?.uid() != socket_uid {
+        return Err(anyhow::anyhow!("IPC peer UID does not match daemon UID"));
+    }
+    // The magic itself carries no fds and is short enough that a plain read
+    // is fine; framed requests after it always go through `read_v3_frame`.
+    let mut magic = [0u8; 4];
+    stream.read_exact(&mut magic).await?;
+    if magic != *v3::MAGIC {
+        return Err(anyhow::anyhow!(
+            "v3 connection did not open with the expected magic"
+        ));
+    }
+
+    let mut request_count = 0usize;
+    let mut reader = v3::server::FrameReader::default();
+    loop {
+        let Some((header, inline, fds)) = read_v3_frame(&stream, &mut reader).await? else {
+            return Ok(()); // peer closed
+        };
+        reader = v3::server::FrameReader::default();
+        request_count += 1;
+        if request_count > MAX_REQUESTS_PER_CONNECTION {
+            let frame = v3::server::encode_response(Response::Failure {
+                message: "IPC request limit exceeded".into(),
+            })?;
+            write_v3_frame(&stream, frame).await?;
+            return Ok(());
+        }
+        let request: Request = match v3::server::decode(&header, &inline, fds) {
+            Ok(r) => r,
+            Err(e) => {
+                let frame = v3::server::encode_response(Response::Failure {
+                    message: format!("invalid request: {e}"),
+                })?;
+                write_v3_frame(&stream, frame).await?;
+                continue;
+            }
+        };
+        match request {
+            Request::Subscribe => return subscribe_loop(&stream, &daemon).await,
+            other => {
+                let response = handle_request(other, &daemon).await;
+                let frame = v3::server::encode_response(response)?;
+                write_v3_frame(&stream, frame).await?;
+            }
+        }
+    }
+}
+
+/// Read one v3 frame, awaiting readability between non-blocking attempts.
+/// `Ok(None)` means the peer closed the connection.
+async fn read_v3_frame(
+    stream: &UnixStream,
+    reader: &mut v3::server::FrameReader,
+) -> anyhow::Result<Option<(Vec<u8>, Vec<u8>, Vec<std::os::fd::OwnedFd>)>> {
+    loop {
+        stream.readable().await?;
+        match stream.try_io(Interest::READABLE, || reader.poll_once(stream)) {
+            Ok(v3::server::FramePoll::Pending) => continue,
+            Ok(v3::server::FramePoll::Closed) => return Ok(None),
+            Ok(v3::server::FramePoll::Ready {
+                header,
+                inline,
+                fds,
+            }) => return Ok(Some((header, inline, fds))),
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
+            Err(e) => return Err(e.into()),
+        }
+    }
+}
+
+/// Write one v3 frame, awaiting writability between non-blocking attempts.
+async fn write_v3_frame(stream: &UnixStream, frame: v3::server::WireFrame) -> anyhow::Result<()> {
+    let mut writer = v3::server::FrameWriter::new(frame);
+    while !writer.is_done() {
+        stream.writable().await?;
+        match stream.try_io(Interest::WRITABLE, || writer.poll_once(stream)) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Ok(())
+}
+
+/// A `Subscribe` connection: no more requests are read from it. It gets an
+/// immediate `Event::Changed` with the current revision, then one more
+/// every time `revision` changes, until the client disconnects (detected by
+/// the socket becoming readable, which for a connection that never sends
+/// anything else only happens on EOF or a protocol violation — either way
+/// the subscription ends).
+async fn subscribe_loop(stream: &UnixStream, daemon: &Rc<Daemon>) -> anyhow::Result<()> {
+    let mut revisions = daemon.watch_revision();
+    let mut revision = *revisions.borrow();
+    loop {
+        let frame = v3::server::encode_event(&Event::Changed { revision })?;
+        write_v3_frame(stream, frame).await?;
+        // Wait for the next *real* change. `stream.readable()` can resolve
+        // on stale/edge-triggered readiness left over from reading the
+        // `Subscribe` request itself, with nothing actually there yet
+        // (`peek_first_byte` then reports `WouldBlock`) — that must only
+        // re-poll this inner wait, never re-send the frame above, or the
+        // client sees the same revision twice.
+        loop {
+            tokio::select! {
+                changed = revisions.changed() => {
+                    if changed.is_err() {
+                        return Ok(()); // daemon shutting down
+                    }
+                    revision = *revisions.borrow();
+                    break;
+                }
+                ready = stream.readable() => {
+                    ready?;
+                    match stream.try_io(Interest::READABLE, || v3::peek_first_byte(stream)) {
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
+                        _ => return Ok(()), // EOF, or a request this connection no longer accepts
+                    }
+                }
+            }
+        }
     }
 }
 
