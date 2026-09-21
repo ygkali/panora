@@ -149,6 +149,45 @@ jobs:
             cargo fuzz build "$(basename "$target" .rs)"
           done
 
+  bench-build:
+    name: Benchmarks build (STO-06)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev
+      # Compile check only, on every push: an actual measurement run needs
+      # a quiet, dedicated machine to mean anything, which a shared CI
+      # runner is not. The `benchmark` job below does that, once a week.
+      - run: cargo bench --workspace --no-run
+
+  benchmark:
+    name: Benchmark measurement (weekly, informational)
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev
+      - name: Run every benchmark
+        run: |
+          cargo bench --workspace 2>&1 | tee bench-results.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bench-results
+          path: |
+            bench-results.txt
+            target/criterion
+          retention-days: 90
+
   coverage:
     name: Coverage (informational)
     runs-on: ubuntu-latest

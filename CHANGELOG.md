@@ -253,6 +253,17 @@ real-machine verification in `docs/RELEASING.md` is done.
   are currently byte-identical across independent builds. `PKG-01`
   (1.3.0) already covers `SHA256SUMS` + minisign signing + an SPDX SBOM;
   `cargo vet` is left out as the roadmap itself marks it optional.
+- Benchmarks (STO-06): `crates/panora-core/benches/{fts,store,blob}.rs` and
+  `crates/panod/benches/ipc.rs` (`cargo bench`, criterion), replacing
+  `docs/benchmark.md`'s previous placeholder (B-07). A `bench-build` CI job
+  compiles every benchmark on each push; a weekly `benchmark` job actually
+  runs them and uploads the results as an artifact. Measured once on this
+  session's WSL2 dev machine: FTS5 prefix search over 10,000 rows ~1.1 ms,
+  an IPC round trip ~72 µs (both well under target), storing a 1 KiB entry
+  ~5.5 ms (slightly over the 5 ms target, inside the 20 ms ceiling — likely
+  this VM's disk latency, a bare-metal run should confirm). `panod`'s idle
+  RSS and the popup's open time still need a real desktop session (STO-07,
+  out of scope here).
 
 ### Changed
 - The popup no longer waits on the daemon: history pages, previews, image

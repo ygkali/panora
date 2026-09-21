@@ -36,3 +36,16 @@ rustix = { version = "1", features = ["fs", "net"] }
 [dev-dependencies]
 tempfile = "3"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+criterion.workspace = true
+
+[[bench]]
+name = "fts"
+harness = false
+
+[[bench]]
+name = "store"
+harness = false
+
+[[bench]]
+name = "blob"
+harness = false

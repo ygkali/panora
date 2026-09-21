@@ -37,6 +37,9 @@ tar = "0.4"
 rand = "0.8"
 zeroize = { version = "1", features = ["derive"] }
 
+# --- benchmarks (STO-06) ---
+criterion = "0.5"
+
 # --- text filters (user-defined ignore patterns) ---
 regex = "1"
 
