@@ -213,6 +213,7 @@ panora-cli copy <id> [--paste] [--mime text/plain] [--primary]
 panora-cli preview <id> [--mime image/png] [--out photo.png]
 panora-cli pin|unpin|delete|restore <id>
 panora-cli clear | private on|off | status | stats | toggle | reload
+panora-cli config get [KEY] | set <KEY> <VALUE> | validate | edit
 panora-cli store [FILE] [--mime TYPE] [--app NAME] [--no-copy]   # record text from a file or stdin
 panora-cli pick [--format '{id}\t{kind}\t{preview}']              # one line per entry for pickers
 panora-cli --json status

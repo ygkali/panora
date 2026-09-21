@@ -1931,6 +1931,7 @@ dependencies = [
  "panora-core",
  "serde",
  "serde_json",
+ "toml",
 ]
 
 [[package]]

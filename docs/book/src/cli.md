@@ -13,6 +13,7 @@ panora-cli pin <ID> | unpin <ID> | delete <ID> | restore <ID>
 panora-cli clear
 panora-cli private on|off
 panora-cli status | stats | toggle | reload
+panora-cli config get [KEY] | set <KEY> <VALUE> | validate | edit
 panora-cli store [FILE] [--mime TYPE] [--app NAME] [--no-copy]
 panora-cli pick [--format '{id}\t{kind}\t{preview}']
 panora-cli watch
@@ -117,6 +118,29 @@ locked`/`lock_password_set` are the second-layer lock, below.
 
 `panora-cli reload` re-reads `config.toml` without restarting, which is what
 the settings dialog does when you press *save*.
+
+### Reading and changing `config.toml` from a script
+
+```sh
+panora-cli config get                              # the whole file
+panora-cli config get history.max_entries           # one key
+panora-cli config set privacy.sensitive_ttl_minutes 30
+panora-cli config set privacy.excluded_apps "keepassxc,bitwarden,1password"
+panora-cli config validate
+panora-cli config edit                               # opens $VISUAL/$EDITOR
+```
+
+Keys are the dotted path you would write in `config.toml` — see
+[config.toml reference](config.md) for every one of them. `set` parses the
+new value to match the existing key's type: `true`/`false`/`1`/`0`/`yes`/`no`
+for a boolean, a plain integer, a comma-separated list for an array key
+(`excluded_apps`, `ignore_patterns`, `capture_kinds`), anything else as
+text — and refuses to write the file at all if the result would not pass
+`config validate`. `set` and a successfully re-read `edit` both tell a
+running daemon to pick up the change immediately (the same as
+`panora-cli reload`), best-effort — nothing breaks if the daemon happens not
+to be running right then, since it reads the file fresh on its own next
+start anyway.
 
 Instead of polling `status`, `panora-cli watch` blocks and prints a line
 every time `revision` changes (the first line is always the current one, so

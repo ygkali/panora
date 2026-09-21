@@ -358,6 +358,15 @@ real-machine verification in `docs/RELEASING.md` is done.
   total payload bytes and the oldest/newest entry's time, computed in SQL
   server-side (`Database::stats`) rather than by paging through every
   entry. `--json` gets the same shape as every other command.
+- `panora-cli config get/set/validate/edit` (CLI-05): reads and changes
+  `config.toml` directly by dotted key path (`history.max_entries`,
+  `privacy.sensitive_policy`, ...) without a daemon restart. `get` with no
+  key prints the whole file; `set` parses the new value to match the
+  existing key's TOML type (boolean, integer, comma-separated list for an
+  array) and refuses to write anything that would not pass `validate`;
+  `edit` opens `$VISUAL`/`$EDITOR` and reports whether the result is still
+  valid afterwards without reverting it. `set` and a valid `edit` both
+  best-effort `reload` a running daemon.
 
 ### Changed
 - The popup no longer waits on the daemon: history pages, previews, image
