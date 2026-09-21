@@ -136,6 +136,20 @@ enum Command {
     /// `rotation_incomplete` under health if a previous attempt was left
     /// unfinished.
     RotateKey,
+    /// Engage the second-layer lock, or manage its password (SEC-02)
+    ///
+    /// While engaged: `list`/`search` report a count only, `preview` and
+    /// `copy`/`recall` are refused. Passwords are always read from
+    /// standard input, one per line, never as a command-line argument
+    /// (shell history, `ps` would show it).
+    Lock {
+        #[command(subcommand)]
+        action: Option<LockAction>,
+    },
+    /// Disengage the second-layer lock
+    ///
+    /// Reads the password from standard input.
+    Unlock,
     /// Bring back an entry deleted in the last 30 seconds
     Restore {
         /// Entry id
@@ -242,6 +256,24 @@ enum OnOff {
     Off,
 }
 
+/// `lock` subcommands that manage the password itself (SEC-02), as opposed
+/// to `lock` bare (engage) and `unlock` (disengage).
+#[derive(Subcommand, Debug)]
+enum LockAction {
+    /// Set the lock password; only valid when none is set yet. Reads the
+    /// new password from standard input.
+    #[command(name = "set-password")]
+    Set,
+    /// Change the existing lock password. Reads two lines from standard
+    /// input: the current password, then the new one.
+    #[command(name = "change-password")]
+    Change,
+    /// Remove the lock password (this also disengages the lock). Reads the
+    /// current password from standard input to verify.
+    #[command(name = "remove-password")]
+    Remove,
+}
+
 /// What a command needs from the daemon and how its reply is shown.
 struct Invocation {
     request: Request,
@@ -340,6 +372,47 @@ fn run(cli: Cli, s: &Strings) -> Result<(), Failure> {
                 data,
             );
         }
+        Command::Unlock => {
+            let password = read_password_line()?;
+            let request = Request::Unlock { password };
+            let data = client::call(&request)?;
+            return print_response(s, json, &no_reply_shape(request), data);
+        }
+        Command::Lock { action: None } => {
+            let data = client::call(&Request::Lock)?;
+            return print_response(s, json, &no_reply_shape(Request::Lock), data);
+        }
+        Command::Lock {
+            action: Some(LockAction::Set),
+        } => {
+            let request = Request::SetLockPassword {
+                new_password: Some(read_password_line()?),
+                current_password: None,
+            };
+            let data = client::call(&request)?;
+            return print_response(s, json, &no_reply_shape(request), data);
+        }
+        Command::Lock {
+            action: Some(LockAction::Change),
+        } => {
+            let current_password = read_password_line()?;
+            let request = Request::SetLockPassword {
+                new_password: Some(read_password_line()?),
+                current_password: Some(current_password),
+            };
+            let data = client::call(&request)?;
+            return print_response(s, json, &no_reply_shape(request), data);
+        }
+        Command::Lock {
+            action: Some(LockAction::Remove),
+        } => {
+            let request = Request::SetLockPassword {
+                new_password: None,
+                current_password: Some(read_password_line()?),
+            };
+            let data = client::call(&request)?;
+            return print_response(s, json, &no_reply_shape(request), data);
+        }
         Command::Store {
             file,
             mime,
@@ -417,10 +490,41 @@ fn to_invocation(command: Command) -> Invocation {
         | Command::Man { .. }
         | Command::Store { .. }
         | Command::Watch
-        | Command::RotateKey => {
+        | Command::RotateKey
+        | Command::Lock { .. }
+        | Command::Unlock => {
             unreachable!("handled before reaching the daemon")
         }
     }
+}
+
+/// An `Invocation` for a request whose only successful reply is `Empty`
+/// (the `lock`/`unlock` family): `mime`/`out`/`format` are never read for
+/// it, but `request` stays the real one for consistency with every other
+/// `Invocation`.
+fn no_reply_shape(request: Request) -> Invocation {
+    Invocation {
+        request,
+        mime: None,
+        out: None,
+        format: None,
+    }
+}
+
+/// Read one line of secret input (a lock password) from standard input,
+/// trimmed of its line ending. Never a command-line argument: that would
+/// put it in the shell history and be visible to any process reading
+/// `/proc/<pid>/cmdline` (`ps`).
+fn read_password_line() -> Result<String, Failure> {
+    let mut line = String::new();
+    std::io::stdin()
+        .read_line(&mut line)
+        .map_err(|e| format!("cannot read the password from standard input: {e}"))?;
+    let line = line.trim_end_matches(['\r', '\n']);
+    if line.is_empty() {
+        return Err("no password given on standard input".into());
+    }
+    Ok(line.to_string())
 }
 
 /// Read the content for `store` from a file or standard input, bounded by
@@ -572,12 +676,15 @@ fn print_response(
         ResponseData::Status(status) => {
             let caps = &status.capabilities;
             println!(
-                "backend={} entries={} private={} locked={} version={} protocol={} \
-                 revision={} primary={} persist={} paste={} source_app={} needs_bridge={}",
+                "backend={} entries={} private={} locked={} app_locked={} \
+                 lock_password_set={} version={} protocol={} revision={} primary={} \
+                 persist={} paste={} source_app={} needs_bridge={}",
                 status.backend,
                 status.entries,
                 status.private_mode,
                 status.locked,
+                status.app_locked,
+                status.lock_password_set,
                 status.version,
                 status.protocol,
                 status.revision,

@@ -223,6 +223,45 @@ impl Database {
         Ok(())
     }
 
+    /// The second-layer lock password's verifier and KEK salt (SEC-02), if
+    /// one is set. Safe to keep in `meta` in the clear (see the module docs
+    /// on [`crate::lock`]).
+    pub fn lock_secret(&self) -> Result<Option<crate::lock::LockSecret>> {
+        let verifier = self.meta("lock_verifier")?;
+        let kek_salt = self.meta("lock_kek_salt")?;
+        Ok(match (verifier, kek_salt) {
+            (Some(verifier), Some(kek_salt)) => {
+                Some(crate::lock::LockSecret { verifier, kek_salt })
+            }
+            _ => None,
+        })
+    }
+
+    /// Set, replace or remove the stored lock secret.
+    pub fn set_lock_secret(&self, secret: Option<&crate::lock::LockSecret>) -> Result<()> {
+        match secret {
+            Some(secret) => {
+                let tx = self.conn.unchecked_transaction()?;
+                tx.execute(
+                    "INSERT OR REPLACE INTO meta(key, value) VALUES('lock_verifier', ?1)",
+                    params![secret.verifier],
+                )?;
+                tx.execute(
+                    "INSERT OR REPLACE INTO meta(key, value) VALUES('lock_kek_salt', ?1)",
+                    params![secret.kek_salt],
+                )?;
+                tx.commit()?;
+            }
+            None => {
+                self.conn.execute(
+                    "DELETE FROM meta WHERE key IN ('lock_verifier', 'lock_kek_salt')",
+                    [],
+                )?;
+            }
+        }
+        Ok(())
+    }
+
     /// Re-seal every stored preview (including tombstoned entries still
     /// awaiting purge) under `new_cipher`, then start using it for
     /// everything from here on.
@@ -2150,5 +2189,23 @@ mod lifecycle_tests {
         );
         db.set_rotation_state(None).unwrap();
         assert_eq!(db.rotation_state().unwrap(), None);
+    }
+
+    #[test]
+    fn lock_secret_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = open_with(&dir.path().join("history.db"), &MasterKey::generate()).unwrap();
+        assert_eq!(db.lock_secret().unwrap(), None);
+
+        let secret = crate::lock::LockSecret::new("a lock password").unwrap();
+        db.set_lock_secret(Some(&secret)).unwrap();
+        assert_eq!(db.lock_secret().unwrap(), Some(secret.clone()));
+
+        let changed = crate::lock::LockSecret::new("a different password").unwrap();
+        db.set_lock_secret(Some(&changed)).unwrap();
+        assert_eq!(db.lock_secret().unwrap(), Some(changed));
+
+        db.set_lock_secret(None).unwrap();
+        assert_eq!(db.lock_secret().unwrap(), None);
     }
 }

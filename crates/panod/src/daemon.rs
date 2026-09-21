@@ -13,7 +13,7 @@ use panora_core::privacy::{ContentFilters, PrivacyEngine};
 use panora_core::storage::{BlobStore, Database, QueryFilter};
 use panora_core::sync::{SyncEvent, SyncProvider};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
@@ -94,6 +94,16 @@ pub struct Daemon {
     /// backend needs the bridge). Assumed true until the watcher reports, so
     /// a slow bus never produces a false warning at startup.
     extension_present: std::sync::atomic::AtomicBool,
+    /// Second-layer password lock (SEC-02). Unlike `locked` (the OS session
+    /// lock, which only pauses capture) this gates `List`/`Preview`/
+    /// `Recall` in `handle_request`; the master key stays loaded either
+    /// way (see `crate::keyring` and `panora_core::lock` for the threat
+    /// model this does and does not cover).
+    app_locked: std::sync::atomic::AtomicBool,
+    /// Unix time of the last request that counts as user activity, for
+    /// `privacy.lock_after_idle_minutes`. Starts at daemon startup, not 0,
+    /// so idle locking cannot fire immediately after a restart.
+    last_activity: AtomicI64,
 }
 
 /// How long a deleted entry can be brought back with `restore` before its
@@ -166,6 +176,8 @@ impl Daemon {
             config_epoch: tokio::sync::watch::channel(0).0,
             locked: std::sync::atomic::AtomicBool::new(false),
             extension_present: std::sync::atomic::AtomicBool::new(true),
+            app_locked: std::sync::atomic::AtomicBool::new(false),
+            last_activity: AtomicI64::new(unix_now()),
         }
     }
 
@@ -331,6 +343,157 @@ impl Daemon {
         Ok(())
     }
 
+    // --- SEC-02: second-layer password lock. See `panora_core::lock`'s
+    // module docs for exactly what this does and does not protect against;
+    // the short version is that it gates *use* of a running, unlocked
+    // daemon, not the master key's rest-state in the keyring, which must
+    // stay loadable unattended for `panod` to survive a reboot.
+
+    /// Whether the second-layer lock is currently engaged. `List` degrades
+    /// to a count and `Preview`/`Recall` are refused while this is true;
+    /// gated in `server::handle_request`, not here, since it is about IPC
+    /// access, not the daemon's own internal ability to read its storage.
+    pub fn is_app_locked(&self) -> bool {
+        self.app_locked.load(Ordering::Relaxed)
+    }
+
+    /// Whether a lock password has been set at all (independent of whether
+    /// it is currently engaged).
+    pub fn lock_password_set(&self) -> Result<bool> {
+        Ok(self.db.lock_secret()?.is_some())
+    }
+
+    /// Record a request as user activity, for idle locking. Called from
+    /// `handle_request` for everything except `Status`/`Hello` (health
+    /// checks and negotiation should not by themselves keep the lock from
+    /// engaging) and `Subscribe` (a long-lived connection that never
+    /// repeats this call anyway).
+    pub fn touch_activity(&self) {
+        self.last_activity.store(unix_now(), Ordering::Relaxed);
+    }
+
+    /// Seconds since the last recorded activity.
+    fn idle_seconds(&self) -> i64 {
+        (unix_now() - self.last_activity.load(Ordering::Relaxed)).max(0)
+    }
+
+    /// Engage the idle lock if enough time has passed, a password is set,
+    /// and it is not already engaged. Called periodically by `server`; a
+    /// no-op most of the time, which is why it is infallible (an error
+    /// here — a locked database, say — should not take a ticker task down).
+    pub fn maybe_auto_lock(&self) {
+        if self.is_app_locked() {
+            return;
+        }
+        let idle_minutes = self.config().privacy.lock_after_idle_minutes;
+        if idle_minutes == 0 {
+            return;
+        }
+        if self.idle_seconds() < i64::from(idle_minutes) * 60 {
+            return;
+        }
+        match self.lock_password_set() {
+            Ok(true) => {
+                self.app_locked.store(true, Ordering::Relaxed);
+                info!(
+                    idle_minutes,
+                    "engaged the second-layer lock after idle timeout"
+                );
+                self.bump();
+            }
+            Ok(false) => {} // nothing to lock with
+            Err(e) => warn!(error = %e, "could not check the lock password while idle"),
+        }
+    }
+
+    /// Test-only: make `idle_seconds` report `seconds_ago` without a real
+    /// wait, so `maybe_auto_lock` is testable on a fast clock.
+    #[cfg(test)]
+    fn backdate_activity_for_test(&self, seconds_ago: i64) {
+        self.last_activity
+            .store(unix_now() - seconds_ago, Ordering::Relaxed);
+    }
+
+    /// Engage the lock by hand (`panora-cli lock`). Refuses when no
+    /// password is set — locking with nothing that can unlock it again
+    /// would strand the user's own history.
+    pub fn engage_lock(&self) -> Result<()> {
+        if !self.lock_password_set()? {
+            return Err(Error::Ipc(
+                "no lock password is set; set one with: panora-cli lock set-password".into(),
+            ));
+        }
+        self.app_locked.store(true, Ordering::Relaxed);
+        self.bump();
+        Ok(())
+    }
+
+    /// Check `password` against the stored verifier and disengage the lock
+    /// on success.
+    pub fn unlock(&self, password: &str) -> Result<()> {
+        let secret = self
+            .db
+            .lock_secret()?
+            .ok_or_else(|| Error::Ipc("no lock password is set".into()))?;
+        if !secret.verify(password) {
+            return Err(Error::Ipc("incorrect password".into()));
+        }
+        self.app_locked.store(false, Ordering::Relaxed);
+        self.touch_activity();
+        self.bump();
+        Ok(())
+    }
+
+    /// Set, change or remove the lock password.
+    ///
+    /// Changing or removing an existing one requires `current_password` to
+    /// verify first, regardless of whether the lock happens to be engaged
+    /// right now — otherwise anyone with a moment of unlocked access could
+    /// silently disable a lock they do not actually know the password for.
+    /// Setting a *new* password also writes a password-gated backup copy of
+    /// the live master key to the keyring (`crate::keyring::
+    /// store_lock_backup`); refuses while a key rotation (SEC-01) is
+    /// still in progress, since the "live" key the keyring would hand back
+    /// right now might not be the one storage ends up under.
+    pub async fn set_lock_password(
+        &self,
+        new_password: Option<&str>,
+        current_password: Option<&str>,
+    ) -> Result<()> {
+        if let Some(existing) = self.db.lock_secret()? {
+            let current = current_password
+                .ok_or_else(|| Error::Ipc("the current password is required".into()))?;
+            if !existing.verify(current) {
+                return Err(Error::Ipc("incorrect password".into()));
+            }
+        }
+        match new_password {
+            Some(new_password) => {
+                if self.db.rotation_state()?.is_some() {
+                    return Err(Error::Ipc(
+                        "a key rotation is in progress; finish it first with: panora-cli \
+                         rotate-key"
+                            .into(),
+                    ));
+                }
+                let secret = panora_core::lock::LockSecret::new(new_password)?;
+                let live_key = crate::keyring::load_or_create_master_key().await?;
+                let wrapped = secret.wrap(new_password, &live_key)?;
+                self.db.set_lock_secret(Some(&secret))?;
+                crate::keyring::store_lock_backup(&wrapped).await?;
+                info!("lock password set");
+            }
+            None => {
+                self.db.set_lock_secret(None)?;
+                crate::keyring::remove_lock_backup().await?;
+                self.app_locked.store(false, Ordering::Relaxed);
+                info!("lock password removed");
+            }
+        }
+        self.bump();
+        Ok(())
+    }
+
     /// Status report for IPC clients.
     pub fn status(&self) -> Result<StatusData> {
         let caps = self.backend.capabilities();
@@ -351,6 +514,8 @@ impl Daemon {
                 needs_bridge: caps.needs_bridge,
             },
             locked: self.locked(),
+            app_locked: self.is_app_locked(),
+            lock_password_set: self.lock_password_set()?,
             health: self.health(),
         })
     }
@@ -2617,5 +2782,82 @@ mod tests {
             ))
             .await;
         assert_eq!(daemon.db().count().unwrap(), 0);
+    }
+
+    // --- SEC-02: second-layer lock. `set_lock_password` itself needs a
+    // real Secret Service (it wraps a backup copy of the live master key
+    // for the keyring) and is covered by `tests/lock.rs` instead; these
+    // seed `db.set_lock_secret` directly to exercise engage/unlock/idle
+    // logic without one.
+
+    fn seed_lock_secret(daemon: &Daemon, password: &str) {
+        let secret = panora_core::lock::LockSecret::new(password).unwrap();
+        daemon.db().set_lock_secret(Some(&secret)).unwrap();
+    }
+
+    #[tokio::test]
+    async fn engage_lock_refuses_without_a_password_set() {
+        let dir = tempfile::tempdir().unwrap();
+        let (daemon, _backend) = test_daemon(&dir);
+        assert!(!daemon.lock_password_set().unwrap());
+        assert!(daemon.engage_lock().is_err());
+        assert!(!daemon.is_app_locked());
+    }
+
+    #[tokio::test]
+    async fn engage_and_unlock_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let (daemon, _backend) = test_daemon(&dir);
+        seed_lock_secret(&daemon, "correct horse battery staple");
+
+        daemon.engage_lock().unwrap();
+        assert!(daemon.is_app_locked());
+
+        assert!(daemon.unlock("wrong password").is_err());
+        assert!(daemon.is_app_locked(), "a wrong password must not unlock");
+
+        daemon.unlock("correct horse battery staple").unwrap();
+        assert!(!daemon.is_app_locked());
+    }
+
+    #[tokio::test]
+    async fn maybe_auto_lock_only_fires_once_idle_and_configured() {
+        let dir = tempfile::tempdir().unwrap();
+        let (daemon, _backend) = test_daemon(&dir);
+        seed_lock_secret(&daemon, "idle timeout password");
+
+        // Disabled (the default): never locks, no matter how idle.
+        daemon.backdate_activity_for_test(10 * 60);
+        daemon.maybe_auto_lock();
+        assert!(!daemon.is_app_locked());
+
+        // Enabled, but not idle long enough yet.
+        {
+            let mut config = daemon.config();
+            config.privacy.lock_after_idle_minutes = 5;
+            daemon.apply_config(config).unwrap();
+        }
+        daemon.backdate_activity_for_test(60); // 1 minute, under the 5 configured
+        daemon.maybe_auto_lock();
+        assert!(!daemon.is_app_locked());
+
+        // Idle past the configured threshold: engages.
+        daemon.backdate_activity_for_test(6 * 60);
+        daemon.maybe_auto_lock();
+        assert!(daemon.is_app_locked());
+    }
+
+    #[tokio::test]
+    async fn maybe_auto_lock_does_nothing_without_a_password() {
+        let dir = tempfile::tempdir().unwrap();
+        let (daemon, _backend) = test_daemon(&dir);
+        {
+            let mut config = daemon.config();
+            config.privacy.lock_after_idle_minutes = 1;
+            daemon.apply_config(config).unwrap();
+        }
+        daemon.backdate_activity_for_test(120);
+        daemon.maybe_auto_lock();
+        assert!(!daemon.is_app_locked(), "nothing to lock with");
     }
 }

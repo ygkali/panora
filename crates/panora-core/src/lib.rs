@@ -27,6 +27,8 @@ pub mod error;
 pub mod i18n;
 /// JSON-lines IPC protocol shared by daemon, GUI and CLI.
 pub mod ipc;
+/// Second-layer password lock (SEC-02), on top of the always-loaded master key.
+pub mod lock;
 /// Data model (entries, MIME payloads, content kinds).
 pub mod model;
 /// Privacy engine: secret flags, exclusion lists, private mode.

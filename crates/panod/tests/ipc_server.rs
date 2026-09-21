@@ -586,3 +586,125 @@ async fn v2_and_v3_clients_share_the_same_socket() {
         })
         .await;
 }
+
+// --- SEC-02: second-layer password lock. `Daemon::set_lock_password`
+// itself needs a real Secret Service (it also writes a keyring backup) and
+// is covered by `tests/lock.rs`; these seed the lock secret directly to
+// exercise the IPC-level gating end to end over the real socket.
+
+#[tokio::test]
+async fn locked_history_degrades_list_and_refuses_preview_and_recall() {
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let server = start(None);
+            capture(&server, "locked entry").await;
+            let id = server
+                .daemon
+                .query(&panora_core::storage::QueryFilter::recent(1))
+                .unwrap()[0]
+                .id;
+
+            let secret = panora_core::lock::LockSecret::new("test password").unwrap();
+            server.daemon.db().set_lock_secret(Some(&secret)).unwrap();
+            server.daemon.engage_lock().unwrap();
+
+            let list = raw_call(
+                &server.socket,
+                &encode(&Request::List(QueryRequest::default())).unwrap(),
+            )
+            .await
+            .unwrap();
+            assert!(
+                matches!(list.into_result().unwrap(), ResponseData::Count(1)),
+                "List degrades to a count while locked"
+            );
+
+            let preview = raw_call(
+                &server.socket,
+                &encode(&Request::Preview {
+                    id,
+                    thumbnail: false,
+                })
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+            match preview {
+                Response::Failure { message } => assert!(message.contains("locked"), "{message}"),
+                other => panic!("Preview must be refused while locked, got {other:?}"),
+            }
+
+            let recall = raw_call(
+                &server.socket,
+                &encode(&Request::Recall {
+                    id,
+                    paste: false,
+                    mime: None,
+                })
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+            match recall {
+                Response::Failure { message } => assert!(message.contains("locked"), "{message}"),
+                other => panic!("Recall must be refused while locked, got {other:?}"),
+            }
+
+            // A wrong password changes nothing.
+            let bad_unlock = raw_call(
+                &server.socket,
+                &encode(&Request::Unlock {
+                    password: "nope".into(),
+                })
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+            assert!(matches!(bad_unlock, Response::Failure { .. }));
+            assert!(server.daemon.is_app_locked());
+
+            // The right one unlocks, and List/Preview work again.
+            let ok_unlock = raw_call(
+                &server.socket,
+                &encode(&Request::Unlock {
+                    password: "test password".into(),
+                })
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+            assert!(matches!(
+                ok_unlock.into_result().unwrap(),
+                ResponseData::Empty
+            ));
+            assert!(!server.daemon.is_app_locked());
+
+            let list_after = raw_call(
+                &server.socket,
+                &encode(&Request::List(QueryRequest::default())).unwrap(),
+            )
+            .await
+            .unwrap();
+            assert!(matches!(
+                list_after.into_result().unwrap(),
+                ResponseData::Entries(_)
+            ));
+        })
+        .await;
+}
+
+#[tokio::test]
+async fn lock_over_ipc_refuses_without_a_password_set() {
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let server = start(None);
+            let reply = raw_call(&server.socket, &encode(&Request::Lock).unwrap())
+                .await
+                .unwrap();
+            assert!(matches!(reply, Response::Failure { .. }));
+            assert!(!server.daemon.is_app_locked());
+        })
+        .await;
+}

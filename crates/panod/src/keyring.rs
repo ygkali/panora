@@ -28,10 +28,18 @@ const KEYRING_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 const COLLECTION_ALIAS: &str = "default";
 const ITEM_LABEL: &str = "Panora master key";
+// Secret Service's `SearchItems` matches an item whose attributes are a
+// *superset* of the query, not an exact match — so without its own `role`,
+// searching for these three base attributes alone would also match the
+// pending-rotation and lock-backup items below once either exists (caught
+// by the SEC-02 keyring tests: `load_or_create_master_key` started
+// returning the lock-backup item's wrapped bytes instead of the plain
+// key). `role` here makes every item kind's query mutually exclusive.
 const ITEM_ATTRS: &[(&str, &str)] = &[
     ("application", "panora"),
     ("purpose", "clipboard-history-encryption"),
     ("format_version", "1"),
+    ("role", "primary"),
 ];
 
 /// The key a `rotate-key` in progress is resealing everything under, kept
@@ -52,6 +60,22 @@ fn attributes() -> HashMap<&'static str, &'static str> {
 
 fn pending_attributes() -> HashMap<&'static str, &'static str> {
     PENDING_ITEM_ATTRS.iter().copied().collect()
+}
+
+/// A password-gated backup copy of the master key (SEC-02), wrapped with
+/// `panora_core::lock::LockSecret::wrap`. Not part of the daemon's normal
+/// unlock flow — see `panora_core::lock`'s module docs for what this does
+/// and does not protect against.
+const LOCK_BACKUP_ITEM_LABEL: &str = "Panora master key (password-gated backup)";
+const LOCK_BACKUP_ITEM_ATTRS: &[(&str, &str)] = &[
+    ("application", "panora"),
+    ("purpose", "clipboard-history-encryption"),
+    ("format_version", "1"),
+    ("role", "lock-backup"),
+];
+
+fn lock_backup_attributes() -> HashMap<&'static str, &'static str> {
+    LOCK_BACKUP_ITEM_ATTRS.iter().copied().collect()
 }
 
 fn keyring_err(context: &str, e: impl std::fmt::Display) -> Error {
@@ -280,6 +304,56 @@ pub async fn finish_rotation(key: &MasterKey) -> Result<()> {
         item.delete(None)
             .await
             .map_err(|e| keyring_err("cannot remove the pending rotation key", e))?;
+    }
+    Ok(())
+}
+
+/// Store (or replace) the password-gated backup copy of the master key.
+pub async fn store_lock_backup(wrapped: &[u8]) -> Result<()> {
+    let collection = open_collection().await?;
+    collection
+        .create_item(
+            LOCK_BACKUP_ITEM_LABEL,
+            &lock_backup_attributes(),
+            Secret::blob(wrapped),
+            true,
+            None,
+        )
+        .await
+        .map_err(|e| keyring_err("cannot store the lock backup", e))?;
+    Ok(())
+}
+
+/// Read the password-gated backup copy of the master key, if one exists.
+pub async fn load_lock_backup() -> Result<Option<Vec<u8>>> {
+    let collection = open_collection().await?;
+    let items = collection
+        .search_items(&lock_backup_attributes())
+        .await
+        .map_err(|e| keyring_err("keyring search failed", e))?;
+    let Some(item) = items.first() else {
+        return Ok(None);
+    };
+    let secret = item
+        .secret()
+        .await
+        .map_err(|e| keyring_err("cannot read the lock backup", e))?;
+    Ok(Some(secret.as_bytes().to_vec()))
+}
+
+/// Remove the password-gated backup copy, if one exists (clearing the lock
+/// password removes it — an old backup under a retired password is not
+/// useful and would be misleading to leave behind).
+pub async fn remove_lock_backup() -> Result<()> {
+    let collection = open_collection().await?;
+    let items = collection
+        .search_items(&lock_backup_attributes())
+        .await
+        .map_err(|e| keyring_err("keyring search failed", e))?;
+    if let Some(item) = items.first() {
+        item.delete(None)
+            .await
+            .map_err(|e| keyring_err("cannot remove the lock backup", e))?;
     }
     Ok(())
 }

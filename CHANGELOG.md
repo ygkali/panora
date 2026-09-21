@@ -202,6 +202,18 @@ real-machine verification in `docs/RELEASING.md` is done.
   starting a new one or losing data. `panora-cli status` reports
   `rotation_incomplete` under health when a previous attempt was left
   unfinished.
+- Second-layer lock (SEC-02): `panora-cli lock [set-password|change-
+  password|remove-password]` and `panora-cli unlock` gate a *running*
+  daemon behind an Argon2id-derived password, independent of the OS
+  keyring (which still loads the plain master key unattended, so `panod`
+  keeps surviving a reboot with no one there to unlock anything). While
+  engaged: `list`/`search` report a count only, `preview` and `copy`/
+  `recall` are refused. `privacy.lock_after_idle_minutes` engages it on
+  its own after that many minutes of inactivity. Setting a password also
+  writes a password-gated backup copy of the live master key to the
+  keyring, independent of the daemon's normal unlock flow. Passwords are
+  always read from standard input, never a command-line argument.
+  `panora-cli status` reports `app_locked`/`lock_password_set`.
 
 ### Changed
 - The popup no longer waits on the daemon: history pages, previews, image

@@ -25,6 +25,11 @@ use tracing::{error, info, warn};
 /// so `max_age_days` expires entries on quiet days too.
 const MAINTENANCE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60 * 60);
 
+/// How often `Daemon::maybe_auto_lock` is polled. `lock_after_idle_minutes`
+/// is configured in minutes, so this needs to be much finer than
+/// `MAINTENANCE_INTERVAL` without busy-polling.
+const IDLE_LOCK_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// Blocking entry point used by `main`.
 pub fn main() -> anyhow::Result<()> {
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -133,6 +138,19 @@ async fn run_app() -> anyhow::Result<()> {
             if let Err(e) = maintenance.maintain() {
                 warn!(error = %e, "periodic maintenance failed");
             }
+        }
+    });
+
+    // SEC-02: `lock_after_idle_minutes` is typically minutes, not hours, so
+    // it gets its own, much finer ticker rather than piggybacking on
+    // `MAINTENANCE_INTERVAL`. A no-op check (`maybe_auto_lock` bails out
+    // immediately) whenever idle locking is off or already engaged.
+    let idle_lock = daemon.clone();
+    tokio::task::spawn_local(async move {
+        let mut ticker = tokio::time::interval(IDLE_LOCK_CHECK_INTERVAL);
+        loop {
+            ticker.tick().await;
+            idle_lock.maybe_auto_lock();
         }
     });
 
@@ -371,68 +389,105 @@ pub async fn serve_client(
 
 /// Dispatch one request. Every arm maps to a daemon method; errors become
 /// `Response::Failure` with a message safe to show to the user.
+/// Reply to `Preview`/`Recall` while the second-layer lock (SEC-02) is
+/// engaged.
+fn locked_error() -> panora_core::error::Error {
+    panora_core::error::Error::Ipc("history is locked; unlock with: panora-cli unlock".into())
+}
+
 pub async fn handle_request(request: Request, daemon: &Daemon) -> Response {
-    let result =
-        match request {
-            Request::List(q) => daemon.query(&q.into()).map(ResponseData::Entries),
-            Request::Recall { id, paste, mime } => daemon
-                .recall(id, paste, mime.as_deref())
-                .await
-                .map(|outcome| ResponseData::Recalled {
-                    pasted: outcome.pasted,
-                }),
-            Request::Pin { id, pinned } => daemon
-                .set_pinned(id, pinned)
-                .await
-                .map(|_| ResponseData::Empty),
-            Request::Delete { id } => daemon.delete(id).await.map(|_| ResponseData::Empty),
-            Request::Clear => daemon.clear().await.map(ResponseData::Count),
-            Request::SetPrivate { enabled } => {
-                daemon.set_private_mode(enabled);
-                Ok(ResponseData::Empty)
+    // Health checks, protocol negotiation and the long-lived Subscribe
+    // stream (which never reaches this function at all) should not by
+    // themselves keep an idle lock from engaging.
+    if !matches!(request, Request::Status | Request::Hello { .. }) {
+        daemon.touch_activity();
+    }
+    let result = match request {
+        Request::List(q) => {
+            if daemon.is_app_locked() {
+                daemon
+                    .db()
+                    .count()
+                    .map(|n| ResponseData::Count(n.max(0) as usize))
+            } else {
+                daemon.query(&q.into()).map(ResponseData::Entries)
             }
-            Request::Toggle => gnome::activate_gui().await.map(|_| ResponseData::Empty),
-            Request::Status => daemon.status().map(ResponseData::Status),
-            Request::Preview { id, thumbnail } => {
-                if thumbnail {
-                    daemon
-                        .thumbnail_or_full(id)
-                        .await
-                        .map(ResponseData::Payloads)
-                } else {
-                    daemon.load_payloads(id).map(ResponseData::Payloads)
-                }
+        }
+        Request::Recall { id, paste, mime } => {
+            if daemon.is_app_locked() {
+                Err(locked_error())
+            } else {
+                daemon
+                    .recall(id, paste, mime.as_deref())
+                    .await
+                    .map(|outcome| ResponseData::Recalled {
+                        pasted: outcome.pasted,
+                    })
             }
-            Request::ReloadConfig => daemon.reload_config().map(|_| ResponseData::Empty),
-            Request::RotateKey => daemon.rotate_key().await.map(|_| ResponseData::Empty),
-            Request::Restore { id } => daemon.restore(id).await.map(|_| ResponseData::Empty),
-            Request::Store {
+        }
+        Request::Pin { id, pinned } => daemon
+            .set_pinned(id, pinned)
+            .await
+            .map(|_| ResponseData::Empty),
+        Request::Delete { id } => daemon.delete(id).await.map(|_| ResponseData::Empty),
+        Request::Clear => daemon.clear().await.map(ResponseData::Count),
+        Request::SetPrivate { enabled } => {
+            daemon.set_private_mode(enabled);
+            Ok(ResponseData::Empty)
+        }
+        Request::Toggle => gnome::activate_gui().await.map(|_| ResponseData::Empty),
+        Request::Status => daemon.status().map(ResponseData::Status),
+        Request::Preview { id, thumbnail } => {
+            if daemon.is_app_locked() {
+                Err(locked_error())
+            } else if thumbnail {
+                daemon
+                    .thumbnail_or_full(id)
+                    .await
+                    .map(ResponseData::Payloads)
+            } else {
+                daemon.load_payloads(id).map(ResponseData::Payloads)
+            }
+        }
+        Request::ReloadConfig => daemon.reload_config().map(|_| ResponseData::Empty),
+        Request::RotateKey => daemon.rotate_key().await.map(|_| ResponseData::Empty),
+        Request::Lock => daemon.engage_lock().map(|_| ResponseData::Empty),
+        Request::Unlock { password } => daemon.unlock(&password).map(|_| ResponseData::Empty),
+        Request::SetLockPassword {
+            new_password,
+            current_password,
+        } => daemon
+            .set_lock_password(new_password.as_deref(), current_password.as_deref())
+            .await
+            .map(|_| ResponseData::Empty),
+        Request::Restore { id } => daemon.restore(id).await.map(|_| ResponseData::Empty),
+        Request::Store {
+            payloads,
+            source_app,
+            copy,
+        } => {
+            let data = panora_core::model::ClipboardData {
+                selection: panora_core::model::Selection::Clipboard,
+                offered_mimes: payloads.iter().map(|p| p.mime.clone()).collect(),
                 payloads,
                 source_app,
-                copy,
-            } => {
-                let data = panora_core::model::ClipboardData {
-                    selection: panora_core::model::Selection::Clipboard,
-                    offered_mimes: payloads.iter().map(|p| p.mime.clone()).collect(),
-                    payloads,
-                    source_app,
-                };
-                daemon
-                    .store_external(data, copy)
-                    .await
-                    .map(|entry| ResponseData::Entries(vec![entry]))
-            }
-            Request::Hello { max_protocol } => Ok(ResponseData::Hello {
-                protocol: max_protocol.min(PROTOCOL_VERSION),
-            }),
-            // Only meaningful on a v3 connection, where `serve_client_v3`
-            // intercepts it before it ever reaches here (it becomes an
-            // event stream, not a single reply). A v2 client cannot
-            // subscribe at all.
-            Request::Subscribe => Err(panora_core::error::Error::Ipc(
-                "Subscribe requires the v3 protocol".into(),
-            )),
-        };
+            };
+            daemon
+                .store_external(data, copy)
+                .await
+                .map(|entry| ResponseData::Entries(vec![entry]))
+        }
+        Request::Hello { max_protocol } => Ok(ResponseData::Hello {
+            protocol: max_protocol.min(PROTOCOL_VERSION),
+        }),
+        // Only meaningful on a v3 connection, where `serve_client_v3`
+        // intercepts it before it ever reaches here (it becomes an
+        // event stream, not a single reply). A v2 client cannot
+        // subscribe at all.
+        Request::Subscribe => Err(panora_core::error::Error::Ipc(
+            "Subscribe requires the v3 protocol".into(),
+        )),
+    };
     match result {
         Ok(data) => Response::Success(data),
         Err(e) => Response::Failure {

@@ -97,6 +97,25 @@ pub enum Request {
     /// there is no progress reporting, since it runs on the daemon's own
     /// task and reseals a whole history in one go.
     RotateKey,
+    /// Engage the second-layer lock (SEC-02) by hand. Refused when no lock
+    /// password is set.
+    Lock,
+    /// Disengage the second-layer lock.
+    Unlock {
+        /// Candidate password, checked against the stored verifier.
+        password: String,
+    },
+    /// Set, change or remove the lock password. Changing or removing one
+    /// that is already set requires `current_password` to verify first,
+    /// regardless of whether the lock happens to be engaged right now.
+    SetLockPassword {
+        /// The new password, or `None` to remove the lock entirely.
+        #[serde(default)]
+        new_password: Option<String>,
+        /// Required when a lock password is already set.
+        #[serde(default)]
+        current_password: Option<String>,
+    },
     /// Bring back an entry deleted moments ago, while its tombstone is still
     /// inside the undo grace period.
     Restore {
@@ -280,6 +299,14 @@ pub struct StatusData {
     /// until it unlocks, independently of private mode.
     #[serde(default)]
     pub locked: bool,
+    /// The second-layer password lock (SEC-02) is currently engaged:
+    /// `List` returns a count only, `Preview`/`Recall` are refused.
+    #[serde(default)]
+    pub app_locked: bool,
+    /// Whether a lock password has been set at all, regardless of whether
+    /// it is currently engaged.
+    #[serde(default)]
+    pub lock_password_set: bool,
     /// Conditions the user can act on. Each carries a stable code the
     /// clients key their guidance on (see `health`) and a plain English
     /// message for clients that know no better.

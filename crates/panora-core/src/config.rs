@@ -94,6 +94,10 @@ pub struct PrivacyConfig {
     /// Minutes after which a flagged entry is removed; 0 leaves it to the
     /// normal retention rules. Pinned entries stay either way.
     pub sensitive_ttl_minutes: u32,
+    /// Minutes of no activity before the daemon engages the second-layer
+    /// lock on its own (SEC-02), if a lock password is set; 0 disables
+    /// idle locking (the user still locks and unlocks by hand).
+    pub lock_after_idle_minutes: u32,
 }
 
 impl Default for PrivacyConfig {
@@ -113,6 +117,7 @@ impl Default for PrivacyConfig {
             capture_kinds: Vec::new(),
             sensitive_policy: "mask".into(),
             sensitive_ttl_minutes: 10,
+            lock_after_idle_minutes: 0,
         }
     }
 }
@@ -276,6 +281,11 @@ impl Config {
         if self.privacy.sensitive_ttl_minutes > 525_600 {
             return Err(Error::Config(
                 "sensitive_ttl_minutes must be at most 525600 (a year)".into(),
+            ));
+        }
+        if self.privacy.lock_after_idle_minutes > 525_600 {
+            return Err(Error::Config(
+                "lock_after_idle_minutes must be at most 525600 (a year)".into(),
             ));
         }
         if !POSITIONS.contains(&self.ui.position.as_str()) {
