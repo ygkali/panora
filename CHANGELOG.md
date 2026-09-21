@@ -189,6 +189,9 @@ real-machine verification in `docs/RELEASING.md` is done.
   frames, so a client can wait for changes instead of polling `Status`.
   v2 JSON-lines clients are still served on the same socket (the daemon
   tells them apart by peeking the connection's first byte).
+- `panora-cli watch` (CLI-02): prints one line per history change (`--json`
+  for the raw event) by holding a `Subscribe` connection open, instead of
+  a caller having to poll `status` in a loop.
 
 ### Changed
 - The popup no longer waits on the daemon: history pages, previews, image

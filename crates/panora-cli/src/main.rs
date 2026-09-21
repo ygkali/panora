@@ -161,6 +161,14 @@ enum Command {
         #[command(flatten)]
         filter: FilterArgs,
     },
+    /// Print one JSON line per history change until interrupted (Ctrl+C)
+    ///
+    /// The first line is the daemon's current revision, so a watcher never
+    /// misses a change that happened just before it connected. Text mode
+    /// prints `revision=N`; `--json` prints the same shape `status`'s JSON
+    /// output uses for its `revision` field. Compose with `list`/`search`:
+    /// `panora-cli watch | while read -r _; do panora-cli list; done`
+    Watch,
     /// Print a shell completion script to standard output
     Completions {
         /// Shell to generate for
@@ -302,6 +310,7 @@ fn run(cli: Cli, s: &Strings) -> Result<(), Failure> {
             write_man_pages(&dir).map_err(|e| format!("cannot write man pages: {e}"))?;
             return Ok(());
         }
+        Command::Watch => return run_watch(json),
         Command::Store {
             file,
             mime,
@@ -375,7 +384,10 @@ fn to_invocation(command: Command) -> Invocation {
         Command::Status => plain(Request::Status),
         Command::Toggle => plain(Request::Toggle),
         Command::Reload => plain(Request::ReloadConfig),
-        Command::Completions { .. } | Command::Man { .. } | Command::Store { .. } => {
+        Command::Completions { .. }
+        | Command::Man { .. }
+        | Command::Store { .. }
+        | Command::Watch => {
             unreachable!("handled before reaching the daemon")
         }
     }
@@ -413,6 +425,25 @@ fn read_store_input(file: Option<&std::path::Path>) -> Result<Vec<u8>, Failure> 
         return Err("nothing to store".into());
     }
     Ok(data)
+}
+
+/// `watch`: block on `Subscribe` (STO-08) and print one line per event
+/// until the daemon closes the connection or the process is interrupted.
+fn run_watch(json: bool) -> Result<(), Failure> {
+    let subscription = client::Subscription::open()?;
+    let stdout = std::io::stdout();
+    loop {
+        let event = subscription.next()?;
+        let mut out = stdout.lock();
+        if json {
+            let line = serde_json::to_string(&event).map_err(|e| e.to_string())?;
+            writeln!(out, "{line}").map_err(|e| e.to_string())?;
+        } else {
+            let panora_core::ipc::Event::Changed { revision } = event;
+            writeln!(out, "revision={revision}").map_err(|e| e.to_string())?;
+        }
+        out.flush().map_err(|e| e.to_string())?;
+    }
 }
 
 /// Expand a `pick`/`--format` template for one entry.
