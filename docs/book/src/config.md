@@ -111,10 +111,13 @@ layer_anchor = "top-right"
 | Path | What |
 |---|---|
 | `~/.config/panora/config.toml` | this file |
+| `~/.config/panora/first-run` | marker: the welcome dialog has been shown |
+| `~/.config/panora/window-size` | the popup's last size (`WIDTHxHEIGHT`), remembered state rather than a preference, so it is not in `config.toml` |
 | `~/.local/share/panora/history.db` | the encrypted history, mode 0600 in a 0700 directory |
 | `~/.local/share/panora/history.db.bak-vN` | the copy taken before a schema migration |
 | `$XDG_RUNTIME_DIR/panora.sock` | the IPC socket, mode 0600, peer UID checked |
 | the Secret Service | the master key, under the `application=panora` attribute |
 
-The daemon writes nothing outside these. There is no system-wide
-configuration file and no root-owned state.
+The daemon writes nothing outside its own three rows above; the two
+`~/.config/panora/` marker files are written by the popup itself. There is
+no system-wide configuration file and no root-owned state.

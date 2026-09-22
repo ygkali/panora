@@ -6,7 +6,7 @@
 use crate::util::{
     call, call_async, format_size, kind_icon, kind_label, relative_time, spawn, unix_now,
 };
-use crate::{details, placement, settings, welcome, App};
+use crate::{details, placement, settings, welcome, window_state, App};
 use gdk_pixbuf::PixbufLoader;
 use gtk::gdk;
 use gtk4 as gtk;
@@ -132,14 +132,26 @@ pub fn build(app: &adw::Application, state: &Rc<App>) {
     // A clipboard picker is a panel, not a document window: one column of
     // full-width rows, sized like the Windows Win+V flyout so the eye travels
     // straight down the history instead of scanning a grid.
+    // UI-24: open at the size the user last left it, not always the design
+    // default.
+    let (saved_width, saved_height) = window_state::load();
     let window = adw::ApplicationWindow::builder()
         .application(app)
         .title(s.app_name)
-        .default_width(420)
-        .default_height(660)
+        .default_width(saved_width)
+        .default_height(saved_height)
         .width_request(340)
         .height_request(420)
         .build();
+    // Remember whatever size the window is closed at -- close_request fires
+    // for every path that closes the popup (Esc, the window manager, focus
+    // loss), and reading the size here (its final value) instead of on every
+    // intermediate resize event avoids writing the state file on every pixel
+    // of a drag.
+    window.connect_close_request(|window| {
+        window_state::save(window.default_width(), window.default_height());
+        glib::Propagation::Proceed
+    });
     // On wlroots compositors the panel is a layer-shell overlay; this has to
     // happen before the window is realized.
     let layered = placement::prepare(&window, &state.config.borrow().ui);

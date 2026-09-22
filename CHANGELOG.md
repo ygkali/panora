@@ -398,6 +398,16 @@ real-machine verification in `docs/RELEASING.md` is done.
   silently fail to match at all. Window titles and configured phrases now
   fold through a small Turkish-aware lowercase that also gets the other
   direction right (`I` folds to the dotless `ı`, not `i`).
+- The popup remembers its size across restarts (UI-24): resize it once,
+  and it opens at that size next time, in a small state file next to
+  `config.toml` (window geometry is remembered state, not a preference,
+  so it is not in `config.toml` and does not show up in `panora-cli
+  config get`). Fixed a real multi-monitor bug found while building this:
+  the X11 "open next to the pointer" placement clamped to the *combined*
+  virtual screen across every monitor rather than the one the pointer is
+  actually on, so on a multi-monitor desktop the popup could spill from
+  the pointer's monitor onto a neighbouring one; it now asks RandR which
+  monitor the pointer is on and clamps to that one instead.
 
 ### Changed
 - The popup no longer waits on the daemon: history pages, previews, image

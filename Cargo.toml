@@ -56,7 +56,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # --- X11 ---
-x11rb = { version = "0.13", features = ["xfixes", "xtest"] }
+x11rb = { version = "0.13", features = ["xfixes", "xtest", "randr"] }
 gdk4-x11 = "0.11"
 
 # --- layer-shell overlay on wlroots compositors (opt-in feature of the popup) ---

@@ -18,6 +18,7 @@ mod settings;
 mod util;
 mod welcome;
 mod window;
+mod window_state;
 
 use gtk4 as gtk;
 use libadwaita as adw;
