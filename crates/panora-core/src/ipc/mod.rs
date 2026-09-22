@@ -11,6 +11,7 @@
 use crate::error::{Error, Result};
 use crate::model::{ContentKind, Entry, MimePayload, Selection};
 use crate::storage::QueryFilter;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 #[cfg(unix)]
@@ -242,7 +243,11 @@ impl Response {
 }
 
 /// Successful response payload.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Also the schema CLI-08's `panora-cli schema` publishes for every command
+/// that replies through the daemon: whichever variant a command returns is
+/// always one member of this type's JSON Schema `oneOf`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub enum ResponseData {
     /// History entries.
     Entries(Vec<Entry>),
@@ -275,7 +280,7 @@ pub enum ResponseData {
 /// A message the daemon pushes on its own initiative, over v3 framing, after
 /// a `Subscribe` request. Not part of the `Response`/`ResponseData` pair
 /// because it is not a reply to any one request.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "event")]
 pub enum Event {
     /// `revision` changed; clients re-fetch whatever view they hold instead
@@ -288,7 +293,7 @@ pub enum Event {
 }
 
 /// Backend capability report exposed to clients.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct CapabilityData {
     /// The PRIMARY selection can be recorded.
     pub primary: bool,
@@ -309,7 +314,7 @@ pub struct CapabilityData {
 }
 
 /// Daemon status exposed to clients.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct StatusData {
     /// Backend name.
     pub backend: String,
@@ -354,7 +359,7 @@ pub struct StatusData {
 /// Aggregate history statistics (CLI-06). Computed server-side (SQL
 /// aggregates over the visible, non-tombstoned entries) rather than by
 /// having the client page through every entry.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct StatsData {
     /// Visible (non-deleted) entry count.
     pub total: i64,
@@ -376,7 +381,7 @@ pub struct StatsData {
 }
 
 /// One health finding of the daemon.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct HealthItem {
     /// Stable identifier, one of the constants in `health`.
     pub code: String,

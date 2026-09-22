@@ -90,6 +90,9 @@ clap = { version = "4", features = ["derive", "wrap_help", "string"] }
 clap_complete = "4"
 clap_mangen = "0.2"
 
+# --- JSON Schema for --json output (CLI-08) ---
+schemars = "1"
+
 [profile.release]
 opt-level = 2          # dengeli: boyut/hiz; dusuk RAM hedefi
 lto = "thin"

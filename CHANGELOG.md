@@ -367,6 +367,37 @@ real-machine verification in `docs/RELEASING.md` is done.
   `edit` opens `$VISUAL`/`$EDITOR` and reports whether the result is still
   valid afterwards without reverting it. `set` and a valid `edit` both
   best-effort `reload` a running daemon.
+- Every `--json` reply is now `{"schema_version": 1, "data": ...}` instead
+  of the bare reply (CLI-08), and `panora-cli schema` prints the JSON
+  Schema (draft 2020-12) for `data` in every command, keyed by command
+  name under `commands` with the underlying type schemas in `$defs`. The
+  schemas are generated with `schemars` from the same Rust types that are
+  actually serialized (`ResponseData`, `Event`, `Config`, ...), so the
+  document cannot drift from the real output the way a hand-written copy
+  could. `schema_version` is `panora-cli`'s own output format version,
+  independent of the daemon's `protocol` field and the package `version`.
+- `GOVERNANCE.md` (DOC-06): who decides what today (one maintainer, with a
+  documented path to more as CODEOWNERS grows), where each kind of
+  decision is recorded (`docs/ROADMAP.md` for scope, `docs/adr/` for
+  architecture), and what happens to the project if the maintainer goes
+  quiet for an extended period. Mirrored into the documentation site.
+- Locale-aware plural forms and number formatting (I18N-02): the three
+  catalogue strings that carry a count (`{n} items`, `{n} items deleted`,
+  `{n} items processed.`) now have a matching singular form, picked by a
+  new `panora_core::i18n::pluralize`, so English reads "1 item" instead of
+  "1 items" (Turkish nouns do not inflect for count, so its singular and
+  plural catalogue entries hold the same text on purpose). Byte counts
+  (`panora-cli stats`, the popup's storage-usage row, the details view)
+  use the language's own decimal separator, a comma rather than a period
+  in Turkish. Fixed a real, if narrow, privacy-relevant bug along the way:
+  the window-title exclusion list (`privacy.excluded_window_titles`)
+  lowercased with Unicode's locale-independent default, under which `İ`
+  becomes `i` plus a *combining* dot above rather than a plain `i` — as a
+  substring, that never matches plain `i` in the actual window title, so a
+  correctly-spelled Turkish exclusion phrase with a capital `İ` could
+  silently fail to match at all. Window titles and configured phrases now
+  fold through a small Turkish-aware lowercase that also gets the other
+  direction right (`I` folds to the dotless `ı`, not `i`).
 
 ### Changed
 - The popup no longer waits on the daemon: history pages, previews, image

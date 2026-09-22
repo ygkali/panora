@@ -284,7 +284,8 @@ each, is in [docs/DESKTOPS.md](docs/DESKTOPS.md).
   which distributions are tested, how long a release is supported, and
   notes for packagers.
 - [CHANGELOG.md](CHANGELOG.md), [CONTRIBUTING.md](CONTRIBUTING.md),
-  [SECURITY.md](SECURITY.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+  [GOVERNANCE.md](GOVERNANCE.md), [SECURITY.md](SECURITY.md),
+  [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 - Architecture: `crates/panora-core` (model, privacy, storage, IPC, i18n),
   `crates/panod` (daemon, backends, keyring, D-Bus), `crates/panora-gui`,
   `crates/panora-cli`, `gnome-extension`, `packaging`.

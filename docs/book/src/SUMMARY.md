@@ -21,5 +21,6 @@
 
 - [How Panora is distributed](distribution.md)
 - [Contributing](contributing.md)
+- [Governance](governance.md)
 - [Making a release](releasing.md)
 - [Changelog](changelog.md)

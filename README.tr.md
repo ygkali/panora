@@ -282,7 +282,8 @@ Sık karşılaşılan durumlar ve daemon günlüğü için
   test edilen dağıtımlar, destek penceresi ve paketleyiciler için notlar
   (İngilizce).
 - [CHANGELOG.md](CHANGELOG.md), [CONTRIBUTING.md](CONTRIBUTING.md),
-  [SECURITY.md](SECURITY.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+  [GOVERNANCE.md](GOVERNANCE.md) (İngilizce), [SECURITY.md](SECURITY.md),
+  [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ## Lisans
 

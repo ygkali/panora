@@ -14,12 +14,14 @@ use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
 use panora_core::config::Config;
 use panora_core::error::Error;
-use panora_core::i18n::{fill, Language, Strings};
+use panora_core::i18n::{fill, pluralize, Language, Strings};
 use panora_core::ipc::{client, QueryRequest, Request, ResponseData, MAX_FRAME_BYTES};
 use panora_core::model::{Entry, MimePayload, Selection};
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
+
+mod schema;
 
 /// Exit statuses, documented in `--help` and the man page. `2` is clap's
 /// usage error and is not listed here.
@@ -248,8 +250,9 @@ enum Command {
     ///
     /// The first line is the daemon's current revision, so a watcher never
     /// misses a change that happened just before it connected. Text mode
-    /// prints `revision=N`; `--json` prints the same shape `status`'s JSON
-    /// output uses for its `revision` field. Compose with `list`/`search`:
+    /// prints `revision=N`; `--json` prints one versioned envelope per line
+    /// (`panora-cli schema`'s `watch` entry has the exact shape). Compose
+    /// with `list`/`search`:
     /// `panora-cli watch | while read -r _; do panora-cli list; done`
     Watch,
     /// Print a shell completion script to standard output
@@ -263,6 +266,8 @@ enum Command {
         /// Output directory
         dir: PathBuf,
     },
+    /// Print the JSON Schema for every command's `--json` output (CLI-08)
+    Schema,
 }
 
 /// Filters shared by `list` and `search`.
@@ -457,6 +462,14 @@ fn run(cli: Cli, s: &Strings) -> Result<(), Failure> {
             write_man_pages(&dir).map_err(|e| format!("cannot write man pages: {e}"))?;
             return Ok(());
         }
+        Command::Schema => {
+            let doc = schema::document();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())?
+            );
+            return Ok(());
+        }
         Command::Watch => return run_watch(json),
         Command::RotateKey => {
             // Reseals the whole history inline before replying; 5s (the
@@ -498,7 +511,12 @@ fn run(cli: Cli, s: &Strings) -> Result<(), Failure> {
             std::fs::write(&out, &archive)
                 .map_err(|e| format!("cannot write {}: {e}", out.display()))?;
             if json {
-                println!("{{\"bytes\":{}}}", archive.len());
+                println!(
+                    "{}",
+                    schema::to_pretty(&schema::ExportResult {
+                        bytes: archive.len() as u64
+                    })?
+                );
             } else {
                 println!("exported {} bytes to {}", archive.len(), out.display());
             }
@@ -510,9 +528,13 @@ fn run(cli: Cli, s: &Strings) -> Result<(), Failure> {
                 std::fs::read(&file).map_err(|e| format!("cannot read {}: {e}", file.display()))?;
             let count = import_via_v3(&passphrase, archive)?;
             if json {
-                println!("{{\"imported\":{count}}}");
+                println!(
+                    "{}",
+                    schema::to_pretty(&schema::ImportResult { imported: count })?
+                );
             } else {
-                println!("{}", fill(s.cli_count, "n", &count.to_string()));
+                let template = pluralize(count as i64, s.cli_count_one, s.cli_count);
+                println!("{}", fill(template, "n", &count.to_string()));
             }
             return Ok(());
         }
@@ -537,9 +559,10 @@ fn run(cli: Cli, s: &Strings) -> Result<(), Failure> {
                 }
             }
             if json {
-                println!("{{\"imported\":{imported}}}");
+                println!("{}", schema::to_pretty(&schema::ImportResult { imported })?);
             } else {
-                println!("{}", fill(s.cli_count, "n", &imported.to_string()));
+                let template = pluralize(imported as i64, s.cli_count_one, s.cli_count);
+                println!("{}", fill(template, "n", &imported.to_string()));
             }
             return Ok(());
         }
@@ -669,6 +692,7 @@ fn to_invocation(command: Command) -> Invocation {
         Command::Reload => plain(Request::ReloadConfig),
         Command::Completions { .. }
         | Command::Man { .. }
+        | Command::Schema
         | Command::Store { .. }
         | Command::Watch
         | Command::RotateKey
@@ -898,7 +922,7 @@ fn run_watch(json: bool) -> Result<(), Failure> {
         let event = subscription.next()?;
         let mut out = stdout.lock();
         if json {
-            let line = serde_json::to_string(&event).map_err(|e| e.to_string())?;
+            let line = schema::to_line(&event)?;
             writeln!(out, "{line}").map_err(|e| e.to_string())?;
         } else {
             let panora_core::ipc::Event::Changed { revision } = event;
@@ -970,8 +994,7 @@ fn print_response(
     data: ResponseData,
 ) -> Result<(), Failure> {
     if json {
-        let json = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
-        println!("{json}");
+        println!("{}", schema::to_pretty(&data)?);
         return Ok(());
     }
     match data {
@@ -1032,7 +1055,7 @@ fn print_response(
                 stats.total,
                 stats.pinned,
                 stats.sensitive,
-                human_size(stats.total_bytes)
+                human_size(stats.total_bytes, s)
             );
             for (kind, count) in &stats.by_kind {
                 println!("  {kind}: {count}");
@@ -1041,7 +1064,10 @@ fn print_response(
                 println!("oldest={oldest} newest={newest}");
             }
         }
-        ResponseData::Count(count) => println!("{}", fill(s.cli_count, "n", &count.to_string())),
+        ResponseData::Count(count) => {
+            let template = pluralize(count as i64, s.cli_count_one, s.cli_count);
+            println!("{}", fill(template, "n", &count.to_string()));
+        }
         ResponseData::Payloads(payloads) => {
             if let Some(mime) = &invocation.mime {
                 let payload = payloads
@@ -1096,11 +1122,7 @@ fn config_command(action: ConfigAction, json: bool) -> Result<(), Failure> {
         ConfigAction::Get { key: None } => {
             let config = Config::load().map_err(|e| format!("cannot load config: {e}"))?;
             if json {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&config)
-                        .map_err(|e| format!("cannot render config as JSON: {e}"))?
-                );
+                println!("{}", schema::to_pretty(&config)?);
             } else {
                 print!(
                     "{}",
@@ -1115,11 +1137,7 @@ fn config_command(action: ConfigAction, json: bool) -> Result<(), Failure> {
             let value =
                 config_path_get(&root, &key).ok_or_else(|| format!("unknown config key: {key}"))?;
             if json {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(value)
-                        .map_err(|e| format!("cannot render {key} as JSON: {e}"))?
-                );
+                println!("{}", schema::to_pretty(value)?);
             } else {
                 println!("{value}");
             }
@@ -1142,7 +1160,10 @@ fn config_command(action: ConfigAction, json: bool) -> Result<(), Failure> {
             // for its next start.
             let _ = client::call(&Request::ReloadConfig);
             if json {
-                println!("{}", serde_json::json!({"key": key, "value": value}));
+                println!(
+                    "{}",
+                    schema::to_pretty(&schema::ConfigSetResult { key, value })?
+                );
             } else {
                 println!("{key} = {value}");
             }
@@ -1150,7 +1171,10 @@ fn config_command(action: ConfigAction, json: bool) -> Result<(), Failure> {
         }
         ConfigAction::Validate => match Config::load() {
             Ok(_) if json => {
-                println!("{{\"valid\":true}}");
+                println!(
+                    "{}",
+                    schema::to_pretty(&schema::ConfigValidateResult { valid: true })?
+                );
                 Ok(())
             }
             Ok(_) => {
@@ -1274,8 +1298,9 @@ fn coerce_config_value(existing: &toml::Value, raw: &str) -> Result<toml::Value,
     }
 }
 
-/// `1536` -> `"1.5 KiB"`. Binary (1024) units, one decimal, `B` under 1 KiB.
-fn human_size(bytes: i64) -> String {
+/// `1536` -> `"1.5 KiB"` (I18N-02: `"1,5 KiB"` in a language whose decimal
+/// separator is a comma). Binary (1024) units, one decimal, `B` under 1 KiB.
+fn human_size(bytes: i64, s: &Strings) -> String {
     const UNITS: &[&str] = &["KiB", "MiB", "GiB", "TiB"];
     let bytes = bytes.max(0) as f64;
     if bytes < 1024.0 {
@@ -1290,7 +1315,7 @@ fn human_size(bytes: i64) -> String {
         value /= 1024.0;
         unit = next;
     }
-    format!("{value:.1} {unit}")
+    format!("{value:.1} {unit}").replacen('.', s.decimal_separator, 1)
 }
 
 fn write_payload(data: &[u8], out: Option<&std::path::Path>) -> Result<(), Failure> {
@@ -1422,16 +1447,26 @@ mod tests {
 
     #[test]
     fn human_size_formats_binary_units() {
-        assert_eq!(human_size(0), "0 B");
-        assert_eq!(human_size(1023), "1023 B");
-        assert_eq!(human_size(1024), "1.0 KiB");
-        assert_eq!(human_size(1536), "1.5 KiB");
-        assert_eq!(human_size(10 * 1024 * 1024), "10.0 MiB");
+        let en = Language::English.strings();
+        assert_eq!(human_size(0, en), "0 B");
+        assert_eq!(human_size(1023, en), "1023 B");
+        assert_eq!(human_size(1024, en), "1.0 KiB");
+        assert_eq!(human_size(1536, en), "1.5 KiB");
+        assert_eq!(human_size(10 * 1024 * 1024, en), "10.0 MiB");
         assert_eq!(
-            human_size(-5),
+            human_size(-5, en),
             "0 B",
             "negative sizes never occur but must not panic"
         );
+    }
+
+    #[test]
+    fn human_size_uses_the_language_decimal_separator() {
+        let tr = Language::Turkish.strings();
+        assert_eq!(human_size(1536, tr), "1,5 KiB");
+        // Whole-KiB sizes have no separator to replace either way.
+        assert_eq!(human_size(1024, tr), "1,0 KiB");
+        assert_eq!(human_size(512, tr), "512 B");
     }
 
     #[test]

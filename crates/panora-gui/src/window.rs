@@ -12,7 +12,7 @@ use gtk::gdk;
 use gtk4 as gtk;
 use libadwaita as adw;
 use libadwaita::prelude::*;
-use panora_core::i18n::{fill, Strings};
+use panora_core::i18n::{fill, pluralize, Strings};
 use panora_core::ipc::{health, HealthItem, QueryRequest, Request, ResponseData};
 use panora_core::model::{ContentKind, Entry, Selection};
 use panora_core::search::{mark_matches, ParsedQuery};
@@ -506,10 +506,12 @@ fn confirm_clear(ui: &Rc<Ui>) {
     let handler = ui.clone();
     dialog.connect_response(Some("clear"), move |_, _| match call(&Request::Clear) {
         Ok(ResponseData::Count(count)) => {
-            toast(
-                &handler,
-                &fill(handler.s.toast_cleared_n, "n", &count.to_string()),
+            let template = pluralize(
+                count as i64,
+                handler.s.toast_cleared_n_one,
+                handler.s.toast_cleared_n,
             );
+            toast(&handler, &fill(template, "n", &count.to_string()));
             refresh(&handler);
         }
         Ok(_) => {
@@ -1003,7 +1005,11 @@ fn subtitle_for(s: &Strings, count: usize, more: bool, filter: Filter) -> String
     } else {
         count.to_string()
     };
-    let base = fill(s.subtitle_count, "n", &shown);
+    // `more` means "60+", never a singular count, even when `count` itself
+    // happens to be 1 (a page boundary landing exactly there).
+    let plural_count = if more { 0 } else { count as i64 };
+    let template = pluralize(plural_count, s.subtitle_count_one, s.subtitle_count);
+    let base = fill(template, "n", &shown);
     match filter {
         Filter::All => base,
         other => format!("{base} · {}", other.label(s).to_lowercase()),
@@ -1173,7 +1179,7 @@ fn build_card(
 fn card_meta(s: &Strings, entry: &Entry) -> String {
     let mut parts = vec![
         relative_time(s, entry.last_seen_at),
-        format_size(entry.size_bytes),
+        format_size(s, entry.size_bytes),
     ];
     if let Some(app) = entry.source_app.as_deref().filter(|app| !app.is_empty()) {
         parts.push(app.to_string());
@@ -1587,5 +1593,40 @@ pub fn install_css() {
             &provider,
             gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use panora_core::i18n::Language;
+
+    #[test]
+    fn subtitle_count_is_grammatically_plural_in_english() {
+        let en = Language::English.strings();
+        assert_eq!(subtitle_for(en, 0, false, Filter::All), "0 items");
+        assert_eq!(subtitle_for(en, 1, false, Filter::All), "1 item");
+        assert_eq!(subtitle_for(en, 2, false, Filter::All), "2 items");
+        // Turkish nouns do not inflect for count: both forms read the same.
+        let tr = Language::Turkish.strings();
+        assert_eq!(subtitle_for(tr, 1, false, Filter::All), "1 kayıt");
+        assert_eq!(subtitle_for(tr, 2, false, Filter::All), "2 kayıt");
+    }
+
+    #[test]
+    fn subtitle_count_more_is_never_singular_even_at_one() {
+        let en = Language::English.strings();
+        // "1+" is the plural form even though the raw count is 1: the page
+        // is known to hold more than that, `more` overrides the count.
+        assert_eq!(subtitle_for(en, 1, true, Filter::All), "1+ items");
+    }
+
+    #[test]
+    fn subtitle_count_appends_the_active_filter_label() {
+        let en = Language::English.strings();
+        let base = subtitle_for(en, 3, false, Filter::All);
+        let filtered = subtitle_for(en, 3, false, Filter::Pinned);
+        assert_eq!(base, "3 items");
+        assert!(filtered.starts_with("3 items · "));
     }
 }

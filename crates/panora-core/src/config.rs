@@ -5,6 +5,7 @@
 
 use crate::error::{Error, Result};
 use directories::ProjectDirs;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -18,7 +19,7 @@ use std::path::PathBuf;
 pub const MAX_MIME_BYTES_LIMIT: usize = 40 * 1024 * 1024;
 
 /// Clipboard history limits and retention settings.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct HistoryConfig {
     /// Whether PRIMARY selection should be recorded where supported.
@@ -73,7 +74,7 @@ impl Default for HistoryConfig {
 pub const DUPLICATE_POLICIES: &[&str] = &["bump", "ignore"];
 
 /// Privacy-related settings.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct PrivacyConfig {
     /// Start with recording paused.
@@ -185,7 +186,7 @@ pub const CONTENT_KIND_NAMES: &[&str] = &[
 ];
 
 /// UI preferences kept intentionally small to avoid runtime state bloat.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct UiConfig {
     /// Interface language; `system`, `tr`, or `en`.
@@ -221,7 +222,7 @@ impl Default for UiConfig {
 }
 
 /// Complete user configuration.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct Config {
     /// History and payload limits.
     #[serde(default)]

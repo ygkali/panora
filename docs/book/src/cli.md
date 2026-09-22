@@ -24,10 +24,34 @@ panora-cli export --out FILE | import <FILE>
 panora-cli import-legacy copyq|gpaste|clipboard-indicator
 panora-cli completions bash|zsh|fish
 panora-cli man <DIR>
+panora-cli schema
 ```
 
 `--json` works on every command that prints something; `man panora-cli` has
 the full text.
+
+## Scripting against `--json`
+
+Every `--json` reply is `{"schema_version": 1, "data": ...}` rather than the
+bare value, so a script can tell which shape it is reading without guessing
+from the command name:
+
+```sh
+panora-cli status --json | jq '.data.entries'
+```
+
+`schema_version` is `panora-cli`'s own JSON output format version (bumped
+only if an existing field's meaning changes or disappears; a new field or
+command is not a breaking change). It is independent of `status`'s own
+`protocol` field (the daemon/client wire protocol) and of the package
+`version` — the three can move on their own schedules.
+
+`panora-cli schema` prints the JSON Schema (draft 2020-12) for `data` in
+every command: a `commands` map from subcommand name to the schema its
+`data` field matches, and the underlying type schemas under `$defs`. It is
+generated with `schemars` from the same Rust types `--json` actually
+serializes, so it cannot drift from the real output the way a hand-written
+copy could.
 
 ## Exit status
 

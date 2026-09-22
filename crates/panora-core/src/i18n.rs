@@ -82,6 +82,23 @@ pub fn fill(template: &str, key: &str, value: &str) -> String {
     template.replacen(&format!("{{{key}}}"), value, 1)
 }
 
+/// Pick the plural form for `count` (CLDR calls this the "one" vs. "other"
+/// category; English is the only currently-supported language where the
+/// wording actually differs -- `1 item` vs. `5 items` -- so the singular
+/// catalogue entry is used exactly when `count` is `1` or `-1`, matching
+/// CLDR's `one` rule for English, and every other value uses `other`.
+/// Turkish nouns do not inflect for count, so both catalogue entries for a
+/// pluralizable key hold the same Turkish text; a language whose plural
+/// rule needs more than two categories (Russian, Polish, Arabic, ...) will
+/// need this function extended, not just a translated catalogue entry.
+pub fn pluralize(count: i64, one: &'static str, other: &'static str) -> &'static str {
+    if count == 1 || count == -1 {
+        one
+    } else {
+        other
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,6 +155,32 @@ mod tests {
             !body.lines().any(|line| line == "msgstr \"\""),
             "untranslated entry in tr.po"
         );
+    }
+
+    #[test]
+    fn pluralize_picks_the_singular_form_only_at_plus_or_minus_one() {
+        assert_eq!(pluralize(1, "one", "other"), "one");
+        assert_eq!(pluralize(-1, "one", "other"), "one");
+        assert_eq!(pluralize(0, "one", "other"), "other");
+        assert_eq!(pluralize(2, "one", "other"), "other");
+        assert_eq!(pluralize(-2, "one", "other"), "other");
+    }
+
+    #[test]
+    fn catalogue_plural_pairs_read_correctly_in_both_languages() {
+        for strings in [&EN, &TR] {
+            assert_eq!(
+                pluralize(1, strings.subtitle_count_one, strings.subtitle_count),
+                strings.subtitle_count_one
+            );
+            assert_eq!(
+                pluralize(5, strings.subtitle_count_one, strings.subtitle_count),
+                strings.subtitle_count
+            );
+        }
+        // English distinguishes the two; Turkish does not need to.
+        assert_ne!(EN.subtitle_count_one, EN.subtitle_count);
+        assert_eq!(TR.subtitle_count_one, TR.subtitle_count);
     }
 
     #[test]

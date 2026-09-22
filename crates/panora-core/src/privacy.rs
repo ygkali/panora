@@ -127,6 +127,28 @@ impl ContentFilters {
     }
 }
 
+/// Lowercase for the window-title exclusion match (I18N-02), correct for
+/// Turkish where Unicode's locale-independent default is not: plain ASCII
+/// `I` folds to the Turkish dotless `ı`, and `İ` (Turkish dotted capital I,
+/// distinct from ASCII `I`) folds to a plain `i` rather than Unicode's
+/// default `i` + a combining dot above -- which, as a *substring*, would
+/// fail to match an actual plain `i` in the compared text even though the
+/// two are the same letter to a Turkish reader. Applied identically to
+/// both the configured phrase and the real window title, so matching for
+/// every other script is exactly as permissive as plain `to_lowercase()`
+/// was, and becomes correct for the Turkish case that was not.
+fn title_fold(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            'I' => out.push('ı'),
+            'İ' => out.push('i'),
+            other => out.extend(other.to_lowercase()),
+        }
+    }
+    out
+}
+
 /// Stateless privacy policy evaluator. Construct once at daemon startup
 /// from configuration; cheap to query on every clipboard event.
 #[derive(Debug, Clone)]
@@ -176,7 +198,7 @@ impl PrivacyEngine {
     pub fn with_excluded_titles(mut self, titles: &[String]) -> Self {
         self.excluded_titles = titles
             .iter()
-            .map(|t| t.trim().to_lowercase())
+            .map(|t| title_fold(t.trim()))
             .filter(|t| !t.is_empty())
             .collect();
         self
@@ -188,7 +210,7 @@ impl PrivacyEngine {
         let Some(title) = title.filter(|_| !self.excluded_titles.is_empty()) else {
             return Verdict::Allow;
         };
-        let title = title.to_lowercase();
+        let title = title_fold(title);
         if self
             .excluded_titles
             .iter()
@@ -549,5 +571,29 @@ mod tests {
         assert_eq!(eng.evaluate_title(None), Verdict::Allow);
         let none = PrivacyEngine::new(&[]);
         assert_eq!(none.evaluate_title(Some("Online Banking")), Verdict::Allow);
+    }
+
+    #[test]
+    fn window_titles_fold_turkish_i_correctly() {
+        // Unicode's locale-independent default lowercases 'İ' to 'i' plus a
+        // combining dot above, which as a *substring* would not be found
+        // inside plain "internet" -- even though a Turkish reader treats
+        // them as the same letter. `İş Bankası` is a real bank name, a
+        // realistic phrase to exclude.
+        let eng = PrivacyEngine::new(&[]).with_excluded_titles(&["İş Bankası".into()]);
+        assert_eq!(
+            eng.evaluate_title(Some("iş bankası internet şubesi")),
+            Verdict::RejectWindowTitle
+        );
+
+        // Plain ASCII 'I' is the correctly-capitalised form of the Turkish
+        // dotless 'ı' (as in "ışık", light): Unicode's default lowercases
+        // it to the dotted 'i' instead, which would not match the user's
+        // own, correctly-spelled, all-lowercase exclusion phrase.
+        let eng = PrivacyEngine::new(&[]).with_excluded_titles(&["ışık".into()]);
+        assert_eq!(
+            eng.evaluate_title(Some("Işık Bankacılık Uygulaması")),
+            Verdict::RejectWindowTitle
+        );
     }
 }

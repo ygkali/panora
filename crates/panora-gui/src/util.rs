@@ -95,15 +95,17 @@ pub fn kind_icon(kind: ContentKind) -> &'static str {
     }
 }
 
-/// Human readable byte count.
-pub fn format_size(size: i64) -> String {
-    if size < 1024 {
-        format!("{size} B")
+/// Human readable byte count (I18N-02: uses `s.decimal_separator`, a comma
+/// rather than a period in a language that formats numbers that way).
+pub fn format_size(s: &Strings, size: i64) -> String {
+    let formatted = if size < 1024 {
+        return format!("{size} B");
     } else if size < 1024 * 1024 {
         format!("{:.1} KiB", size as f64 / 1024.0)
     } else {
         format!("{:.1} MiB", size as f64 / 1_048_576.0)
-    }
+    };
+    formatted.replacen('.', s.decimal_separator, 1)
 }
 
 /// Relative timestamp for the card header.
@@ -129,9 +131,17 @@ mod tests {
 
     #[test]
     fn sizes() {
-        assert_eq!(format_size(12), "12 B");
-        assert_eq!(format_size(2048), "2.0 KiB");
-        assert_eq!(format_size(3 * 1024 * 1024), "3.0 MiB");
+        let en = Language::English.strings();
+        assert_eq!(format_size(en, 12), "12 B");
+        assert_eq!(format_size(en, 2048), "2.0 KiB");
+        assert_eq!(format_size(en, 3 * 1024 * 1024), "3.0 MiB");
+    }
+
+    #[test]
+    fn sizes_use_the_language_decimal_separator() {
+        let tr = Language::Turkish.strings();
+        assert_eq!(format_size(tr, 2048), "2,0 KiB");
+        assert_eq!(format_size(tr, 12), "12 B");
     }
 
     #[test]

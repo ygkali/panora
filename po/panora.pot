@@ -19,6 +19,13 @@ msgctxt "app_name"
 msgid "Panora"
 msgstr ""
 
+#. Decimal separator for a formatted byte count (I18N-02), e.g. "1.5 KiB".
+#. Not a sentence to translate: put this language's own decimal separator
+#. character here (Turkish uses a comma, not a period).
+msgctxt "decimal_separator"
+msgid "."
+msgstr ""
+
 msgctxt "subtitle_history"
 msgid "clipboard history"
 msgstr ""
@@ -31,9 +38,15 @@ msgctxt "subtitle_connection_problem"
 msgid "connection problem"
 msgstr ""
 
-#. `{n}` = entry count.
+#. `{n}` = entry count, plural form (n != 1; Turkish has no plural noun
+#. form, so its translation is the same text as `subtitle_count_one`).
 msgctxt "subtitle_count"
 msgid "{n} items"
+msgstr ""
+
+#. `{n}` = entry count, singular form (n == 1).
+msgctxt "subtitle_count_one"
+msgid "{n} item"
 msgstr ""
 
 msgctxt "search_placeholder"
@@ -209,9 +222,15 @@ msgctxt "toast_private_failed"
 msgid "Could not change private mode"
 msgstr ""
 
-#. `{n}` = cleared count.
+#. `{n}` = cleared count, plural form (n != 1; see `subtitle_count` for the
+#. Turkish note).
 msgctxt "toast_cleared_n"
 msgid "{n} items deleted"
+msgstr ""
+
+#. `{n}` = cleared count, singular form (n == 1).
+msgctxt "toast_cleared_n_one"
+msgid "{n} item deleted"
 msgstr ""
 
 msgctxt "toast_cleared"
@@ -735,7 +754,13 @@ msgctxt "cli_ok"
 msgid "ok"
 msgstr ""
 
-#. `{n}` = affected count.
+#. `{n}` = affected count, plural form (n != 1; see `subtitle_count` for
+#. the Turkish note).
 msgctxt "cli_count"
 msgid "{n} items processed."
+msgstr ""
+
+#. `{n}` = affected count, singular form (n == 1).
+msgctxt "cli_count_one"
+msgid "{n} item processed."
 msgstr ""

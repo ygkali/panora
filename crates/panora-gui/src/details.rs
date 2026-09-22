@@ -57,7 +57,11 @@ fn present(ui: &Rc<Ui>, entry: &Entry, payloads: Vec<MimePayload>, image: Option
         .build();
 
     let header = adw::HeaderBar::new();
-    let mut subtitle = format!("{} · {}", entry.primary_mime, format_size(entry.size_bytes));
+    let mut subtitle = format!(
+        "{} · {}",
+        entry.primary_mime,
+        format_size(s, entry.size_bytes)
+    );
     if let Some(image) = &image {
         let (width, height) = image.size();
         if width > 0 && height > 0 {
@@ -115,7 +119,7 @@ fn present(ui: &Rc<Ui>, entry: &Entry, payloads: Vec<MimePayload>, image: Option
     if !payloads.is_empty() {
         let formats = payloads
             .iter()
-            .map(|p| format!("{} ({})", p.mime, format_size(p.data.len() as i64)))
+            .map(|p| format!("{} ({})", p.mime, format_size(s, p.data.len() as i64)))
             .collect::<Vec<_>>()
             .join("  ·  ");
         let label = gtk::Label::new(Some(&format!("{}: {formats}", s.details_formats)));
