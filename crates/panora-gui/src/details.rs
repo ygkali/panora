@@ -49,6 +49,12 @@ pub fn show(ui: &Rc<Ui>, entry: &Entry) {
 fn present(ui: &Rc<Ui>, entry: &Entry, payloads: Vec<MimePayload>, image: Option<DecodedImage>) {
     let s = ui.s;
     let text = plain_text(&payloads);
+    // UI-22: a limited HTML preview, only for entries that actually carry
+    // HTML (a `RichText` entry can instead be RTF-only, which this does
+    // not parse -- it falls back to the plain-text payload like before).
+    let html = (entry.kind == ContentKind::RichText)
+        .then(|| html_payload(&payloads))
+        .flatten();
 
     let dialog = adw::Dialog::builder()
         .title(s.details_title)
@@ -100,18 +106,28 @@ fn present(ui: &Rc<Ui>, entry: &Entry, payloads: Vec<MimePayload>, image: Option
         }
         ContentKind::Color => {
             body.append(&color_swatch(&entry.preview));
-            body.append(&text_view(text.as_deref().unwrap_or(&entry.preview)));
+            body.append(&text_view(text.as_deref().unwrap_or(&entry.preview), false));
         }
         _ => {
-            if let Some(text) = &text {
-                body.append(&text_view(text));
-            } else if !entry.preview.starts_with('[') {
-                body.append(&text_view(&entry.preview));
+            if let Some(html) = &html {
+                body.append(&rich_text_view(html));
             } else {
-                let label = gtk::Label::new(Some(s.details_no_text));
-                label.add_css_class("dim-label");
-                label.set_vexpand(true);
-                body.append(&label);
+                // UI-10: monospace in the full-text view too, for the same
+                // reason as the card preview -- only plain `Text`, since
+                // rich text and links have their own rendering.
+                let is_text = entry.kind == ContentKind::Text;
+                if let Some(text) = &text {
+                    let code = is_text && panora_core::code::looks_like_code(text);
+                    body.append(&text_view(text, code));
+                } else if !entry.preview.starts_with('[') {
+                    let code = is_text && panora_core::code::looks_like_code(&entry.preview);
+                    body.append(&text_view(&entry.preview, code));
+                } else {
+                    let label = gtk::Label::new(Some(s.details_no_text));
+                    label.add_css_class("dim-label");
+                    label.set_vexpand(true);
+                    body.append(&label);
+                }
             }
         }
     }
@@ -254,7 +270,21 @@ fn plain_text(payloads: &[MimePayload]) -> Option<String> {
         .map(|t| t.trim_end_matches('\0').to_string())
 }
 
-fn text_view(text: &str) -> gtk::ScrolledWindow {
+/// The HTML payload of an entry, if any (`text/html`, with or without a
+/// `;charset=...` parameter).
+fn html_payload(payloads: &[MimePayload]) -> Option<String> {
+    payloads
+        .iter()
+        .find(|p| p.mime.starts_with("text/html"))
+        .and_then(|p| String::from_utf8(p.data.clone()).ok())
+}
+
+/// UI-22: `html` rendered as a limited Pango-markup preview -- bold,
+/// italic, underline, strikethrough, inline code, links (shown styled, not
+/// clickable) and paragraph/line breaks. See
+/// `panora_core::richtext::html_to_pango` for exactly what is and is not
+/// carried over; this is a preview, not a renderer.
+fn rich_text_view(html: &str) -> gtk::ScrolledWindow {
     let view = gtk::TextView::new();
     view.set_editable(false);
     view.set_cursor_visible(false);
@@ -263,6 +293,30 @@ fn text_view(text: &str) -> gtk::ScrolledWindow {
     view.set_right_margin(8);
     view.set_top_margin(8);
     view.set_bottom_margin(8);
+    let buffer = view.buffer();
+    let mut end = buffer.end_iter();
+    buffer.insert_markup(&mut end, &panora_core::richtext::html_to_pango(html));
+    gtk::ScrolledWindow::builder()
+        .vexpand(true)
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(&view)
+        .build()
+}
+
+/// `code` picks a monospace font (UI-10): the caller already knows the
+/// entry's kind, so the heuristic runs once there rather than per view.
+fn text_view(text: &str, code: bool) -> gtk::ScrolledWindow {
+    let view = gtk::TextView::new();
+    view.set_editable(false);
+    view.set_cursor_visible(false);
+    view.set_wrap_mode(gtk::WrapMode::WordChar);
+    view.set_left_margin(8);
+    view.set_right_margin(8);
+    view.set_top_margin(8);
+    view.set_bottom_margin(8);
+    if code {
+        view.add_css_class("code-preview");
+    }
     view.buffer().set_text(text);
     gtk::ScrolledWindow::builder()
         .vexpand(true)

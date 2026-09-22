@@ -408,6 +408,32 @@ real-machine verification in `docs/RELEASING.md` is done.
   actually on, so on a multi-monitor desktop the popup could spill from
   the pointer's monitor onto a neighbouring one; it now asks RandR which
   monitor the pointer is on and clamps to that one instead.
+- Plain-text entries that read as source code (UI-10) show in a monospace
+  font, in the card and in the details view: a new
+  `panora_core::code::looks_like_code` heuristic scores indentation,
+  semicolon-terminated lines, code-specific keywords and punctuation
+  (`=>`, `::`, `&&`, ...), symbol density, and JSON/array-shaped text.
+  Syntax highlighting stays out of scope, as the roadmap already marked
+  it optional.
+- Rows can be dragged onto other applications (UI-16): text-like entries
+  (plain text, links, colours, rich text) drag as their real, full text
+  rather than the card's truncated preview, and file-list entries drag as
+  real `file://` URIs a file manager understands. Image entries are not
+  draggable yet -- their full bytes would need fetching off the GTK
+  thread first, the same way every other payload-sized request already
+  does, and drag-and-drop's synchronous `prepare` callback has no place
+  for that yet.
+- Rich-text entries get a real preview instead of always falling back to
+  plain text (UI-22): a new `panora_core::richtext::html_to_pango`
+  converts a small allowlist of HTML tags (bold, italic, underline,
+  strikethrough, inline code, links, paragraph/line breaks, bold
+  headings) to Pango markup, drops anything else while keeping its text,
+  and discards `<script>`/`<style>` content outright. Malformed or
+  unbalanced input (a real risk -- this HTML comes from whatever
+  application wrote it) always produces valid, fully-closed markup: tags
+  left open are force-closed, stray closing tags are ignored. RTF-only
+  rich text (no HTML payload) still falls back to plain text; full RTF
+  parsing is out of scope.
 
 ### Changed
 - The popup no longer waits on the daemon: history pages, previews, image

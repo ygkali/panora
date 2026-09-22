@@ -14,7 +14,7 @@ use libadwaita as adw;
 use libadwaita::prelude::*;
 use panora_core::i18n::{fill, pluralize, Strings};
 use panora_core::ipc::{health, HealthItem, QueryRequest, Request, ResponseData};
-use panora_core::model::{ContentKind, Entry, Selection};
+use panora_core::model::{ContentKind, Entry, Selection, TEXT_MIMES};
 use panora_core::search::{mark_matches, ParsedQuery};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -1056,6 +1056,20 @@ fn build_card(
     let card = gtk::Box::new(gtk::Orientation::Vertical, 8);
     card.add_css_class("history-card");
 
+    // UI-16: drag a row onto another application. Text-representable kinds
+    // only for now -- `Image`'s full bytes would need an async fetch to
+    // avoid blocking the GTK thread the way every other payload-sized
+    // request already does (`call_async`), which drag-and-drop's
+    // synchronous `prepare` callback does not have a place for yet.
+    if !matches!(entry.kind, ContentKind::Image | ContentKind::Binary) {
+        let drag = gtk::DragSource::new();
+        drag.set_actions(gdk::DragAction::COPY);
+        let id = entry.id;
+        let kind = entry.kind;
+        drag.connect_prepare(move |_source, _x, _y| drag_content(id, kind));
+        card.add_controller(drag);
+    }
+
     match entry.kind {
         ContentKind::Image => {
             let picture = gtk::Picture::new();
@@ -1236,15 +1250,52 @@ fn rounded_rect(cr: &gtk::cairo::Context, w: f64, h: f64, r: f64) {
 }
 
 /// The preview text of a row; with a query, its matches in bold.
+/// UI-16: the drag content for one entry, fetched synchronously (a plain
+/// `Preview` request is small and the daemon answers it well under a
+/// millisecond, the same trade the pin/delete/etc. buttons already make)
+/// so the real payload -- not just the truncated card preview -- is what
+/// lands in the target application. `None` cancels the drag rather than
+/// dropping something misleading (no usable format, or the daemon is
+/// unreachable).
+fn drag_content(id: i64, kind: ContentKind) -> Option<gdk::ContentProvider> {
+    let payloads = match call(&Request::Preview {
+        id,
+        thumbnail: false,
+    }) {
+        Ok(ResponseData::Payloads(payloads)) => payloads,
+        _ => return None,
+    };
+    if kind == ContentKind::FileList {
+        let list = payloads.iter().find(|p| p.mime == "text/uri-list")?;
+        return Some(gdk::ContentProvider::for_bytes(
+            "text/uri-list",
+            &glib::Bytes::from(&list.data),
+        ));
+    }
+    let text = TEXT_MIMES
+        .iter()
+        .find_map(|m| payloads.iter().find(|p| p.mime == *m))
+        .and_then(|p| String::from_utf8(p.data.clone()).ok())?;
+    Some(gdk::ContentProvider::for_value(&text.to_value()))
+}
+
 fn preview_widget(entry: &Entry, query: Option<&ParsedQuery>, lines: i32) -> gtk::Label {
-    match query {
+    let label = match query {
         Some(query) => {
             let label = preview_label("", lines);
             label.set_markup(&mark_matches(entry.preview.trim(), query));
             label
         }
         None => preview_label(&entry.preview, lines),
+    };
+    // UI-10: a plain-text entry that reads as source code gets a monospace
+    // font, so indentation and alignment survive the card. Only plain
+    // `Text` -- rich text and links already have their own MIME-driven
+    // rendering, and the heuristic is tuned against code-as-plain-text.
+    if entry.kind == ContentKind::Text && panora_core::code::looks_like_code(&entry.preview) {
+        label.add_css_class("code-preview");
     }
+    label
 }
 
 fn preview_label(text: &str, lines: i32) -> gtk::Label {
@@ -1562,6 +1613,10 @@ pub fn install_css() {
          }
 
          .preview-text { color: @card_fg_color; }
+         /* UI-10: monospace for text that reads as source code, so
+            indentation and column alignment survive the card. `monospace`
+            (not a named family) follows the user's own monospace choice. */
+         .code-preview { font-family: monospace; }
          /* No px font-size: .caption-heading tracks the user's text scale. */
          .card-meta {
              font-size: 0.8em;
@@ -1612,6 +1667,47 @@ pub fn install_css() {
 mod tests {
     use super::*;
     use panora_core::i18n::Language;
+
+    // UI-16: exercised against `crate::fixture`'s canned entries, the same
+    // in-process responder `--features fixture` gives the popup itself, so
+    // this is a real call through `drag_content`'s only interesting logic
+    // (which MIME formats it offers per content kind), not a mock of it.
+    #[cfg(feature = "fixture")]
+    #[test]
+    fn drag_content_offers_text_for_text_like_entries() {
+        // Fixture entries: 1 Text, 2 Link, 4 Color, 5 RichText (see fixture.rs).
+        for (id, kind) in [
+            (1, ContentKind::Text),
+            (2, ContentKind::Link),
+            (4, ContentKind::Color),
+            (5, ContentKind::RichText),
+        ] {
+            let provider =
+                drag_content(id, kind).unwrap_or_else(|| panic!("no drag content for entry {id}"));
+            assert!(
+                provider.formats().contains_type(glib::types::Type::STRING),
+                "entry {id} should offer its text as a string value"
+            );
+        }
+    }
+
+    #[cfg(feature = "fixture")]
+    #[test]
+    fn drag_content_offers_uri_list_for_file_lists() {
+        // Fixture entry 6 is a FileList with a real `text/uri-list` payload.
+        let provider = drag_content(6, ContentKind::FileList).expect("entry 6 has files");
+        assert!(provider.formats().contain_mime_type("text/uri-list"));
+    }
+
+    #[cfg(feature = "fixture")]
+    #[test]
+    fn drag_content_is_none_without_a_text_payload() {
+        // Entry 3 is an Image with only a PNG payload; `build_card` never
+        // attaches a `DragSource` for Image/Binary kinds in the first
+        // place (see its comment), but `drag_content` itself is exercised
+        // directly here and must not offer nothing as if it were something.
+        assert!(drag_content(3, ContentKind::Image).is_none());
+    }
 
     #[test]
     fn subtitle_count_is_grammatically_plural_in_english() {
