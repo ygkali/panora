@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "rust";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "searchindex-9653446b.js";
+            window.path_to_searchindex_js = "searchindex-8695e607.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-da722cf1.js"></script>
+        <script src="toc-6fd7c490.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -210,10 +210,7 @@ extension changed.</li>
 <code>cargo about generate about.hbs -o THIRD_PARTY_LICENSES.md</code>.</li>
 <li>Green locally: <code>cargo fmt --all -- --check</code>, <code>cargo clippy --workspace --all-targets -- -D warnings</code>, <code>cargo test --workspace</code>, the Xvfb X11
 tests, <code>scripts/keyring-test.sh</code>, <code>shellcheck</code>, <code>./packaging/build-deb.sh</code>
-<ul>
-<li><code>lintian --fail-on error,warning dist/*.deb</code>.</li>
-</ul>
-</li>
+(needs <code>cargo install cargo-auditable --locked</code>) + <code>lintian --fail-on error,warning dist/*.deb</code>, <code>scripts/check-reproducible-build.sh</code> (SEC-08).</li>
 <li><strong>Upgrade path</strong> (<code>PKG-10</code>): <code>scripts/upgrade-test.sh --deb &lt;previous release .deb&gt;</code> (or <code>--from vX.Y.Z-1</code>) records entries with the old daemon
 and reopens the same data directory with this build: the entries have to
 come back unchanged, the schema has to reach the version this build
@@ -234,6 +231,14 @@ git push origin vX.Y.Z
 <code>MINISIGN_PASSWORD</code> secrets exist), an SPDX SBOM, and publishes the GitHub
 release with the CHANGELOG section as its notes. A tag containing <code>-</code> (for
 example <code>v1.4.0-rc1</code>) is marked as a pre-release.</p>
+<p>Binaries are built with <code>cargo auditable</code> (SEC-08): each one carries its own
+dependency manifest, so <code>cargo audit bin panod</code> (or <code>panora-gui</code>/
+<code>panora-cli</code>) checks it against the RustSec advisory database without
+needing the source tree that built it. A separate <code>reproducible</code> job builds
+the same commit again on its own runner and compares SHA256 hashes against
+the <code>build</code> job’s binaries (<code>scripts/check-reproducible-build.sh</code>, which
+anyone can also run locally against a checkout of the tagged commit); the
+<code>publish</code> job only runs once both succeed.</p>
 <p><code>workflow_dispatch</code> on the same workflow runs the build without publishing;
 use it to try the pipeline from a branch.</p>
 <h2 id="apt-repository"><a class="header" href="#apt-repository">APT repository</a></h2>

@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "rust";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "searchindex-9653446b.js";
+            window.path_to_searchindex_js = "searchindex-8695e607.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-da722cf1.js"></script>
+        <script src="toc-6fd7c490.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -195,7 +195,7 @@ package (see below).</p>
 <tbody>
 <tr><td><a href="https://github.com/ygkali/panora/releases">GitHub Releases</a></td><td><code>panora_&lt;version&gt;_&lt;arch&gt;.deb</code> for amd64 and arm64, the install kit, <code>SHA256SUMS</code>, an SPDX SBOM</td><td><code>SHA256SUMS.minisig</code> (minisign)</td><td>manual</td></tr>
 <tr><td>APT repository — <code>https://ygkali.github.io/panora/apt</code></td><td>the same <code>.deb</code> files in a <code>stable main</code> suite</td><td>the repository key, <code>InRelease</code> (GPG)</td><td><code>apt upgrade</code></td></tr>
-<tr><td>Source</td><td>this git repository; <code>./packaging/build-deb.sh</code> or <code>cargo build --release</code></td><td>git tags</td><td><code>git pull</code></td></tr>
+<tr><td>Source</td><td>this git repository; <code>./packaging/build-deb.sh</code>, <code>debian/</code> (<code>dpkg-buildpackage -b</code>), or <code>cargo build --release</code></td><td>git tags</td><td><code>git pull</code></td></tr>
 </tbody>
 </table>
 </div>
@@ -285,6 +285,13 @@ installed as <code>panora</code>), <code>panora-cli</code>, <code>panora-doctor<
 <li><strong>Build:</strong> Rust 1.92 or newer, <code>pkg-config</code>, <code>libgtk-4-dev</code> ≥ 4.12,
 <code>libadwaita-1-dev</code> ≥ 1.5. <code>cargo build --release --workspace</code>, or
 <code>packaging/build-deb.sh</code> to see every install path in one place.</li>
+<li><strong>Debian source package:</strong> <code>debian/</code> at the repository root builds through
+the standard tooling — <code>dpkg-buildpackage -b</code>, <code>sbuild</code>, <code>pbuilder</code> — and
+stages the same files <code>packaging/build-deb.sh</code> does; <code>debian/rules</code> is kept
+in step with it by hand. This is only the source-package plumbing: getting
+<code>panora</code> into the official Debian/Ubuntu archives is a separate, manual ITP
+(Intent To Package) process this repository does not automate, and no
+archive upload happens from here.</li>
 <li><strong>Runtime:</strong> GTK 4, libadwaita, an icon theme, and a Secret Service
 provider (<code>gnome-keyring</code> or <code>kwallet</code> with the Secret Service interface).
 <code>xclip</code>/<code>wl-clipboard</code> are only needed by the test scripts, <code>wtype</code> or

@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "rust";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "searchindex-9653446b.js";
+            window.path_to_searchindex_js = "searchindex-8695e607.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-da722cf1.js"></script>
+        <script src="toc-6fd7c490.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -425,6 +425,12 @@ panora-cli private on|off
 panora-cli status | toggle | reload
 panora-cli store [FILE] [--mime TYPE] [--app NAME] [--no-copy]
 panora-cli pick [--format '{id}\t{kind}\t{preview}']
+panora-cli watch
+panora-cli rotate-key
+panora-cli lock [set-password|change-password|remove-password] | unlock
+panora-cli wipe --yes
+panora-cli export --out FILE | import &lt;FILE&gt;
+panora-cli import-legacy copyq|gpaste|clipboard-indicator
 panora-cli completions bash|zsh|fish
 panora-cli man &lt;DIR&gt;
 </code></pre>
@@ -481,17 +487,60 @@ you want in a pipe.</p>
 <h2 id="watching-the-daemon"><a class="header" href="#watching-the-daemon">Watching the daemon</a></h2>
 <pre><code class="language-sh">panora-cli status
 </code></pre>
-<pre><code>backend=wayland entries=812 private=false locked=false version=1.3.0
-protocol=2 revision=57 primary=true persist=true paste=true
-source_app=true needs_bridge=false
+<pre><code>backend=wayland entries=812 private=false locked=false app_locked=false
+lock_password_set=false version=1.6.0 protocol=3 revision=57 primary=true
+persist=true paste=true source_app=true needs_bridge=false
 </code></pre>
 <p><code>backend</code> is the clipboard protocol in use, <code>revision</code> rises on every
-change (useful for polling), and the capability flags say which features
-this session can offer — see <a href="#panora-on-each-desktop">What works where</a>. Any health
-findings are printed after it as <code>health=&lt;code&gt; &lt;message&gt;</code>; those are the
-same ones the popup shows as a banner.</p>
+change, and the capability flags say which features this session can offer
+— see <a href="#panora-on-each-desktop">What works where</a>. Any health findings are printed
+after it as <code>health=&lt;code&gt; &lt;message&gt;</code>; those are the same ones the popup
+shows as a banner. <code>locked</code> is the OS session lock (screensaver); <code>app_ locked</code>/<code>lock_password_set</code> are the second-layer lock, below.</p>
 <p><code>panora-cli reload</code> re-reads <code>config.toml</code> without restarting, which is what
 the settings dialog does when you press <em>save</em>.</p>
+<p>Instead of polling <code>status</code>, <code>panora-cli watch</code> blocks and prints a line
+every time <code>revision</code> changes (the first line is always the current one, so
+starting a watcher never misses a change that just happened):</p>
+<pre><code class="language-sh">panora-cli watch | while read -r _; do panora-cli list --limit 5; done
+</code></pre>
+<h2 id="locking-the-history-while-the-daemon-keeps-running"><a class="header" href="#locking-the-history-while-the-daemon-keeps-running">Locking the history while the daemon keeps running</a></h2>
+<p>The master key always loads from the OS keyring unattended — <code>panod</code> has to
+survive a reboot with no one there to unlock anything — but a lock password
+gates a <em>running</em> daemon on top of that (SEC-02). Passwords are always read
+from standard input, never a command-line argument:</p>
+<pre><code class="language-sh">printf '%s' 'a lock password' | panora-cli lock set-password
+panora-cli lock            # engage now
+printf '%s' 'a lock password' | panora-cli unlock
+</code></pre>
+<p>While engaged, <code>list</code>/<code>search</code> report a count only and <code>preview</code>/<code>copy</code> are
+refused; <code>privacy.lock_after_idle_minutes</code> engages it on its own after that
+much inactivity. <code>lock change-password</code>/<code>lock remove-password</code> work the
+same way, reading one or two lines from standard input as documented in
+<code>panora-cli lock --help</code>.</p>
+<h2 id="backup-and-restore"><a class="header" href="#backup-and-restore">Backup and restore</a></h2>
+<pre><code class="language-sh">printf '%s' 'a backup passphrase' | panora-cli export --out backup.panora
+printf '%s' 'a backup passphrase' | panora-cli import backup.panora
+</code></pre>
+<p>The archive is encrypted with a key derived from the passphrase (Argon2id);
+there is no way to recover a forgotten one. <code>import</code> bypasses the privacy
+gate — the archive is your own previously-exported data, not a live capture
+to screen — and deduplicates by content hash, so importing the same archive
+twice or into a history that already has some of it never duplicates
+anything.</p>
+<p><code>panora-cli import-legacy copyq|gpaste|clipboard-indicator</code> reads another
+clipboard manager’s history instead, through the normal privacy-gated path
+(so excluded apps and ignore patterns still apply). This one is best-effort
+against each tool’s documented output format, since none of the three are
+part of this project’s own test environment.</p>
+<h2 id="if-something-goes-wrong"><a class="header" href="#if-something-goes-wrong">If something goes wrong</a></h2>
+<p><code>panora-cli rotate-key</code> generates a new master key and reseals the whole
+history under it; safe to interrupt (Ctrl+C, a crash, a daemon restart) and
+re-run, since it resumes the same rotation instead of starting a new one.</p>
+<p><code>panora-cli wipe --yes</code> hard-deletes the whole history — pinned entries
+included, no undo — and retires the encryption key for a fresh one, so
+what was just deleted is unrecoverable from the file system too. It works
+regardless of the second-layer lock’s state on purpose: a panic action has
+to work under duress, not only after unlocking first.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="configtoml-reference"><a class="header" href="#configtoml-reference">config.toml reference</a></h1>
 <p><code>~/.config/panora/config.toml</code> (or <code>$XDG_CONFIG_HOME/panora/config.toml</code>).
@@ -533,7 +582,7 @@ max_images = 200
 <h2 id="privacy"><a class="header" href="#privacy"><code>[privacy]</code></a></h2>
 <pre><code class="language-toml">[privacy]
 start_private = false
-excluded_apps = ["keepassxc", "bitwarden", "1password", "gnome-secrets"]
+excluded_apps = ["keepassxc", "bitwarden", "1password", "org.keepassxc", "com.bitwarden", "secrets"]
 excluded_window_titles = []
 min_text_length = 1
 ignore_whitespace_only = true
@@ -541,6 +590,7 @@ ignore_patterns = []
 capture_kinds = []
 sensitive_policy = "mask"
 sensitive_ttl_minutes = 10
+lock_after_idle_minutes = 0
 </code></pre>
 <div class="table-wrapper">
 <table>
@@ -549,14 +599,15 @@ sensitive_ttl_minutes = 10
 </thead>
 <tbody>
 <tr><td><code>start_private</code></td><td><code>false</code></td><td>Start with recording paused.</td></tr>
-<tr><td><code>excluded_apps</code></td><td>the four password managers</td><td>Source application names that are never recorded. Matched case-insensitively as a substring, so <code>keepass</code> covers <code>keepassxc</code>. Needs a session that can name the source — see below.</td></tr>
+<tr><td><code>excluded_apps</code></td><td>the three password managers (plus their reverse-DNS app id variants) and <code>secrets</code> (the gnome-keyring prompt)</td><td>Source application names that are never recorded. Matched case-insensitively as a substring, so <code>keepass</code> covers <code>keepassxc</code>. The one list lives in <code>panora_core::privacy::DEFAULT_EXCLUDED_APPS</code>; this default is generated from it, not maintained separately (SEC-10). Needs a session that can name the source — see below.</td></tr>
 <tr><td><code>excluded_window_titles</code></td><td><code>[]</code></td><td>Phrases; nothing is recorded while the focused window’s title contains one, case-insensitively. The title itself is never stored. X11 and the GNOME extension report titles.</td></tr>
 <tr><td><code>min_text_length</code></td><td><code>1</code></td><td>Text shorter than this many characters, after trimming, is not recorded.</td></tr>
 <tr><td><code>ignore_whitespace_only</code></td><td><code>true</code></td><td>Skip text that is nothing but whitespace.</td></tr>
 <tr><td><code>ignore_patterns</code></td><td><code>[]</code></td><td>Rust regular expressions; matching text is not recorded. At most 32 patterns, 512 bytes each. A pattern that does not compile is refused when you save it, not silently ignored.</td></tr>
 <tr><td><code>capture_kinds</code></td><td><code>[]</code></td><td>Kinds to record: <code>text</code>, <code>richtext</code>, <code>link</code>, <code>image</code>, <code>files</code>, <code>color</code>, <code>binary</code>. Empty means all of them.</td></tr>
-<tr><td><code>sensitive_policy</code></td><td><code>"mask"</code></td><td>What happens to text that looks like a key, a token, a card number or an IBAN. <code>mask</code> records it with a masked preview and no full-text index, <code>drop</code> never records it, <code>store</code> treats it like anything else.</td></tr>
+<tr><td><code>sensitive_policy</code></td><td><code>"mask"</code></td><td>What happens to text that looks like a key, a token, a card number or an IBAN. <code>mask</code> records it with a masked <em>preview</em> and no full-text index — the real content is still stored and still comes back on recall/preview/export, like any other entry; this is a display policy, not a way to make the secret itself inaccessible. <code>drop</code> never records it at all. <code>store</code> treats it like anything else, preview included.</td></tr>
 <tr><td><code>sensitive_ttl_minutes</code></td><td><code>10</code></td><td>Flagged entries are removed after this long, under <code>mask</code> and <code>store</code> alike. <code>0</code> leaves them to the normal retention rules. Pinned entries stay either way.</td></tr>
+<tr><td><code>lock_after_idle_minutes</code></td><td><code>0</code></td><td>Engage the second-layer lock (<code>panora-cli lock</code>, SEC-02) on its own after this many minutes of inactivity. <code>0</code> disables idle locking; a lock password has to be set first either way (<code>panora-cli lock set-password</code>), or this does nothing.</td></tr>
 </tbody>
 </table>
 </div>
@@ -709,6 +760,102 @@ a <code>VACUUM</code>.</li>
 <code>docs/adr/</code> the reasoning behind the design, and
 <code>docs/security-checklist.md</code> each control with its evidence. RustSec
 <code>cargo-audit</code> and <code>cargo-deny</code> run on every CI build.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="the-public-d-bus-api"><a class="header" href="#the-public-d-bus-api">The public D-Bus API</a></h1>
+<p>Panora’s primary, internal protocol is the private Unix socket at
+<code>$XDG_RUNTIME_DIR/panora.sock</code> (<code>panora_core::ipc</code>; <code>panora-cli</code> and the popup
+both speak it). <code>panod</code> additionally owns <code>io.github.ygkali.Panora1</code> on the
+<strong>session bus</strong>, for third-party integrations that would rather speak D-Bus
+than open that socket themselves — a Waybar module, a shell script through
+<code>gdbus</code>/<code>dbus-send</code>, a status bar widget.</p>
+<p>This is a thin mirror, not a second implementation: every method call
+becomes exactly the same request the Unix socket accepts, so there is
+exactly one place the privacy gates, encryption and deduplication logic
+live. If <code>panod</code> is not running, the service is not on the bus at all.</p>
+<ul>
+<li><strong>Bus name:</strong> <code>io.github.ygkali.Panora1</code></li>
+<li><strong>Object path:</strong> <code>/io/github/ygkali/Panora1</code></li>
+<li><strong>Interface:</strong> <code>io.github.ygkali.Panora1</code></li>
+</ul>
+<h2 id="methods"><a class="header" href="#methods">Methods</a></h2>
+<pre><code>List(a{sv} filters) → aa{sv} entries
+Recall(x id, b paste, s mime) → b pasted
+Pin(x id, b pinned)
+Delete(x id)
+Clear() → u count
+SetPrivate(b enabled)
+Status() → a{sv}
+</code></pre>
+<h3 id="list"><a class="header" href="#list"><code>List</code></a></h3>
+<p><code>filters</code> (all optional, same meaning as <code>panora-cli list</code>’s flags):</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Key</th><th>Type</th><th></th></tr>
+</thead>
+<tbody>
+<tr><td><code>search</code></td><td><code>s</code></td><td>Search string; the same grammar as the CLI (<code>kind:</code>, <code>app:</code>, <code>pinned:</code>, <code>before:</code>/<code>after:</code>, <code>re:</code>, quoted phrases).</td></tr>
+<tr><td><code>kind</code></td><td><code>s</code></td><td>One of <code>text</code>, <code>richtext</code>, <code>link</code>, <code>image</code>, <code>files</code>, <code>color</code>, <code>binary</code>.</td></tr>
+<tr><td><code>pinned_only</code></td><td><code>b</code></td><td>Only pinned entries.</td></tr>
+<tr><td><code>limit</code></td><td><code>u</code></td><td>Page size (0 or omitted = 50, capped at 500).</td></tr>
+<tr><td><code>offset</code></td><td><code>u</code></td><td>Page offset.</td></tr>
+</tbody>
+</table>
+</div>
+<p>Each returned entry is a dict with <code>id</code> (<code>x</code>), <code>content_hash</code> (<code>s</code>),
+<code>preview</code> (<code>s</code>), <code>kind</code> (<code>s</code>), <code>primary_mime</code> (<code>s</code>), <code>size_bytes</code> (<code>x</code>),
+<code>source_app</code> (<code>s</code>, empty if unknown), <code>created_at</code> (<code>x</code>), <code>last_seen_at</code>
+(<code>x</code>), <code>pinned</code> (<code>b</code>), <code>sensitive</code> (<code>b</code>), <code>selection</code> (<code>s</code>,
+<code>"clipboard"</code>/<code>"primary"</code>).</p>
+<p>While the second-layer lock (SEC-02) is engaged, <code>List</code> returns an empty
+array — a <code>aa{sv}</code> reply has nowhere to carry “count only” the way the Unix
+socket’s <code>List</code> degrades to; call <code>Status</code> for the count instead.</p>
+<h3 id="recall"><a class="header" href="#recall"><code>Recall</code></a></h3>
+<p>Puts an entry back on the clipboard. <code>mime</code> empty means every stored
+format; a specific MIME type (e.g. <code>text/plain</code>) offers only that one.
+Returns whether a paste keystroke was delivered (meaningless when <code>paste</code>
+is <code>false</code>). Refused while the second-layer lock is engaged.</p>
+<h3 id="pin--delete--clear--setprivate"><a class="header" href="#pin--delete--clear--setprivate"><code>Pin</code> / <code>Delete</code> / <code>Clear</code> / <code>SetPrivate</code></a></h3>
+<p>Same as the CLI commands of the same name. <code>Clear</code> deletes every unpinned
+entry and returns how many were removed.</p>
+<h3 id="status"><a class="header" href="#status"><code>Status</code></a></h3>
+<p>A dict with <code>backend</code> (<code>s</code>), <code>entries</code> (<code>x</code>), <code>private_mode</code> (<code>b</code>),
+<code>sync_active</code> (<code>b</code>), <code>revision</code> (<code>t</code>), <code>version</code> (<code>s</code>), <code>protocol</code> (<code>u</code>,
+the <em>Unix socket’s</em> protocol version), <code>locked</code> (<code>b</code>, the OS session lock),
+<code>app_locked</code> (<code>b</code>, the second-layer lock’s state) and <code>lock_password_set</code>
+(<code>b</code>).</p>
+<h2 id="signal-changed"><a class="header" href="#signal-changed">Signal: <code>Changed</code></a></h2>
+<pre><code>Changed(t revision)
+</code></pre>
+<p>Fired every time the history changes, carrying the new revision — the
+D-Bus equivalent of the Unix socket’s <code>Subscribe</code> event stream. A client
+that wants to react to changes should watch this instead of polling
+<code>Status</code>.</p>
+<h2 id="trying-it-from-a-shell"><a class="header" href="#trying-it-from-a-shell">Trying it from a shell</a></h2>
+<pre><code class="language-sh">gdbus call --session \
+  --dest io.github.ygkali.Panora1 \
+  --object-path /io/github/ygkali/Panora1 \
+  --method io.github.ygkali.Panora1.Status
+
+gdbus call --session \
+  --dest io.github.ygkali.Panora1 \
+  --object-path /io/github/ygkali/Panora1 \
+  --method io.github.ygkali.Panora1.List '{}'
+
+gdbus monitor --session --dest io.github.ygkali.Panora1
+</code></pre>
+<h2 id="what-is-intentionally-not-here"><a class="header" href="#what-is-intentionally-not-here">What is intentionally not here</a></h2>
+<p>Payload content (<code>Preview</code> on the Unix socket) is not exposed over D-Bus:
+the session bus is a broadcast medium any other application on it can
+introspect and monitor, which is a worse place to put clipboard content
+through than a private, 0600 Unix socket only the owning user’s own
+processes can open. <code>Recall</code> still works — it puts the content on the
+clipboard, which is exactly where every other application already expects
+to read it from — but a method that hands back raw payload bytes over the
+bus does not exist and is not planned. Export/import, the second-layer
+lock’s password management, key rotation and the panic wipe are Unix-socket
+(<code>panora-cli</code>) only for the same reason: none of them belong on a bus other
+processes can watch.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="panora-on-each-desktop"><a class="header" href="#panora-on-each-desktop">Panora on each desktop</a></h1>
 <p>What works where, how to bind the shortcut, and what to install. The
@@ -898,7 +1045,7 @@ package (see below).</p>
 <tbody>
 <tr><td><a href="https://github.com/ygkali/panora/releases">GitHub Releases</a></td><td><code>panora_&lt;version&gt;_&lt;arch&gt;.deb</code> for amd64 and arm64, the install kit, <code>SHA256SUMS</code>, an SPDX SBOM</td><td><code>SHA256SUMS.minisig</code> (minisign)</td><td>manual</td></tr>
 <tr><td>APT repository — <code>https://ygkali.github.io/panora/apt</code></td><td>the same <code>.deb</code> files in a <code>stable main</code> suite</td><td>the repository key, <code>InRelease</code> (GPG)</td><td><code>apt upgrade</code></td></tr>
-<tr><td>Source</td><td>this git repository; <code>./packaging/build-deb.sh</code> or <code>cargo build --release</code></td><td>git tags</td><td><code>git pull</code></td></tr>
+<tr><td>Source</td><td>this git repository; <code>./packaging/build-deb.sh</code>, <code>debian/</code> (<code>dpkg-buildpackage -b</code>), or <code>cargo build --release</code></td><td>git tags</td><td><code>git pull</code></td></tr>
 </tbody>
 </table>
 </div>
@@ -988,6 +1135,13 @@ installed as <code>panora</code>), <code>panora-cli</code>, <code>panora-doctor<
 <li><strong>Build:</strong> Rust 1.92 or newer, <code>pkg-config</code>, <code>libgtk-4-dev</code> ≥ 4.12,
 <code>libadwaita-1-dev</code> ≥ 1.5. <code>cargo build --release --workspace</code>, or
 <code>packaging/build-deb.sh</code> to see every install path in one place.</li>
+<li><strong>Debian source package:</strong> <code>debian/</code> at the repository root builds through
+the standard tooling — <code>dpkg-buildpackage -b</code>, <code>sbuild</code>, <code>pbuilder</code> — and
+stages the same files <code>packaging/build-deb.sh</code> does; <code>debian/rules</code> is kept
+in step with it by hand. This is only the source-package plumbing: getting
+<code>panora</code> into the official Debian/Ubuntu archives is a separate, manual ITP
+(Intent To Package) process this repository does not automate, and no
+archive upload happens from here.</li>
 <li><strong>Runtime:</strong> GTK 4, libadwaita, an icon theme, and a Secret Service
 provider (<code>gnome-keyring</code> or <code>kwallet</code> with the Secret Service interface).
 <code>xclip</code>/<code>wl-clipboard</code> are only needed by the test scripts, <code>wtype</code> or
@@ -1125,10 +1279,7 @@ extension changed.</li>
 <code>cargo about generate about.hbs -o THIRD_PARTY_LICENSES.md</code>.</li>
 <li>Green locally: <code>cargo fmt --all -- --check</code>, <code>cargo clippy --workspace --all-targets -- -D warnings</code>, <code>cargo test --workspace</code>, the Xvfb X11
 tests, <code>scripts/keyring-test.sh</code>, <code>shellcheck</code>, <code>./packaging/build-deb.sh</code>
-<ul>
-<li><code>lintian --fail-on error,warning dist/*.deb</code>.</li>
-</ul>
-</li>
+(needs <code>cargo install cargo-auditable --locked</code>) + <code>lintian --fail-on error,warning dist/*.deb</code>, <code>scripts/check-reproducible-build.sh</code> (SEC-08).</li>
 <li><strong>Upgrade path</strong> (<code>PKG-10</code>): <code>scripts/upgrade-test.sh --deb &lt;previous release .deb&gt;</code> (or <code>--from vX.Y.Z-1</code>) records entries with the old daemon
 and reopens the same data directory with this build: the entries have to
 come back unchanged, the schema has to reach the version this build
@@ -1149,6 +1300,14 @@ git push origin vX.Y.Z
 <code>MINISIGN_PASSWORD</code> secrets exist), an SPDX SBOM, and publishes the GitHub
 release with the CHANGELOG section as its notes. A tag containing <code>-</code> (for
 example <code>v1.4.0-rc1</code>) is marked as a pre-release.</p>
+<p>Binaries are built with <code>cargo auditable</code> (SEC-08): each one carries its own
+dependency manifest, so <code>cargo audit bin panod</code> (or <code>panora-gui</code>/
+<code>panora-cli</code>) checks it against the RustSec advisory database without
+needing the source tree that built it. A separate <code>reproducible</code> job builds
+the same commit again on its own runner and compares SHA256 hashes against
+the <code>build</code> job’s binaries (<code>scripts/check-reproducible-build.sh</code>, which
+anyone can also run locally against a checkout of the tagged commit); the
+<code>publish</code> job only runs once both succeed.</p>
 <p><code>workflow_dispatch</code> on the same workflow runs the build without publishing;
 use it to try the pipeline from a branch.</p>
 <h2 id="apt-repository"><a class="header" href="#apt-repository">APT repository</a></h2>
@@ -1368,6 +1527,139 @@ renders the README screenshots from the fixture data under Xvfb.</li>
 <code>CONTRIBUTING.md</code>, <code>SECURITY.md</code>, <code>CODE_OF_CONDUCT.md</code>, issue and pull
 request templates, Dependabot, <code>REUSE.toml</code>, <code>AUTHORS.md</code>, and
 <code>docs/ROADMAP.md</code> with every planned task identified.</li>
+<li>IPC protocol v3 (STO-08): a binary framing (<code>u32</code> length + JSON header +
+raw payload) replaces base64-in-JSON for anything large — payloads over
+8 KiB travel as a <code>memfd_create</code> file descriptor passed over the socket
+with <code>SCM_RIGHTS</code> instead of being inflated 4/3 and squeezed under the
+64 MiB reply cap. <code>Hello</code> negotiates the protocol version and <code>Subscribe</code>
+turns a connection into a push stream of <code>{event:"changed",revision}</code>
+frames, so a client can wait for changes instead of polling <code>Status</code>.
+v2 JSON-lines clients are still served on the same socket (the daemon
+tells them apart by peeking the connection’s first byte).</li>
+<li><code>panora-cli watch</code> (CLI-02): prints one line per history change (<code>--json</code>
+for the raw event) by holding a <code>Subscribe</code> connection open, instead of
+a caller having to poll <code>status</code> in a loop.</li>
+<li><code>panora-cli rotate-key</code> (SEC-01): generates a new master key and reseals
+every stored preview and blob under it, then retires the old one. Safe to
+interrupt at any point — the new key is written to the keyring’s pending
+slot before anything is touched, <code>Database::rekey</code>/<code>BlobStore::rekey</code> are
+each idempotent (a row or file already under the new key is a no-op), and
+the live keyring item is only replaced once both finish — so running
+<code>rotate-key</code> again after a crash resumes the same rotation instead of
+starting a new one or losing data. <code>panora-cli status</code> reports
+<code>rotation_incomplete</code> under health when a previous attempt was left
+unfinished.</li>
+<li>Second-layer lock (SEC-02): <code>panora-cli lock [set-password|change- password|remove-password]</code> and <code>panora-cli unlock</code> gate a <em>running</em>
+daemon behind an Argon2id-derived password, independent of the OS
+keyring (which still loads the plain master key unattended, so <code>panod</code>
+keeps surviving a reboot with no one there to unlock anything). While
+engaged: <code>list</code>/<code>search</code> report a count only, <code>preview</code> and <code>copy</code>/
+<code>recall</code> are refused. <code>privacy.lock_after_idle_minutes</code> engages it on
+its own after that many minutes of inactivity. Setting a password also
+writes a password-gated backup copy of the live master key to the
+keyring, independent of the daemon’s normal unlock flow. Passwords are
+always read from standard input, never a command-line argument.
+<code>panora-cli status</code> reports <code>app_locked</code>/<code>lock_password_set</code>.</li>
+<li><code>panora-cli wipe --yes</code> (SEC-03, panic wipe): hard-deletes the whole
+history — pinned entries included, no undo, unlike <code>clear</code> — and retires
+the master key for a freshly generated one, so what was just deleted is
+unrecoverable from the file system too, not only inaccessible through
+Panora. Works regardless of the second-layer lock’s state, since a panic
+action has to work under duress, not only after unlocking first.</li>
+<li><code>panora-cli export</code>/<code>import</code> (CLI-03): the whole history as one encrypted
+<code>.panora</code> archive (tar of <code>entries.json</code> + content-addressed blobs,
+sealed with an Argon2id-derived, passphrase-only key — no verifier is
+stored anywhere, so the AEAD tag failing to open on <code>import</code> is itself
+the “wrong passphrase” answer). <code>import</code> bypasses the privacy gate (the
+archive is the user’s own previously-exported data) and deduplicates by
+content hash exactly like a live capture. Both travel over the v3
+protocol directly, so an archive is not limited by the v2 JSON-lines
+response cap the way a <code>Preview</code> payload still is. <code>panora-cli import- legacy &lt;copyq|gpaste|clipboard-indicator&gt;</code> reads another clipboard
+manager’s history through the normal privacy-gated <code>Store</code> path instead;
+best-effort, since none of the three tools are available to test
+against in this project’s CI (only their documented output formats are).</li>
+<li>Fuzzing (SEC-06): <code>crates/panora-core/fuzz</code> (<code>cargo fuzz</code>), 7 targets —
+IPC decoding (v2 JSON-lines and the v3 frame header, STO-08), the search
+query grammar, the FTS5 <code>MATCH</code> expression builder, the storage
+envelope’s <code>open</code>/<code>open_with_aad</code>, the secret/concealed-type MIME flag
+check (ADR 0003), and clipboard content classification. A <code>fuzz-build</code>
+CI job compiles every target on each push (a real fuzzing campaign is
+hours, not a CI job’s budget); <code>scripts/fuzz-smoke.sh</code> runs a short
+timed pass of all of them locally. No crashes found in ~1.8M combined
+executions across an initial smoke run.</li>
+<li>Supply chain hardening (SEC-08): release binaries are built with <code>cargo auditable</code> (each one carries its own dependency manifest, so <code>cargo audit bin panod</code> works without the source tree) and with build-machine paths
+stripped (<code>--remap-path-prefix</code>). A new <code>reproducible</code> release CI job
+rebuilds the same commit on its own runner and compares SHA256 hashes
+against the <code>build</code> job’s binaries — <code>publish</code> only runs once both
+agree — and <code>scripts/check-reproducible-build.sh</code> lets anyone repeat the
+same check locally. Verified locally: <code>panod</code>/<code>panora-gui</code>/<code>panora-cli</code>
+are currently byte-identical across independent builds. <code>PKG-01</code>
+(1.3.0) already covers <code>SHA256SUMS</code> + minisign signing + an SPDX SBOM;
+<code>cargo vet</code> is left out as the roadmap itself marks it optional.</li>
+<li>Benchmarks (STO-06): <code>crates/panora-core/benches/{fts,store,blob}.rs</code> and
+<code>crates/panod/benches/ipc.rs</code> (<code>cargo bench</code>, criterion), replacing
+<code>docs/benchmark.md</code>’s previous placeholder (B-07). A <code>bench-build</code> CI job
+compiles every benchmark on each push; a weekly <code>benchmark</code> job actually
+runs them and uploads the results as an artifact. Measured once on this
+session’s WSL2 dev machine: FTS5 prefix search over 10,000 rows ~1.1 ms,
+an IPC round trip ~72 µs (both well under target), storing a 1 KiB entry
+~5.5 ms (slightly over the 5 ms target, inside the 20 ms ceiling — likely
+this VM’s disk latency, a bare-metal run should confirm). <code>panod</code>’s idle
+RSS and the popup’s open time still need a real desktop session (STO-07,
+out of scope here).</li>
+<li>Exclusion list, single source (SEC-10, B-15): <code>PrivacyConfig::default</code>’s
+<code>excluded_apps</code> used to be a second, independently maintained copy of
+<code>privacy::DEFAULT_EXCLUDED_APPS</code> with different contents in each (config.rs
+was missing <code>org.keepassxc</code>/<code>com.bitwarden</code>/<code>secrets</code>) — <code>PrivacyEngine:: new</code> always unions the real one in regardless, so this was a documentation
+drift risk rather than a live gap, but a real one. <code>config.rs</code> now builds
+its default straight from <code>privacy::DEFAULT_EXCLUDED_APPS</code>, with a
+regression test pinning that down. <code>sensitive_policy = "mask"</code> is now
+documented explicitly as a <em>preview</em> policy: the real content is still
+stored and still comes back on recall/preview/export, not a way to make a
+secret inaccessible (<code>drop</code> is). README/README.tr/docs/book also gained
+the <code>lock_after_idle_minutes</code> (SEC-02) config key and the CLI reference
+page gained <code>watch</code>/<code>rotate-key</code>/<code>lock</code>/<code>unlock</code>/<code>wipe</code>/<code>export</code>/<code>import</code>/
+<code>import-legacy</code>, none of which had made it into the docs yet.</li>
+<li>Public D-Bus API (INT-05): <code>io.github.ygkali.Panora1</code> on the session bus
+(<code>/io/github/ygkali/Panora1</code>) mirrors the Unix socket for third-party
+integrations (Waybar modules, <code>gdbus</code>/<code>dbus-send</code> scripts) that would
+rather speak D-Bus — <code>List</code>, <code>Recall</code>, <code>Pin</code>, <code>Delete</code>, <code>Clear</code>,
+<code>SetPrivate</code>, <code>Status</code>, and a <code>Changed(t revision)</code> signal fed by the same
+<code>Subscribe</code> stream CLI-02’s <code>watch</code> uses. A thin translation layer, not a
+second implementation: every call becomes exactly the request the Unix
+socket already accepts (<code>panod</code> is its own IPC client here), so the
+privacy gates, encryption and dedup logic live in exactly one place.
+Payload content, export/import, the lock password and key rotation/wipe
+stay Unix-socket only — the session bus is a broadcast medium other
+processes can watch, a worse place for any of that than a private 0600
+socket. <code>docs/dbus-api.md</code>, tested against a real session bus.</li>
+<li>Debian source package (PKG-03): <code>debian/</code> at the repository root builds
+through the standard Debian tooling — <code>dpkg-buildpackage -b</code>, <code>sbuild</code>,
+<code>pbuilder</code> — instead of only the hand-rolled <code>packaging/build-deb.sh</code>,
+staging the same binaries, systemd user unit, desktop entry, D-Bus service
+file, metainfo, icons, man pages, shell completions and GNOME Shell
+extension. The maintainer scripts restart <code>panod</code> for every logged-in user
+the same way the shell script does; a <code>lintian-overrides</code> file documents
+why (a per-user systemd unit, not a system one). Verified with a real
+<code>dpkg-buildpackage -b</code> and a lintian-clean <code>.deb</code>. Getting <code>panora</code> into
+the official Debian/Ubuntu archives is a separate, manual process
+(<code>docs/DISTRIBUTION.md</code>) this does not automate.</li>
+<li>Property-based tests (QA-07, <code>proptest</code>) for <code>search::fts_expression</code>
+(<code>fts_query</code>), the ciphertext envelope (<code>Cipher::seal</code>/<code>open</code> and the
+<code>_with_aad</code> pair), <code>percent_decode</code> and <code>wanted_order</code> — run against
+thousands of generated inputs instead of the handful the unit tests
+happened to type. Found and fixed a real bug: a <code>\0</code> byte anywhere in a
+search string made every search fail outright. SQLite’s FTS5
+query-string parser scans the <code>MATCH</code> argument as if it were
+NUL-terminated even though it arrives as length-prefixed TEXT, so the
+embedded NUL truncated the scan mid-quote and SQLite reported
+“unterminated string” instead of the query just not matching that byte —
+<code>search::fts_expression</code> now strips <code>\0</code> the same way it already strips
+<code>"</code>. The crash-free property tests also cover byte-for-byte round-trips
+(envelope, <code>percent_decode</code> against a full percent-encoding of arbitrary
+UTF-8) and the <code>wanted_order</code> invariants (only known MIME types kept,
+sorted by preference, deduplicated, at most one plain-text flavour,
+idempotent).</li>
 </ul>
 <h3 id="changed"><a class="header" href="#changed">Changed</a></h3>
 <ul>

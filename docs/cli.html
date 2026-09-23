@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "rust";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "searchindex-9653446b.js";
+            window.path_to_searchindex_js = "searchindex-8695e607.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-da722cf1.js"></script>
+        <script src="toc-6fd7c490.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -194,6 +194,12 @@ panora-cli private on|off
 panora-cli status | toggle | reload
 panora-cli store [FILE] [--mime TYPE] [--app NAME] [--no-copy]
 panora-cli pick [--format '{id}\t{kind}\t{preview}']
+panora-cli watch
+panora-cli rotate-key
+panora-cli lock [set-password|change-password|remove-password] | unlock
+panora-cli wipe --yes
+panora-cli export --out FILE | import &lt;FILE&gt;
+panora-cli import-legacy copyq|gpaste|clipboard-indicator
 panora-cli completions bash|zsh|fish
 panora-cli man &lt;DIR&gt;
 </code></pre>
@@ -250,17 +256,60 @@ you want in a pipe.</p>
 <h2 id="watching-the-daemon"><a class="header" href="#watching-the-daemon">Watching the daemon</a></h2>
 <pre><code class="language-sh">panora-cli status
 </code></pre>
-<pre><code>backend=wayland entries=812 private=false locked=false version=1.3.0
-protocol=2 revision=57 primary=true persist=true paste=true
-source_app=true needs_bridge=false
+<pre><code>backend=wayland entries=812 private=false locked=false app_locked=false
+lock_password_set=false version=1.6.0 protocol=3 revision=57 primary=true
+persist=true paste=true source_app=true needs_bridge=false
 </code></pre>
 <p><code>backend</code> is the clipboard protocol in use, <code>revision</code> rises on every
-change (useful for polling), and the capability flags say which features
-this session can offer — see <a href="desktops.html">What works where</a>. Any health
-findings are printed after it as <code>health=&lt;code&gt; &lt;message&gt;</code>; those are the
-same ones the popup shows as a banner.</p>
+change, and the capability flags say which features this session can offer
+— see <a href="desktops.html">What works where</a>. Any health findings are printed
+after it as <code>health=&lt;code&gt; &lt;message&gt;</code>; those are the same ones the popup
+shows as a banner. <code>locked</code> is the OS session lock (screensaver); <code>app_ locked</code>/<code>lock_password_set</code> are the second-layer lock, below.</p>
 <p><code>panora-cli reload</code> re-reads <code>config.toml</code> without restarting, which is what
 the settings dialog does when you press <em>save</em>.</p>
+<p>Instead of polling <code>status</code>, <code>panora-cli watch</code> blocks and prints a line
+every time <code>revision</code> changes (the first line is always the current one, so
+starting a watcher never misses a change that just happened):</p>
+<pre><code class="language-sh">panora-cli watch | while read -r _; do panora-cli list --limit 5; done
+</code></pre>
+<h2 id="locking-the-history-while-the-daemon-keeps-running"><a class="header" href="#locking-the-history-while-the-daemon-keeps-running">Locking the history while the daemon keeps running</a></h2>
+<p>The master key always loads from the OS keyring unattended — <code>panod</code> has to
+survive a reboot with no one there to unlock anything — but a lock password
+gates a <em>running</em> daemon on top of that (SEC-02). Passwords are always read
+from standard input, never a command-line argument:</p>
+<pre><code class="language-sh">printf '%s' 'a lock password' | panora-cli lock set-password
+panora-cli lock            # engage now
+printf '%s' 'a lock password' | panora-cli unlock
+</code></pre>
+<p>While engaged, <code>list</code>/<code>search</code> report a count only and <code>preview</code>/<code>copy</code> are
+refused; <code>privacy.lock_after_idle_minutes</code> engages it on its own after that
+much inactivity. <code>lock change-password</code>/<code>lock remove-password</code> work the
+same way, reading one or two lines from standard input as documented in
+<code>panora-cli lock --help</code>.</p>
+<h2 id="backup-and-restore"><a class="header" href="#backup-and-restore">Backup and restore</a></h2>
+<pre><code class="language-sh">printf '%s' 'a backup passphrase' | panora-cli export --out backup.panora
+printf '%s' 'a backup passphrase' | panora-cli import backup.panora
+</code></pre>
+<p>The archive is encrypted with a key derived from the passphrase (Argon2id);
+there is no way to recover a forgotten one. <code>import</code> bypasses the privacy
+gate — the archive is your own previously-exported data, not a live capture
+to screen — and deduplicates by content hash, so importing the same archive
+twice or into a history that already has some of it never duplicates
+anything.</p>
+<p><code>panora-cli import-legacy copyq|gpaste|clipboard-indicator</code> reads another
+clipboard manager’s history instead, through the normal privacy-gated path
+(so excluded apps and ignore patterns still apply). This one is best-effort
+against each tool’s documented output format, since none of the three are
+part of this project’s own test environment.</p>
+<h2 id="if-something-goes-wrong"><a class="header" href="#if-something-goes-wrong">If something goes wrong</a></h2>
+<p><code>panora-cli rotate-key</code> generates a new master key and reseals the whole
+history under it; safe to interrupt (Ctrl+C, a crash, a daemon restart) and
+re-run, since it resumes the same rotation instead of starting a new one.</p>
+<p><code>panora-cli wipe --yes</code> hard-deletes the whole history — pinned entries
+included, no undo — and retires the encryption key for a fresh one, so
+what was just deleted is unrecoverable from the file system too. It works
+regardless of the second-layer lock’s state on purpose: a panic action has
+to work under duress, not only after unlocking first.</p>
 
                     </main>
 

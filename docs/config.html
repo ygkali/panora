@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "rust";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "searchindex-9653446b.js";
+            window.path_to_searchindex_js = "searchindex-8695e607.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-da722cf1.js"></script>
+        <script src="toc-6fd7c490.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -220,7 +220,7 @@ max_images = 200
 <h2 id="privacy"><a class="header" href="#privacy"><code>[privacy]</code></a></h2>
 <pre><code class="language-toml">[privacy]
 start_private = false
-excluded_apps = ["keepassxc", "bitwarden", "1password", "gnome-secrets"]
+excluded_apps = ["keepassxc", "bitwarden", "1password", "org.keepassxc", "com.bitwarden", "secrets"]
 excluded_window_titles = []
 min_text_length = 1
 ignore_whitespace_only = true
@@ -228,6 +228,7 @@ ignore_patterns = []
 capture_kinds = []
 sensitive_policy = "mask"
 sensitive_ttl_minutes = 10
+lock_after_idle_minutes = 0
 </code></pre>
 <div class="table-wrapper">
 <table>
@@ -236,14 +237,15 @@ sensitive_ttl_minutes = 10
 </thead>
 <tbody>
 <tr><td><code>start_private</code></td><td><code>false</code></td><td>Start with recording paused.</td></tr>
-<tr><td><code>excluded_apps</code></td><td>the four password managers</td><td>Source application names that are never recorded. Matched case-insensitively as a substring, so <code>keepass</code> covers <code>keepassxc</code>. Needs a session that can name the source — see below.</td></tr>
+<tr><td><code>excluded_apps</code></td><td>the three password managers (plus their reverse-DNS app id variants) and <code>secrets</code> (the gnome-keyring prompt)</td><td>Source application names that are never recorded. Matched case-insensitively as a substring, so <code>keepass</code> covers <code>keepassxc</code>. The one list lives in <code>panora_core::privacy::DEFAULT_EXCLUDED_APPS</code>; this default is generated from it, not maintained separately (SEC-10). Needs a session that can name the source — see below.</td></tr>
 <tr><td><code>excluded_window_titles</code></td><td><code>[]</code></td><td>Phrases; nothing is recorded while the focused window’s title contains one, case-insensitively. The title itself is never stored. X11 and the GNOME extension report titles.</td></tr>
 <tr><td><code>min_text_length</code></td><td><code>1</code></td><td>Text shorter than this many characters, after trimming, is not recorded.</td></tr>
 <tr><td><code>ignore_whitespace_only</code></td><td><code>true</code></td><td>Skip text that is nothing but whitespace.</td></tr>
 <tr><td><code>ignore_patterns</code></td><td><code>[]</code></td><td>Rust regular expressions; matching text is not recorded. At most 32 patterns, 512 bytes each. A pattern that does not compile is refused when you save it, not silently ignored.</td></tr>
 <tr><td><code>capture_kinds</code></td><td><code>[]</code></td><td>Kinds to record: <code>text</code>, <code>richtext</code>, <code>link</code>, <code>image</code>, <code>files</code>, <code>color</code>, <code>binary</code>. Empty means all of them.</td></tr>
-<tr><td><code>sensitive_policy</code></td><td><code>"mask"</code></td><td>What happens to text that looks like a key, a token, a card number or an IBAN. <code>mask</code> records it with a masked preview and no full-text index, <code>drop</code> never records it, <code>store</code> treats it like anything else.</td></tr>
+<tr><td><code>sensitive_policy</code></td><td><code>"mask"</code></td><td>What happens to text that looks like a key, a token, a card number or an IBAN. <code>mask</code> records it with a masked <em>preview</em> and no full-text index — the real content is still stored and still comes back on recall/preview/export, like any other entry; this is a display policy, not a way to make the secret itself inaccessible. <code>drop</code> never records it at all. <code>store</code> treats it like anything else, preview included.</td></tr>
 <tr><td><code>sensitive_ttl_minutes</code></td><td><code>10</code></td><td>Flagged entries are removed after this long, under <code>mask</code> and <code>store</code> alike. <code>0</code> leaves them to the normal retention rules. Pinned entries stay either way.</td></tr>
+<tr><td><code>lock_after_idle_minutes</code></td><td><code>0</code></td><td>Engage the second-layer lock (<code>panora-cli lock</code>, SEC-02) on its own after this many minutes of inactivity. <code>0</code> disables idle locking; a lock password has to be set first either way (<code>panora-cli lock set-password</code>), or this does nothing.</td></tr>
 </tbody>
 </table>
 </div>
