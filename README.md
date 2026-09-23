@@ -11,6 +11,9 @@ connection, and never reads what a password manager copied.
 
 *Türkçe: [README.tr.md](README.tr.md).*
 
+▶ [45-second tour of the popup](docs/book/src/media/tour.webm) (WebM, also
+on the [documentation site](https://ygkali.github.io/panora/docs/popup.html)).
+
 <p align="center">
   <img src="docs/screenshots/popup-light.png" width="300" alt="Panora popup, light style">
   <img src="docs/screenshots/popup-dark.png" width="300" alt="Panora popup, dark style">

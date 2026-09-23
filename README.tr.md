@@ -8,6 +8,9 @@ X11 ve Wayland pano protokollerini doğrudan konuşur, hiçbir ağ bağlantısı
 açmaz ve parola yöneticilerinin kopyaladığını hiç okumaz. GPL-3.0-only
 lisanslıdır.
 
+▶ [Popup'ın 45 saniyelik tanıtımı](docs/book/src/media/tour.webm) (WebM,
+İngilizce altyazılı; ayrıca [belge sitesinde](https://ygkali.github.io/panora/docs/popup.html)).
+
 <p align="center">
   <img src="docs/screenshots/popup-light-tr.png" width="300" alt="Panora popup, açık tema">
   <img src="docs/screenshots/popup-dark.png" width="300" alt="Panora popup, koyu tema">

@@ -462,7 +462,7 @@ Bu maddeler yol haritasındaki ilgili işlere bağlanmıştır; P0 olanlar yayı
 | DOC-06 | Yönetişim: CoC, bakımcılar, karar günlüğü (ADR'ler devam) | P1 | S |
 | DOC-07 | Lansman: This Week in GNOME, OMG! Ubuntu, r/gnome, r/linux, Hacker News "Show HN", AlternativeTo/Flathub listeleri, demo GIF | P1 | M |
 | DOC-08 | `panora-doctor --report` (kimlik bilgisi arındırılmış tanı paketi) | P1 | S |
-| DOC-09 | Video: 60 saniyelik tanıtım (mevcut `record-feature-tour*.sh` script'leri yeniden kullanılabilir) | P2 | M |
+| DOC-09 | Video: 60 saniyelik tanıtım (`scripts/record-tour.sh`; bkz. §11.7) | P2 | M |
 
 ### 5.10 Test ve CI (QA)
 
@@ -736,3 +736,11 @@ yüzden tasarım kararları bu oturumda verildi ve aşağıda gerekçeleriyle ka
 test --workspace` + `cargo test -p panora-gui --features fixture` (toplam 178+17+... yeşil),
 `cargo build -p panora-gui --features fixture`, `cargo deny check`, `cargo machete` — hepsi
 her madde sonrası tekrar çalıştırıldı. **1.7.x listesinin tamamı artık bitti.**
+
+### 11.7 PR #17 sonrası: CI düzeltmesi ve DOC-09 (2026-09-23)
+
+| Madde | Durum |
+|---|---|
+| CI "Format & Clippy" kırmızı (PR #17 ve `main`) | **Düzeltildi.** `cargo doc -D warnings`, `lock.rs` modül belgesindeki niteliksiz `[`LockSecret::verify`]` bağlantısını çözemiyordu: `pub mod lock;` üzerindeki dış `///` yorumu iç `//!` belgeyle birleşiyor ve rustdoc bağlantıyı crate kökünde arıyor. Hata aynı rustc 1.98.1 ile WSL'de yeniden üretildi; iki bağlantı da `crate::lock::LockSecret::…` yapıldı (ikincisi satır sonunda bölündüğü için zaten hiç bağlantı olarak işlenmiyordu). |
+| DOC-09 (tanıtım videosu) | **Bitti**, 60 değil ~45 sn. Yol haritasının bahsettiği `record-feature-tour*.sh` script'leri depoda hiç yoktu; yerine `scripts/record-tour.sh` yazıldı: fixture popup Xvfb'de açılır, xdotool yalnızca klavyeyle gezdirir (ok tuşları, Space ayrıntı, arama, `kind:`/`app:` filtreleri, Ctrl+D, Ctrl+Shift+P, Ctrl+,), ffmpeg x11grab ile pencereyi kırparak kaydeder, ikinci geçişte her adıma altyazı basılır. Çıktı `docs/book/src/media/tour.webm` (VP9, ~370 KB): mdBook sitesinin popup sayfasında `<video>` ile gömülü, README'lerden bağlantılı. GitHub README'si depodaki videoyu satır içi oynatmadığı için bağlantı olarak kaldı. Karelerden çıkarılan kontak sayfalarıyla her adımın doğru göründüğü kontrol edildi. |
+| Fixture arama dilbilgisi | **Düzeltildi** (video sırasında bulundu). `--features fixture` arama metnini düz alt dize olarak arıyordu; `kind:link` "sonuç yok" veriyordu. Artık `panora_core::search::parse` + daemon'la aynı filtreler (kelime öneki, tırnaklı ifade, `kind/app/pinned/before/after/re`); birim testiyle. |

@@ -1,5 +1,10 @@
 # The popup
 
+<video src="media/tour.webm" controls muted loop playsinline width="420">
+  A 45-second tour of the popup: keyboard navigation, details, search
+  filters, pinning, private mode and settings.
+</video>
+
 Open it with **Super+V** on GNOME, with the launcher entry, by running
 `panora`, or with `panora-cli toggle` from any key binding. Opening it again
 closes it, and it closes by itself when you move to another window — the

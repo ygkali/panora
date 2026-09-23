@@ -434,6 +434,11 @@ real-machine verification in `docs/RELEASING.md` is done.
   left open are force-closed, stray closing tags are ignored. RTF-only
   rich text (no HTML payload) still falls back to plain text; full RTF
   parsing is out of scope.
+- A 45-second feature tour (DOC-09), `docs/book/src/media/tour.webm`,
+  embedded on the documentation site's popup page and linked from the
+  README. `scripts/record-tour.sh` regenerates it headlessly: the popup
+  runs on its fixture data under Xvfb, xdotool drives it by keyboard and
+  ffmpeg records it with a caption per step.
 
 ### Changed
 - The popup no longer waits on the daemon: history pages, previews, image
@@ -493,6 +498,14 @@ real-machine verification in `docs/RELEASING.md` is done.
   were removed.
 
 ### Fixed
+- `cargo doc` failed with `-D warnings` on current rustdoc: the module
+  docs of `panora_core::lock` linked `LockSecret::verify` unqualified,
+  which rustdoc resolves in the crate root because `pub mod lock` carries
+  an outer doc comment too. Both links are fully qualified now.
+- The popup's fixture build (`--features fixture`) ignored the search
+  grammar and matched the whole string as a substring, so `kind:link` or
+  `app:firefox` found nothing; it now parses queries with
+  `panora_core::search` and applies the same filters as the daemon.
 - Switching `history.record_primary` in the settings needed a daemon
   restart; the capture loop now opens or drops the PRIMARY watch on reload.
 - The GNOME bridge validates its caller: `Push`/`PushMany` are accepted only

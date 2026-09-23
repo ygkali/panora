@@ -9,6 +9,7 @@
 use panora_core::error::Result;
 use panora_core::ipc::{CapabilityData, Request, ResponseData, StatusData, PROTOCOL_VERSION};
 use panora_core::model::{ContentKind, Entry, MimePayload, Selection};
+use panora_core::search;
 use std::sync::Mutex;
 
 /// A small PNG rendered through gdk-pixbuf, enough to exercise the image path.
@@ -130,21 +131,52 @@ fn payloads_for(entry: &Entry) -> Vec<MimePayload> {
     }
 }
 
+/// Whether a canned entry satisfies a parsed search. Words match as a
+/// prefix of any word in the preview, like the daemon's FTS5 prefix query.
+fn matches(e: &Entry, q: &search::ParsedQuery, regex: impl Fn(&str) -> bool) -> bool {
+    let text = e.preview.to_lowercase();
+    let app = e.source_app.as_deref().unwrap_or("").to_lowercase();
+    q.kind.is_none_or(|k| e.kind == k)
+        && q.app.as_deref().is_none_or(|a| app.contains(a))
+        && q.pinned.is_none_or(|p| e.pinned == p)
+        && q.before.is_none_or(|t| e.last_seen_at < t)
+        && q.after.is_none_or(|t| e.last_seen_at >= t)
+        && q.terms.iter().all(|term| {
+            let term = term.to_lowercase();
+            text.split(|c: char| !c.is_alphanumeric())
+                .any(|word| word.starts_with(&term))
+        })
+        && q.phrases.iter().all(|p| text.contains(&p.to_lowercase()))
+        && regex(&e.preview)
+}
+
 /// Answer a request from the canned history.
 pub fn call(request: &Request) -> Result<ResponseData> {
     with_store(|store| {
         Ok(match request {
             Request::List(q) => {
-                let needle = q.search.as_deref().map(str::to_lowercase);
+                // The same grammar the daemon applies (`kind:`, `app:`, `re:`
+                // ...), so a search typed into the fixture behaves like one
+                // typed against real history.
+                let parsed = q
+                    .search
+                    .as_deref()
+                    .map(|s| search::parse(s, crate::util::unix_now()))
+                    .unwrap_or_default();
+                let regex = match parsed.regex.as_deref().map(search::compile_regex) {
+                    Some(Ok(re)) => Some(re),
+                    Some(Err(_)) => return Ok(ResponseData::Entries(Vec::new())),
+                    None => None,
+                };
                 let entries: Vec<Entry> = store
                     .entries
                     .iter()
                     .filter(|e| q.kind.as_deref().is_none_or(|k| e.kind.as_str() == k))
                     .filter(|e| !q.pinned_only || e.pinned)
                     .filter(|e| {
-                        needle
-                            .as_deref()
-                            .is_none_or(|n| e.preview.to_lowercase().contains(n))
+                        matches(e, &parsed, |text| {
+                            regex.as_ref().is_none_or(|re| re.is_match(text))
+                        })
                     })
                     .skip(q.offset)
                     .take(if q.limit == 0 { 50 } else { q.limit })
@@ -248,4 +280,32 @@ pub fn call(request: &Request) -> Result<ResponseData> {
             }
         })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use panora_core::ipc::QueryRequest;
+
+    fn ids(search: &str) -> Vec<i64> {
+        let request = Request::List(QueryRequest {
+            search: Some(search.into()),
+            ..Default::default()
+        });
+        match call(&request).unwrap() {
+            ResponseData::Entries(entries) => entries.iter().map(|e| e.id).collect(),
+            _ => panic!("expected entries"),
+        }
+    }
+
+    #[test]
+    fn search_grammar_matches_the_daemon() {
+        assert_eq!(ids("kind:link"), vec![2]);
+        assert_eq!(ids("rap"), vec![6]);
+        assert_eq!(ids("app:firefox kind:image"), vec![3]);
+        assert_eq!(ids("pinned:true"), vec![2]);
+        assert_eq!(ids("re:^#[0-9a-f]{6}$"), vec![4]);
+        assert!(ids("re:(").is_empty());
+        assert!(ids("\"dünya — bu\"").contains(&1));
+    }
 }
