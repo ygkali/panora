@@ -39,3 +39,10 @@ Senkron, dört genişletme noktasıyla mimariye gömülür ancak v1.0'da uygulan
 
 - Öngörülen `org.panora.Pano1` D-Bus API'si hiç uygulanmadı; istemciler (GUI, CLI) daemon ile `panora_core::ipc` JSON-lines Unix soket protokolü (sürüm 2) üzerinden konuşur. Herkese açık, sürümlü bir D-Bus API'si `docs/ROADMAP.md` INT-05 olarak planlıdır ve ad alanı `io.github.ygkali.Panora` altında olacaktır.
 - Şema hazırlığı (`device_id`, `lamport`, `deleted`) ve `SyncProvider`/`NoopSync` sözleşmesi 1.2.0'da mevcuttur; `sync` cargo özelliği boştur. Senkron modülü 2.0 hattındadır (ROADMAP §5.11).
+
+## Güncelleme (2026-09-23)
+
+- Taşıma kararı ADR 0004'te verildi: SYNC-01 ölçümüne göre ilk sürüm iroh değil, yalnızca LAN
+  için **quinn + mdns-sd**; senkron ayrı bir `panora-sync` sürecinde çalışır ve `panod`'un ağ
+  kısıtı değişmez. Yukarıdaki "Gelecek Modül İçin Öngörülen Tasarım"daki iroh önerisi bu nedenle
+  relay aşamasına ertelendi.

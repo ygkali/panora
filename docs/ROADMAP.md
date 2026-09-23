@@ -487,7 +487,7 @@ Bu maddeler yol haritasındaki ilgili işlere bağlanmıştır; P0 olanlar yayı
 
 | ID | Başlık | P | Efor |
 |---|---|---|---|
-| SYNC-01 | Fizibilite spike'ı: `iroh` boyut/bağımlılık etkisi, ayrı `panora-sync` ikilisi/paketi, feature flag | P3 | M |
+| SYNC-01 | ~~Fizibilite spike'ı: `iroh` boyut/bağımlılık etkisi, ayrı `panora-sync` ikilisi/paketi, feature flag~~ **Bitti (2026-09-23): ADR 0004 — önce LAN, quinn + mdns-sd, ayrı `panora-sync` süreci; iroh ertelendi** | P3 | M |
 | SYNC-02 | Eşleştirme (QR + kısa doğrulama kodu), cihaz listesi, grup anahtarı | P3 | XL |
 | SYNC-03 | Seçici senkron (yalnızca sabitliler / yalnızca metin), Lamport/LWW çakışma kuralları (şema hazır) | P3 | L |
 | SYNC-04 | Önce LAN-only mod (mDNS + QUIC), sonra relay | P3 | L |
@@ -525,7 +525,7 @@ Her sürüm için GitHub milestone açılır; bu tablodaki ID'ler issue başlık
 | D-6 | Hassas içerik varsayılan politikası (CAP-06) | maskele+TTL / hiç kaydetme / kaydet | **maskele + 10 dk TTL** |
 | D-7 | Sürüm numarası | 1.2.1 / 1.3.0 | **1.3.0** (arayüz yeniden düzeni yeni özellik) |
 | D-8 | Flatpak yatırımı | şimdi / spike sonra / hiç | ~~spike (PKG-04) 1.5'ten sonra~~ **spike 2026-09-22'de yapıldı, sonuç: hiç (bkz. §11.5) — bu mimari için Wayland sandbox'ı temel işlevi kırıyor** |
-| D-9 | Senkron kapsamı | LAN-only önce / iroh relay / hiç | LAN-only spike, 2.0 |
+| D-9 | Senkron kapsamı | LAN-only önce / iroh relay / hiç | ~~LAN-only spike, 2.0~~ **Spike yapıldı (ADR 0004): LAN-only önce, quinn + mDNS; iroh +208 crate / +11 MiB ve varsayılanıyla n0.computer'a bağlanıyor** |
 | D-10 | GUI liste altyapısı | `FlowBox` kalsın / `ListView` + `ListStore` | UI-13 ile `ListView`'a geç |
 
 ---
@@ -744,3 +744,18 @@ her madde sonrası tekrar çalıştırıldı. **1.7.x listesinin tamamı artık 
 | CI "Format & Clippy" kırmızı (PR #17 ve `main`) | **Düzeltildi.** `cargo doc -D warnings`, `lock.rs` modül belgesindeki niteliksiz `[`LockSecret::verify`]` bağlantısını çözemiyordu: `pub mod lock;` üzerindeki dış `///` yorumu iç `//!` belgeyle birleşiyor ve rustdoc bağlantıyı crate kökünde arıyor. Hata aynı rustc 1.98.1 ile WSL'de yeniden üretildi; iki bağlantı da `crate::lock::LockSecret::…` yapıldı (ikincisi satır sonunda bölündüğü için zaten hiç bağlantı olarak işlenmiyordu). |
 | DOC-09 (tanıtım videosu) | **Bitti**, 60 değil ~45 sn. Yol haritasının bahsettiği `record-feature-tour*.sh` script'leri depoda hiç yoktu; yerine `scripts/record-tour.sh` yazıldı: fixture popup Xvfb'de açılır, xdotool yalnızca klavyeyle gezdirir (ok tuşları, Space ayrıntı, arama, `kind:`/`app:` filtreleri, Ctrl+D, Ctrl+Shift+P, Ctrl+,), ffmpeg x11grab ile pencereyi kırparak kaydeder, ikinci geçişte her adıma altyazı basılır. Çıktı `docs/book/src/media/tour.webm` (VP9, ~370 KB): mdBook sitesinin popup sayfasında `<video>` ile gömülü, README'lerden bağlantılı. GitHub README'si depodaki videoyu satır içi oynatmadığı için bağlantı olarak kaldı. Karelerden çıkarılan kontak sayfalarıyla her adımın doğru göründüğü kontrol edildi. |
 | Fixture arama dilbilgisi | **Düzeltildi** (video sırasında bulundu). `--features fixture` arama metnini düz alt dize olarak arıyordu; `kind:link` "sonuç yok" veriyordu. Artık `panora_core::search::parse` + daemon'la aynı filtreler (kelime öneki, tırnaklı ifade, `kind/app/pinned/before/after/re`); birim testiyle. |
+
+### 11.8 2.0 "Senkron" — SYNC-01 spike'ı (branch `2.0-sync-spike`, 2026-09-23)
+
+PR #17 (1.7.x) CI'da tamamen yeşil ve birleştirilmeye hazır; birleştirme kullanıcıya bırakıldı.
+2.0 hattının ilk maddesi SYNC-01, depoya kod eklemeden, depo dışında iki tek dosyalık ikiliyle
+ölçülerek kapatıldı. Ayrıntılar ve tablo: `docs/adr/0004-sync-transport.md`.
+
+| Madde | Durum |
+|---|---|
+| SYNC-01 (iroh etkisi, ayrı ikili, feature flag) | **Bitti.** iroh 1.2: en hafif hâliyle bile 208 yeni crate, 11,2 MiB soyulmuş ikili (bütün `.deb` 4,5 MiB), `webpki-roots` lisansı (CDLA-Permissive-2.0) `deny.toml`'dan geçmiyor, relay istemcisi yüzünden HTTP yığını kapatılamıyor, varsayılan `N0` ayarı n0.computer DNS/relay altyapısına bağlanıyor. quinn 0.11 + mdns-sd 0.21: 43 yeni crate, 2,7 MiB, lisans ve danışma denetimi temiz. **Karar:** önce LAN-only (quinn + mDNS), ayrı `panora-sync` süreci/birimi/paketi; `panod`'un `RestrictAddressFamilies=AF_UNIX` kısıtı aynen kalır. Feature flag gereksiz (paket kurulu değilse kod yok). |
+| Keşif: IPC'de eksik olan | `Subscribe` akışı okumak için yeterli; uzaktan gelen kaydı `device_id`/`lamport`/tombstone koruyarak yazan bir istek yok (`Store` yerel damga basıyor). SYNC-03'e eklendi. |
+
+Sıradaki: SYNC-02 (eşleştirme, grup anahtarı) ve SYNC-03 (LWW uygulama isteği) — ikisi de
+kriptografik tasarım içeriyor; SYNC-06'daki bağımsız inceleme şartı yüzünden varsayılan kapalı
+ve ayrı pakette kalacaklar.
