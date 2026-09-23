@@ -16,14 +16,16 @@
 //!
 //! - It *does* stop someone with desktop/IPC access to an already-running,
 //!   locked daemon from listing, previewing or recalling history through
-//!   `panora-cli`/the popup: [`LockSecret::verify`] gates those requests.
+//!   `panora-cli`/the popup: [`crate::lock::LockSecret::verify`] gates
+//!   those requests.
 //! - It does *not* stop someone who can read the Secret Service keyring
 //!   item directly (a keyring compromise, not just desktop access) — that
-//!   person still has the plain key regardless of the lock. [`LockSecret::
-//!   wrap`] additionally produces a password-gated **backup** copy of the
-//!   master key for the keyring, so a lost or corrupted plain item still
-//!   has a recovery path for someone who remembers the lock password, but
-//!   this backup is not part of the daemon's normal unlock flow.
+//!   person still has the plain key regardless of the lock.
+//!   [`crate::lock::LockSecret::wrap`] additionally produces a
+//!   password-gated **backup** copy of the master key for the keyring, so
+//!   a lost or corrupted plain item still has a recovery path for someone
+//!   who remembers the lock password, but this backup is not part of the
+//!   daemon's normal unlock flow.
 //!
 //! ## Key derivation
 //!
