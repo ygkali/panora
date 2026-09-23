@@ -11,6 +11,7 @@
 use crate::error::{Error, Result};
 use crate::model::{ContentKind, Entry, MimePayload, Selection};
 use crate::storage::QueryFilter;
+use crate::sync::{SyncCursor, SyncRecord, SyncScope};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -184,6 +185,34 @@ pub enum Request {
     /// (starting with the current revision) every time `revision` changes,
     /// until the client disconnects. v3 framing only.
     Subscribe,
+    /// SYNC-03: the entries changed after `since`, oldest change first, as
+    /// full [`SyncRecord`]s (payloads included, tombstones as records with
+    /// no payloads). Sensitive entries are never returned, and `scope`
+    /// narrows what is. A reply holds at most `limit` records and never
+    /// more payloads than one v3 frame can carry; `SyncChanges.more`
+    /// says whether to ask again from `SyncChanges.next`.
+    SyncChanges {
+        /// Resume point; the default starts from the beginning.
+        #[serde(default)]
+        since: SyncCursor,
+        /// Most records to return; 0 means the daemon's default.
+        #[serde(default)]
+        limit: usize,
+        /// Which entries to include.
+        #[serde(default)]
+        scope: SyncScope,
+    },
+    /// SYNC-03: apply records received from another device, each by
+    /// last-writer-wins against the local state of the same content. A
+    /// record whose payloads do not hash to its `content_hash` is refused.
+    /// An entry new to this device goes through the same privacy gate,
+    /// size limit and secret detection as a local copy; one the gate
+    /// refuses (private mode, an excluded application) counts as ignored.
+    SyncApply {
+        /// Records in any order; each is decided on its own. One request
+        /// carries at most `v3::MAX_FDS_PER_FRAME` payloads in total.
+        records: Vec<SyncRecord>,
+    },
 }
 
 /// Serializable query parameters.
@@ -275,6 +304,25 @@ pub enum ResponseData {
     },
     /// Reply to `Export` (CLI-03): the encrypted archive's bytes.
     Archive(Vec<u8>),
+    /// Reply to `SyncChanges` (SYNC-03).
+    SyncChanges {
+        /// Changed entries, oldest change first.
+        records: Vec<SyncRecord>,
+        /// Cursor to pass as `since` next time.
+        next: SyncCursor,
+        /// More changes are waiting after `next`.
+        more: bool,
+    },
+    /// Reply to `SyncApply` (SYNC-03).
+    SyncApplied {
+        /// Records that changed local state.
+        applied: usize,
+        /// Records that lost to the local state, or had nothing to act on.
+        ignored: usize,
+        /// Records refused as malformed: payloads that do not hash to the
+        /// record's `content_hash`, or a live record without payloads.
+        rejected: usize,
+    },
 }
 
 /// A message the daemon pushes on its own initiative, over v3 framing, after

@@ -18,7 +18,7 @@
 use super::crypto::Cipher;
 use crate::error::{Error, Result};
 use crate::model::{ContentKind, Entry, Selection};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension as _};
 use std::path::Path;
 
 /// Schema version written to `meta`. Bump it together with `MIGRATIONS`.
@@ -1274,6 +1274,140 @@ impl Database {
                 })?;
         Ok(n)
     }
+
+    /// The Lamport value for the next local change (SYNC-03). The clock is
+    /// kept in `meta` as well as read off the rows: purging a tombstone
+    /// that held the highest value must not let the clock run backwards,
+    /// or a later change could lose to an older one on another device.
+    pub fn tick_lamport(&self) -> Result<i64> {
+        let tx = self.conn.unchecked_transaction()?;
+        let stored: i64 = tx
+            .query_row(
+                "SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'lamport_clock'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?
+            .unwrap_or(0);
+        let rows: i64 =
+            tx.query_row("SELECT COALESCE(MAX(lamport), 0) FROM entries", [], |row| {
+                row.get(0)
+            })?;
+        let next = stored.max(rows) + 1;
+        tx.execute(
+            "INSERT OR REPLACE INTO meta(key, value) VALUES('lamport_clock', ?1)",
+            params![next.to_string()],
+        )?;
+        tx.commit()?;
+        Ok(next)
+    }
+
+    /// Record a Lamport value received from another device, so the next
+    /// local change is numbered after it (the Lamport receive rule).
+    pub fn observe_lamport(&self, seen: i64) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO meta(key, value) VALUES('lamport_clock', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = CAST(MAX(CAST(value AS INTEGER), ?2) AS TEXT)",
+            params![seen.to_string(), seen],
+        )?;
+        Ok(())
+    }
+
+    /// Mark a row's current state as made by `device_id` at `lamport`.
+    /// Every local change that peers should see (capture, re-copy, pin,
+    /// delete, restore) stamps the row this way, which is also what puts
+    /// it back into [`Database::changes_since`].
+    pub fn stamp(&self, id: i64, lamport: i64, device_id: &str) -> Result<()> {
+        let changed = self.conn.execute(
+            "UPDATE entries SET lamport = ?1, device_id = ?2 WHERE id = ?3",
+            params![lamport, device_id, id],
+        )?;
+        if changed == 0 {
+            return Err(Error::NotFound(id));
+        }
+        Ok(())
+    }
+
+    /// The row holding this content in this selection, tombstoned or not.
+    pub fn find(&self, content_hash: &str, selection: Selection) -> Result<Option<Entry>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT id, content_hash, preview, kind, primary_mime, size_bytes,
+                        source_app, selection, created_at, last_seen_at, pinned,
+                        device_id, lamport, deleted, sensitive
+                 FROM entries WHERE content_hash = ?1 AND selection = ?2",
+                params![content_hash, selection.as_str()],
+                |row| self.row_to_entry(row),
+            )
+            .optional()?)
+    }
+
+    /// Rows changed after `cursor`, oldest change first, tombstones
+    /// included and sensitive entries never (SYNC-03). The cursor is the
+    /// `(lamport, id)` of the last row a caller consumed: Lamport values
+    /// alone can repeat (a row applied from a peer keeps the peer's
+    /// value), so a page that ended between two equal values would
+    /// otherwise skip the second.
+    pub fn changes_since(&self, cursor: (i64, i64), limit: usize) -> Result<Vec<Entry>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, content_hash, preview, kind, primary_mime, size_bytes,
+                    source_app, selection, created_at, last_seen_at, pinned,
+                    device_id, lamport, deleted, sensitive
+             FROM entries
+             WHERE sensitive = 0 AND (lamport, id) > (?1, ?2)
+             ORDER BY lamport, id LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(params![cursor.0, cursor.1, limit as i64], |row| {
+            self.row_to_entry(row)
+        })?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
+    /// Set a row's timestamps outright: an entry that arrived from another
+    /// device keeps the times it has there, not the moment it arrived.
+    pub fn set_times(&self, id: i64, created_at: i64, last_seen_at: i64) -> Result<()> {
+        let changed = self.conn.execute(
+            "UPDATE entries SET created_at = ?1, last_seen_at = ?2 WHERE id = ?3",
+            params![created_at, last_seen_at, id],
+        )?;
+        if changed == 0 {
+            return Err(Error::NotFound(id));
+        }
+        Ok(())
+    }
+
+    /// Take over another device's state for an existing row: pin flag,
+    /// timestamps (the earliest creation and latest sighting either side
+    /// knows of) and the `(lamport, device_id)` that made it. The caller
+    /// has already decided, by [`crate::sync::lww_wins`], that it wins.
+    pub fn apply_remote_state(
+        &self,
+        id: i64,
+        pinned: bool,
+        created_at: i64,
+        last_seen_at: i64,
+        lamport: i64,
+        device_id: &str,
+    ) -> Result<()> {
+        let changed = self.conn.execute(
+            "UPDATE entries SET pinned = ?1, created_at = MIN(created_at, ?2),
+                    last_seen_at = MAX(last_seen_at, ?3), lamport = ?4, device_id = ?5
+             WHERE id = ?6",
+            params![
+                pinned as i64,
+                created_at,
+                last_seen_at,
+                lamport,
+                device_id,
+                id
+            ],
+        )?;
+        if changed == 0 {
+            return Err(Error::NotFound(id));
+        }
+        Ok(())
+    }
 }
 
 /// Build an FTS5 MATCH expression from free text typed by the user.
@@ -1601,6 +1735,70 @@ mod tests {
         )
         .unwrap();
         assert_eq!(db.max_lamport().unwrap(), 42);
+    }
+
+    #[test]
+    fn lamport_clock_never_runs_backwards() {
+        let db = db();
+        assert_eq!(db.tick_lamport().unwrap(), 1);
+        let id = insert(&db, "a", ContentKind::Text, 1);
+        db.stamp(id, 10, "dev0").unwrap();
+        assert_eq!(db.tick_lamport().unwrap(), 11);
+        // The row holding the highest value goes away entirely.
+        db.tombstone(id, 1).unwrap();
+        db.purge_tombstones(i64::MAX).unwrap();
+        assert_eq!(db.max_lamport().unwrap(), 0);
+        assert_eq!(db.tick_lamport().unwrap(), 12);
+        // A value seen from a peer moves the clock past it, never back.
+        db.observe_lamport(40).unwrap();
+        db.observe_lamport(5).unwrap();
+        assert_eq!(db.tick_lamport().unwrap(), 41);
+    }
+
+    #[test]
+    fn changes_since_pages_by_lamport_then_id() {
+        let db = db();
+        let a = insert(&db, "a", ContentKind::Text, 1);
+        let b = insert(&db, "b", ContentKind::Text, 2);
+        let c = insert(&db, "c", ContentKind::Text, 3);
+        let secret = insert(&db, "s", ContentKind::Text, 4);
+        db.stamp(a, 5, "dev0").unwrap();
+        db.stamp(b, 5, "peer").unwrap();
+        db.stamp(c, 7, "dev0").unwrap();
+        db.stamp(secret, 8, "dev0").unwrap();
+        db.mark_sensitive(secret).unwrap();
+        db.tombstone(c, 9).unwrap();
+
+        let ids = |rows: Vec<Entry>| rows.iter().map(|e| e.id).collect::<Vec<_>>();
+        let first = db.changes_since((0, 0), 1).unwrap();
+        assert_eq!(ids(first.clone()), vec![a]);
+        // Resuming from (5, a) must still see b, which shares lamport 5.
+        let rest = db
+            .changes_since((first[0].lamport, first[0].id), 10)
+            .unwrap();
+        assert_eq!(ids(rest.clone()), vec![b, c]);
+        assert!(rest[1].deleted, "tombstones travel");
+        assert!(db.changes_since((7, c), 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn find_and_apply_remote_state() {
+        let db = db();
+        let id = insert(&db, "shared", ContentKind::Text, 100);
+        let hash = crate::storage::crypto::content_hash(b"shared");
+        let found = db.find(&hash, Selection::Clipboard).unwrap().unwrap();
+        assert_eq!(found.id, id);
+        assert!(db.find(&hash, Selection::Primary).unwrap().is_none());
+
+        db.apply_remote_state(id, true, 50, 90, 33, "peer").unwrap();
+        let e = db.get(id).unwrap();
+        assert!(e.pinned);
+        assert_eq!(
+            (e.created_at, e.last_seen_at),
+            (50, 100),
+            "earliest and latest win"
+        );
+        assert_eq!((e.lamport, e.device_id.as_str()), (33, "peer"));
     }
 
     #[test]

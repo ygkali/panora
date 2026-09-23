@@ -273,7 +273,9 @@ pub fn call(request: &Request) -> Result<ResponseData> {
             | Request::Export { .. }
             | Request::Import { .. }
             | Request::Hello { .. }
-            | Request::Subscribe => {
+            | Request::Subscribe
+            | Request::SyncChanges { .. }
+            | Request::SyncApply { .. } => {
                 return Err(panora_core::error::Error::Ipc(
                     "not supported by the GUI fixture".into(),
                 ))

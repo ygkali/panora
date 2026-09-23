@@ -842,3 +842,44 @@ async fn export_refuses_while_locked() {
         })
         .await;
 }
+
+#[tokio::test]
+async fn sync_feed_answers_over_the_socket_and_waits_for_the_lock() {
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let server = start(None);
+            capture(&server, "for the other laptop").await;
+            let request = encode(&Request::SyncChanges {
+                since: Default::default(),
+                limit: 0,
+                scope: Default::default(),
+            })
+            .unwrap();
+
+            match raw_call(&server.socket, &request).await.unwrap() {
+                Response::Success(ResponseData::SyncChanges { records, more, .. }) => {
+                    assert_eq!(records.len(), 1);
+                    assert_eq!(records[0].payloads[0].data, b"for the other laptop");
+                    assert!(!more);
+                }
+                other => panic!("expected SyncChanges, got {other:?}"),
+            }
+
+            let secret = panora_core::lock::LockSecret::new("blocks sync").unwrap();
+            server.daemon.db().set_lock_secret(Some(&secret)).unwrap();
+            server.daemon.engage_lock().unwrap();
+            for request in [
+                request.clone(),
+                encode(&Request::SyncApply { records: vec![] }).unwrap(),
+            ] {
+                match raw_call(&server.socket, &request).await.unwrap() {
+                    Response::Failure { message } => {
+                        assert!(message.contains("locked"), "{message}")
+                    }
+                    other => panic!("sync must be refused while locked, got {other:?}"),
+                }
+            }
+        })
+        .await;
+}

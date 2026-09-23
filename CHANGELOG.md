@@ -434,6 +434,16 @@ real-machine verification in `docs/RELEASING.md` is done.
   left open are force-closed, stray closing tags are ignored. RTF-only
   rich text (no HTML payload) still falls back to plain text; full RTF
   parsing is out of scope.
+- Groundwork for sync (SYNC-03), still with no network code: two IPC
+  requests, `SyncChanges` (a paged feed of entries changed since a
+  cursor, with their payloads, tombstones included and sensitive entries
+  never) and `SyncApply` (applies another device's records by
+  last-writer-wins on `(lamport, device_id)`, verifies every record's
+  content hash, and puts entries new to this device through the same
+  privacy gate as a local copy). Selective sync by `pinned_only` /
+  `text_only`. Pinning, deleting, restoring and re-copying now stamp the
+  entry with a fresh Lamport value, and the clock is kept in the database
+  so it never runs backwards when an old tombstone is purged.
 - A 45-second feature tour (DOC-09), `docs/book/src/media/tour.webm`,
   embedded on the documentation site's popup page and linked from the
   README. `scripts/record-tour.sh` regenerates it headlessly: the popup

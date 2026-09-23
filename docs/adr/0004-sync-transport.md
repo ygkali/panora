@@ -62,7 +62,8 @@ Kayda değer iki gözlem daha:
    yeni bir istek gerekir: `Store` kaydı yerel `device_id`/`lamport` ile damgalıyor ve tombstone
    taşımıyor. Bu, SYNC-03'ün parçası olarak eklenecek: uzak `device_id`, `lamport`, `created_at`
    ve `deleted` alanlarını koruyarak LWW kuralıyla uygulayan bir istek ve "şu Lamport değerinden
-   sonraki değişiklikler" sorgusu.
+   sonraki değişiklikler" sorgusu. *(2026-09-23: eklendi — `SyncApply` ve `SyncChanges`, bkz.
+   ROADMAP §11.8.)*
 4. **`panora-core`'daki boş `sync` cargo özelliği kaldırılmaz ama kullanılmaz.** Ayrı süreç modeli
    derleme zamanı bayrağını gereksiz kılıyor; paket kurulu değilse kod da yok. `SyncProvider`/`NoopSync`
    daemon'un içinde kalır ve olayları (gerekirse) `Subscribe` akışına ek ayrıntı olarak besler.

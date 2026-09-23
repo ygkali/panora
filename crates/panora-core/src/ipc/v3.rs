@@ -102,8 +102,9 @@ struct RecvFrame<T> {
 }
 
 // --- payload extraction/restoration: the message shapes that carry large
-// binary data are Request::Store/Import and ResponseData::Payloads/
-// Archive. Everything else's `take_*` is a no-op (empty vec). ---
+// binary data are Request::Store/Import/SyncApply and ResponseData::
+// Payloads/Archive/SyncChanges. Everything else's `take_*` is a no-op
+// (empty vec). ---
 
 fn take_request_payloads(request: &mut Request) -> Vec<Vec<u8>> {
     match request {
@@ -115,6 +116,8 @@ fn take_request_payloads(request: &mut Request) -> Vec<Vec<u8>> {
         // history), so it travels the same way — inline if small, a passed
         // fd if not — instead of always inflating it 4/3 through base64.
         Request::Import { archive, .. } => vec![std::mem::take(archive)],
+        // SYNC-03: every record's payloads, flattened in record order.
+        Request::SyncApply { records } => take_record_payloads(records),
         _ => Vec::new(),
     }
 }
@@ -133,6 +136,7 @@ fn restore_request_payloads(request: &mut Request, mut bytes: VecDeque<Vec<u8>>)
                 *archive = b;
             }
         }
+        Request::SyncApply { records } => restore_record_payloads(records, bytes),
         _ => {}
     }
 }
@@ -144,6 +148,9 @@ fn take_response_payloads(response: &mut Response) -> Vec<Vec<u8>> {
             .map(|p| std::mem::take(&mut p.data))
             .collect(),
         Response::Success(ResponseData::Archive(archive)) => vec![std::mem::take(archive)],
+        Response::Success(ResponseData::SyncChanges { records, .. }) => {
+            take_record_payloads(records)
+        }
         _ => Vec::new(),
     }
 }
@@ -162,7 +169,26 @@ fn restore_response_payloads(response: &mut Response, mut bytes: VecDeque<Vec<u8
                 *archive = b;
             }
         }
+        Response::Success(ResponseData::SyncChanges { records, .. }) => {
+            restore_record_payloads(records, bytes)
+        }
         _ => {}
+    }
+}
+
+fn take_record_payloads(records: &mut [crate::sync::SyncRecord]) -> Vec<Vec<u8>> {
+    records
+        .iter_mut()
+        .flat_map(|r| r.payloads.iter_mut())
+        .map(|p| std::mem::take(&mut p.data))
+        .collect()
+}
+
+fn restore_record_payloads(records: &mut [crate::sync::SyncRecord], mut bytes: VecDeque<Vec<u8>>) {
+    for p in records.iter_mut().flat_map(|r| r.payloads.iter_mut()) {
+        if let Some(b) = bytes.pop_front() {
+            p.data = b;
+        }
     }
 }
 
@@ -696,6 +722,74 @@ mod tests {
             panic!("expected Store");
         };
         assert_eq!(payloads[0].data, b"hello");
+    }
+
+    #[test]
+    fn sync_records_get_their_own_payloads_back() {
+        // SYNC-03: payloads of several records, a tombstone (no payloads)
+        // in between, some inline and one through an fd, must land back in
+        // the record they came from.
+        let record = |hash: &str, payloads: Vec<MimePayload>| crate::sync::SyncRecord {
+            content_hash: hash.into(),
+            selection: crate::model::Selection::Clipboard,
+            source_app: None,
+            created_at: 1,
+            last_seen_at: 2,
+            pinned: false,
+            deleted: payloads.is_empty(),
+            device_id: "d".into(),
+            lamport: 3,
+            payloads,
+        };
+        let big = vec![0x5au8; INLINE_LIMIT + 10];
+        let records = vec![
+            record(
+                "a",
+                vec![
+                    MimePayload::new("text/plain", b"one".to_vec()),
+                    MimePayload::new("text/html", b"<b>one</b>".to_vec()),
+                ],
+            ),
+            record("b", Vec::new()),
+            record("c", vec![MimePayload::new("image/png", big.clone())]),
+        ];
+        let (a, b) = pair();
+        write_request_blocking(
+            &a,
+            Request::SyncApply {
+                records: records.clone(),
+            },
+        )
+        .unwrap();
+        let frame: RecvFrame<Request> = recv_frame_blocking(&b).unwrap();
+        let mut body = frame.body;
+        restore_request_payloads(&mut body, frame.payload_bytes);
+        let Request::SyncApply { records: got } = body else {
+            panic!("expected SyncApply");
+        };
+        assert_eq!(got, records);
+
+        let mut response = Response::Success(ResponseData::SyncChanges {
+            records: records.clone(),
+            next: crate::sync::SyncCursor { lamport: 3, id: 9 },
+            more: false,
+        });
+        let bytes = take_response_payloads(&mut response);
+        assert_eq!(bytes.len(), 3);
+        let Response::Success(ResponseData::SyncChanges {
+            records: ref stripped,
+            ..
+        }) = response
+        else {
+            panic!("expected SyncChanges");
+        };
+        assert!(stripped[0].payloads[0].data.is_empty());
+        restore_response_payloads(&mut response, bytes.into());
+        let Response::Success(ResponseData::SyncChanges { records: got, .. }) = response else {
+            panic!("expected SyncChanges");
+        };
+        assert_eq!(got, records);
+        assert_eq!(got[2].payloads[0].data, big);
     }
 
     #[test]
