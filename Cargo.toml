@@ -32,7 +32,7 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 blake3 = "1"
 
 # --- crypto ---
-chacha20poly1305 = "0.10"
+chacha20poly1305 = "0.11"
 argon2 = "0.5"
 tar = "0.4"
 rand = "0.8"
@@ -58,14 +58,14 @@ regex = "1"
 # --- serialization / errors ---
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-base64 = "0.22"
+base64 = "0.23"
 thiserror = "2"
 anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # --- X11 ---
-x11rb = { version = "0.13", features = ["xfixes", "xtest", "randr"] }
+x11rb = { version = "0.14", features = ["xfixes", "xtest", "randr"] }
 gdk4-x11 = "0.11"
 
 # --- layer-shell overlay on wlroots compositors (opt-in feature of the popup) ---
@@ -91,13 +91,13 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 qrcode = { version = "0.14", default-features = false }
 
 # --- config ---
-directories = "5"
+directories = "6"
 toml = "1"
 
 # --- CLI ---
 clap = { version = "4", features = ["derive", "wrap_help", "string"] }
 clap_complete = "4"
-clap_mangen = "0.2"
+clap_mangen = "0.3"
 
 # --- JSON Schema for --json output (CLI-08) ---
 schemars = "1"
