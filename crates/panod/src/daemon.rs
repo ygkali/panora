@@ -14,6 +14,7 @@ use panora_core::privacy::{ContentFilters, PrivacyEngine};
 use panora_core::storage::{BlobStore, Database, QueryFilter};
 use panora_core::sync::{
     lww_wins, payload_hash, SyncCursor, SyncEvent, SyncProvider, SyncRecord, SyncScope,
+    LAMPORT_CEILING, LAMPORT_OBSERVE_LIMIT,
 };
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
@@ -137,14 +138,15 @@ const SYNC_MAX_LIMIT: usize = 1000;
 /// Payload bytes one `SyncChanges` reply aims to stay under; a single
 /// entry larger than this still goes out, alone.
 const SYNC_REPLY_BYTES: usize = 32 * 1024 * 1024;
-/// Largest entry (all formats together) the feed hands out. Bigger ones
-/// stay on this device: the peer's frame limit (`panora-sync`) must hold a
+/// Largest entry (all formats together) the feed hands out: above the
+/// 40 MiB a single format may have (`max_mime_bytes`). Bigger ones stay on
+/// this device: the peer's frame limit (`panora-sync`, 64 MiB) must hold a
 /// sealed page, and one entry that never fits would stall the feed.
-const SYNC_MAX_ENTRY_BYTES: usize = 64 * 1024 * 1024;
-/// Highest Lamport value accepted from a peer. Far beyond any real history
-/// (one change per microsecond for 285 years), and low enough that the
-/// local clock can never overflow by counting on from a hostile value.
-const LAMPORT_CEILING: i64 = 1 << 53;
+const SYNC_MAX_ENTRY_BYTES: usize = 48 * 1024 * 1024;
+/// How far into the future a peer's timestamps may point, in seconds.
+/// Clocks drift a little; a later time would keep an entry at the top of
+/// the history and out of reach of `max_age_days` on every device.
+const SYNC_CLOCK_SKEW: i64 = 300;
 
 /// What became of one record handed to `Daemon::sync_apply`.
 enum Applied {
@@ -1594,7 +1596,11 @@ impl Daemon {
         Ok((applied, ignored, rejected))
     }
 
-    async fn apply_record(&self, record: SyncRecord) -> Result<Applied> {
+    async fn apply_record(&self, mut record: SyncRecord) -> Result<Applied> {
+        // Times come from the other device's clock: keep them within reason.
+        let latest = unix_now() + SYNC_CLOCK_SKEW;
+        record.created_at = record.created_at.clamp(0, latest);
+        record.last_seen_at = record.last_seen_at.clamp(record.created_at, latest);
         let remote = (record.lamport, record.device_id.as_str());
         if record.device_id.is_empty() || !(1..LAMPORT_CEILING).contains(&record.lamport) {
             return Ok(Applied::Rejected);
@@ -1604,7 +1610,9 @@ impl Daemon {
         {
             return Ok(Applied::Rejected);
         }
-        self.db.observe_lamport(record.lamport)?;
+        if record.lamport < LAMPORT_OBSERVE_LIMIT {
+            self.db.observe_lamport(record.lamport)?;
+        }
         let local = self.db.find(&record.content_hash, record.selection)?;
         if let Some(local) = &local {
             if !lww_wins(remote, (local.lamport, local.device_id.as_str())) {
@@ -1646,6 +1654,11 @@ impl Daemon {
 
         // New here, or deleted here earlier than the remote state: record it
         // through the same path and checks as a copy made on this machine.
+        // That includes `record_primary`: a device that records highlighted
+        // text must not fill the history of one that does not.
+        if record.selection == Selection::Primary && !self.config().history.record_primary {
+            return Ok(Applied::Ignored);
+        }
         let limit = self.config().history.max_mime_bytes;
         if record.payloads.iter().any(|p| p.data.len() > limit) {
             return Ok(Applied::Ignored);
@@ -2112,6 +2125,98 @@ mod tests {
             1,
             "rejected records do not move the clock"
         );
+    }
+
+    #[tokio::test]
+    async fn a_huge_lamport_value_cannot_stop_this_device_from_syncing() {
+        let (dir_a, dir_b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let (a, _) = test_daemon_as(&dir_a, "aaaa");
+        let (b, _) = test_daemon_as(&dir_b, "bbbb");
+        put_text(&a, "genuine").await;
+        let good = feed(&a).remove(0);
+        let poison = |lamport| SyncRecord {
+            lamport,
+            deleted: true,
+            content_hash: "not here".into(),
+            ..good.clone()
+        };
+        // The upper half is taken but does not move the clock.
+        assert_eq!(
+            b.sync_apply(vec![poison(LAMPORT_CEILING - 1)])
+                .await
+                .unwrap(),
+            (0, 1, 0)
+        );
+        assert!(put_text(&b, "unmoved").await.lamport < 10);
+        // Just under the observe limit: the clock follows...
+        b.sync_apply(vec![poison(LAMPORT_OBSERVE_LIMIT - 1)])
+            .await
+            .unwrap();
+        let next = put_text(&b, "after").await;
+        assert_eq!(next.lamport, LAMPORT_OBSERVE_LIMIT);
+        // ...and what B writes next still reaches the other devices.
+        let (applied, _, rejected) = push(&b, &a).await;
+        assert_eq!(rejected, 0);
+        assert!(applied >= 1);
+        assert!(visible(&a).iter().any(|(text, _)| text == "after"));
+
+        // A state from the upper half applied to a row B has does not
+        // drag B's clock up through that row either.
+        let genuine = feed(&a)
+            .into_iter()
+            .find(|r| r.content_hash == good.content_hash)
+            .unwrap();
+        let upper = SyncRecord {
+            lamport: LAMPORT_CEILING - 2,
+            pinned: true,
+            ..genuine
+        };
+        assert_eq!(b.sync_apply(vec![upper]).await.unwrap().0, 1);
+        let later = put_text(&b, "later").await;
+        assert!(
+            later.lamport > LAMPORT_OBSERVE_LIMIT && later.lamport < LAMPORT_OBSERVE_LIMIT + 10
+        );
+    }
+
+    #[tokio::test]
+    async fn remote_times_are_kept_within_reason() {
+        let (dir_a, dir_b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let (a, _) = test_daemon_as(&dir_a, "aaaa");
+        let (b, _) = test_daemon_as(&dir_b, "bbbb");
+        put_text(&a, "from the future").await;
+        let mut record = feed(&a).remove(0);
+        record.created_at = -5;
+        record.last_seen_at = unix_now() + 10 * 365 * 86_400;
+        assert_eq!(b.sync_apply(vec![record.clone()]).await.unwrap(), (1, 0, 0));
+        let stored =
+            b.db.find(&record.content_hash, Selection::Clipboard)
+                .unwrap()
+                .unwrap();
+        assert_eq!(stored.created_at, 0);
+        assert!(stored.last_seen_at <= unix_now() + SYNC_CLOCK_SKEW);
+        // A later state of the same entry is clamped as well.
+        record.lamport += 1;
+        assert_eq!(b.sync_apply(vec![record.clone()]).await.unwrap(), (1, 0, 0));
+        let stored =
+            b.db.find(&record.content_hash, Selection::Clipboard)
+                .unwrap()
+                .unwrap();
+        assert!(stored.last_seen_at <= unix_now() + SYNC_CLOCK_SKEW);
+    }
+
+    #[tokio::test]
+    async fn highlighted_text_is_not_synced_to_a_device_that_does_not_record_it() {
+        let (dir_a, dir_b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let (a, _) = test_daemon_as(&dir_a, "aaaa");
+        let (b, _) = test_daemon_as(&dir_b, "bbbb");
+        put_text(&a, "selected with the mouse").await;
+        let record = SyncRecord {
+            selection: Selection::Primary,
+            ..feed(&a).remove(0)
+        };
+        assert!(!b.config().history.record_primary);
+        assert_eq!(b.sync_apply(vec![record]).await.unwrap(), (0, 1, 0));
+        assert!(visible(&b).is_empty());
     }
 
     #[tokio::test]

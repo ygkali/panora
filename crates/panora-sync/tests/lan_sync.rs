@@ -496,3 +496,48 @@ async fn a_no_on_the_joining_device_reaches_the_inviter_as_a_rejection() {
         })
         .await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn strangers_cannot_use_up_an_invitation() {
+    // More pairing requests than an invitation window has attempts, from a
+    // device that saw the mDNS announcement but not the link.
+    use panora_sync::pairing::{PairMessage, PairingMode, PROTOCOL};
+    use panora_sync::transport::{Transport, ALPN_PAIR};
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let a = device("desktop", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").await;
+            let b = device("laptop", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb").await;
+            let (mut invitation, _events, _) = a.node.invite().await.unwrap();
+            invitation.addrs = vec![a.node.local_addr()];
+            let stranger = Transport::bind("127.0.0.1:0".parse().unwrap()).unwrap();
+            for _ in 0..(panora_sync::invite::MAX_INVITATION_ATTEMPTS + 2) {
+                let conn = stranger
+                    .connect(a.node.local_addr(), ALPN_PAIR)
+                    .await
+                    .unwrap();
+                let (send, recv) = conn.open_bi().await.unwrap();
+                let mut stream = tokio::io::join(recv, send);
+                let commit = PairMessage::Commit {
+                    protocol: PROTOCOL.into(),
+                    mode: PairingMode::Invitation,
+                    commitment: [7; 32],
+                    proof: None,
+                };
+                panora_sync::wire::write_message(&mut stream, &commit)
+                    .await
+                    .unwrap();
+                let answer = panora_sync::wire::read_message(&mut stream).await;
+                assert!(
+                    matches!(answer, Ok(PairMessage::Abort { .. }) | Err(_)),
+                    "{answer:?}"
+                );
+            }
+            // The link still works for the device that has it.
+            b.node.join(invitation).await.unwrap();
+            assert_eq!(a.node.status().devices.len(), 2);
+            a.node.shutdown();
+            b.node.shutdown();
+        })
+        .await;
+}

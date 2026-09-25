@@ -12,6 +12,21 @@ use async_trait::async_trait;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+/// Lamport values from a peer must stay below this, far beyond any real
+/// history (one change per microsecond for 285 years).
+pub const LAMPORT_CEILING: i64 = 1 << 53;
+
+/// The local clock follows a Lamport value only below this, half the
+/// accepted range, whether the value arrives from a peer or sits in a row
+/// a peer's state was applied to. Otherwise one peer could send a value
+/// just under [`LAMPORT_CEILING`], this device's next change would land on
+/// it, every other device would refuse that and all later changes, and
+/// sync would stop for good without a word. With the gap, a device's own
+/// values stay below the ceiling for 2^52 more changes. A value in the
+/// upper half is still applied (the entry takes that state); it just does
+/// not move the clock.
+pub const LAMPORT_OBSERVE_LIMIT: i64 = 1 << 52;
+
 /// Events that a future encrypted sync transport may consume.
 #[derive(Debug, Clone)]
 pub enum SyncEvent {

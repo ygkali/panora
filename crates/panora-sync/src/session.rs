@@ -25,8 +25,11 @@ use std::time::Duration;
 use tokio::sync::{mpsc, watch};
 use tracing::{debug, info};
 
-/// Largest frame a member may send: one page of the feed, sealed.
-pub const MAX_SYNC_FRAME: usize = 192 * 1024 * 1024;
+/// Largest frame a member may send: one page of the feed, sealed. `panod`
+/// keeps a page under 32 MiB of payloads, or one entry of at most 48 MiB;
+/// the rest is sealing and framing overhead. Two frames can be in flight,
+/// so this also bounds what one member can make this device hold.
+pub const MAX_SYNC_FRAME: usize = 64 * 1024 * 1024;
 /// Largest first frame (the hello, eight rosters at most), read before the
 /// other side has shown it is a member.
 const MAX_HELLO_FRAME: usize = 512 * 1024;

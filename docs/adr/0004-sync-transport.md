@@ -235,3 +235,42 @@ Ağ katmanı, commit'ten önce ayrı bir ajan tarafından saldırgan gözüyle i
 - Grubun kimliği hiç değişmediği için, çıkarılmış bir cihaz grup etiketini hesaplamayı
   sürdürebilir.
 - Anahtar gösterilmeden önce bir gizli el sıkışma eklemek relay aşamasına bırakıldı.
+
+### Birleştirme öncesi son inceleme (2026-09-25)
+
+`main`'e birleştirmeden önce bütün yığın (panod'un senkron IPC'si, `panora-sync`, GUI) aynı ağdaki
+saldırgan gözüyle bir kez daha incelendi. Gizlilik ve kimlik doğrulamayı bozan bulgu yok. Kapatılanlar:
+
+- **Lamport zehirlemesi (orta).** Bir üye tavanın hemen altında bir değer gönderince alıcının bir
+  sonraki değeri tavana değiyor, öteki cihazlar onu ve sonrasını sessizce reddediyordu; senkron o
+  cihaz için kalıcı olarak duruyordu. Artık iki sınır var (`panora_core::sync`): 2^53'e kadar kabul,
+  ama saat yalnızca 2^52'nin altını izliyor (satırlardan okunan en büyük değer dahil).
+- **Uzak zaman damgaları (orta).** `created_at`/`last_seen_at` olduğu gibi alınıyordu; gelecek tarihli
+  bir kayıt `max_age_days`'ten kaçıyor ve listenin başında kalıyordu. Artık `[0, şimdi + 5 dk]`.
+- **PRIMARY (düşük–orta).** `record_primary` kapalı cihaz, seçim panosu kayıtlarını başka cihazdan
+  alıyordu. Artık almıyor.
+- **Davet penceresini yabancılar tüketebiliyordu (düşük).** `Commit` artık davet sırrıyla bir kanıt
+  taşıyor; davet eden, deneme hakkı düşmeden ve kilidi almadan önce kanıtı ve modu denetliyor. Kod
+  modunda bu mümkün değil (kod karşılaştırılmadan kimin kim olduğu bilinemez); 3 deneme sınırı kalıyor
+  ve `docs/SYNC.md` bunu söylüyor.
+- **Grup kimliği kimliği doğrulanmamış tarafa gidiyordu (düşük).** `Offer` artık `group_id` taşımıyor
+  (transkriptten de çıktı); ona yalnızca imzalı, mühürlü karşılama iletisiyle ulaşılıyor. Böylece bir
+  yabancı saatlik mDNS etiketini hesaplayamıyor.
+- **mDNS önbelleği (düşük).** Yalnızca bu grubun etiketini (bir önceki, bu ve bir sonraki saat) taşıyan
+  duyurular tutuluyor; yabancılar önbelleği doldurup üyeleri gizleyemiyor.
+- **Adres kuralı (düşük).** mDNS'ten ve kendi adreslerinden loopback çıkarıldı; izin verilmeyen
+  adresten gelen bağlantı artık yanıtsız düşürülüyor (`ignore`), tarayıcıya QUIC olduğunu söylemiyor.
+  "Özel adres" ile "aynı oda" aynı şey değil: yönlendirilen özel ağlardan da bağlanılabiliyor
+  (üyelik kanıtı yine şart); `docs/SYNC.md` bunu açıkça söylüyor.
+- **Bellek (düşük).** Çerçeve sınırı 192 MiB'tan 64 MiB'a, akıştaki tek kayıt sınırı 64'ten 48 MiB'a
+  indi; birime `MemoryMax=768M` eklendi.
+
+Doğrulanmadı: birimin sandbox'ı gerçek bir Ubuntu 24.04 masaüstünde (AppArmor'un ayrıcalıksız kullanıcı
+ad alanı kısıtıyla) denenmedi; `panod.service` ile aynı durum.
+
+### Farklı ağlar: ertelendi (2026-09-25)
+
+Sahibinin kararıyla 2.0 yalnızca aynı ağdaki cihazları eşitler. Relay, VPN adresleri ya da iroh
+gibi uzak ağ yolları ROADMAP'te SYNC-07 ("Gelecek") altında duruyor; seçenekler ve her birinin
+bedeli orada. Bu ADR'deki adres kuralı (yalnızca loopback, RFC 1918, link-local, ULA) o zamana
+kadar değişmez.

@@ -1401,10 +1401,13 @@ impl Database {
             )
             .optional()?
             .unwrap_or(0);
-        let rows: i64 =
-            tx.query_row("SELECT COALESCE(MAX(lamport), 0) FROM entries", [], |row| {
-                row.get(0)
-            })?;
+        // Rows holding a peer's out-of-range value do not count (see
+        // `LAMPORT_OBSERVE_LIMIT`).
+        let rows: i64 = tx.query_row(
+            "SELECT COALESCE(MAX(lamport), 0) FROM entries WHERE lamport < ?1",
+            params![crate::sync::LAMPORT_OBSERVE_LIMIT],
+            |row| row.get(0),
+        )?;
         let next = stored.max(rows) + 1;
         tx.execute(
             "INSERT OR REPLACE INTO meta(key, value) VALUES('lamport_clock', ?1)",

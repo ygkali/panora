@@ -18,6 +18,10 @@ ExecStart=/usr/bin/panora-sync run
 Restart=on-failure
 RestartSec=5
 Environment=RUST_LOG=info
+# A member can make this process hold two frames of at most 64 MiB each,
+# plus their decrypted copies; a ceiling well above that keeps a faulty or
+# hostile peer from taking the desktop's memory with it.
+MemoryMax=768M
 
 # --- sandboxing (ADR 0003, ADR 0004) ---
 NoNewPrivileges=yes

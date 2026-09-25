@@ -16,7 +16,12 @@ you trust, such as your home network.
   `172.16/12`, `192.168/16`), link-local and IPv6 unique-local addresses
   are ever contacted or accepted, whatever mDNS or the configuration says.
   There is no relay and no server: devices on different networks do not
-  sync (yet).
+  sync. That is planned for later; until then, a laptop that was away
+  catches up when it is back on the same network.
+- "Private" is about addresses, not rooms: a device that reaches this one
+  on a private address through a router (a company network, some VPNs)
+  can connect too. It still has to prove it is a member of the group
+  before it learns or receives anything.
 - Every entry is additionally sealed with the group's key before it leaves
   the device. When you remove a device, the group key is replaced, so the
   removed device cannot read what is shared afterwards.
@@ -24,6 +29,11 @@ you trust, such as your home network.
   leave the device. Entries arriving from another device go through the same
   privacy rules as a local copy: excluded applications, private mode and
   content filters apply on the receiving side too.
+- An entry keeps the times it has on the device it came from, but never
+  later than a few minutes from now: a device with a wrong clock cannot
+  keep its entries at the top of everyone's history, or out of reach of
+  `max_age_days`. Highlighted text (the PRIMARY selection) arrives only on
+  devices that record it themselves (`record_primary`).
 - Deletions and pins travel. A deletion is remembered for
   `sync.tombstone_days` (30 by default); a device offline for longer than
   that may bring a deleted entry back.
@@ -96,7 +106,10 @@ panora-sync join --code
 
 Both screens show the same six digits; answer **y** on both only if they
 match. If they differ, someone is in between: answer **n**. A device
-waiting with `pair` accepts at most three attempts in five minutes.
+waiting with `pair` accepts at most three attempts in five minutes; a
+stranger on the network can use those up (it cannot get in), so if pairing
+by code keeps failing, use an invitation link, which only the device
+holding the link can even try.
 
 A third device can join through any device already in the group; the others
 learn about it on their own.

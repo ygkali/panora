@@ -963,6 +963,16 @@ impl Shared {
             .await?;
             return Ok(());
         };
+        // A stranger without the invitation, or a device in the other mode,
+        // is turned away here: before the session costs the window an
+        // attempt, and without holding the pairing lock for a session.
+        if let Err(e) = crate::pairing::check_commit(&slot.window, &commit) {
+            drop(slot_guard);
+            if let Some(reason) = wire::abort_reason(&e) {
+                let _ = wire::write_message(&mut stream, &PairMessage::Abort { reason }).await;
+            }
+            return Err(e);
+        }
         let events = slot.events.clone();
         let result = tokio::time::timeout(
             PAIRING_TIMEOUT,

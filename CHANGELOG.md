@@ -474,6 +474,14 @@ real-machine verification in `docs/RELEASING.md` is done.
 - `panora-sync` speaks Turkish too: what its commands print follows
   `ui.language` (or the locale), and pairing questions accept `e`/`evet`
   as well as `y`/`yes`. `--help` and the manual page stay in English.
+- Sync hardening before the merge: a peer's Lamport value can no longer
+  push this device's clock to where the others refuse its changes; remote
+  timestamps are kept within a few minutes of now; highlighted text only
+  reaches devices that record it; an invitation window cannot be used up
+  by devices that do not hold the link; the group id is no longer sent
+  before a device is admitted; mDNS keeps only this group's announcements;
+  refused connections get no answer; frames are limited to 64 MiB and the
+  unit to 768 MiB of memory.
 - `panora-sync`: closing a pairing request's connection now cancels a
   join too; a no on the joining device reaches the inviting one as a
   rejection; device names may not contain invisible format or

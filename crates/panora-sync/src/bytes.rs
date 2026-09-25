@@ -29,6 +29,29 @@ pub(crate) mod b64 {
     }
 }
 
+/// Optional fixed-size arrays: absent (or `null`) is `None`.
+pub(crate) mod b64_opt {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer, const N: usize>(
+        bytes: &Option<[u8; N]>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        match bytes {
+            Some(bytes) => super::b64::serialize(bytes, serializer),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>, const N: usize>(
+        deserializer: D,
+    ) -> Result<Option<[u8; N]>, D::Error> {
+        #[derive(Deserialize)]
+        struct Wrapped<const M: usize>(#[serde(with = "super::b64")] [u8; M]);
+        Ok(Option::<Wrapped<N>>::deserialize(deserializer)?.map(|w| w.0))
+    }
+}
+
 /// Variable-length byte strings.
 pub(crate) mod b64_vec {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;

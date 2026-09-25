@@ -217,14 +217,15 @@ impl Transport {
     }
 
     /// The next incoming connection from an allowed address; others are
-    /// refused before any handshake. `None` once the endpoint is closed.
+    /// dropped before any handshake, without an answer that would tell a
+    /// scanner a QUIC service is there. `None` once the endpoint is closed.
     pub async fn accept(&self) -> Option<Incoming> {
         loop {
             let incoming = self.endpoint.accept().await?;
             if is_allowed_peer(incoming.remote_address().ip()) {
                 return Some(incoming);
             }
-            incoming.refuse();
+            incoming.ignore();
         }
     }
 

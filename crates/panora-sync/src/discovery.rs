@@ -58,11 +58,23 @@ pub fn identity_tag(identity: &PublicIdentity) -> String {
     hex(&blake3::derive_key("panora mdns identity tag v1", identity.as_bytes())[..6])
 }
 
-/// An address another device can dial as it is: allowed, and not IPv6
-/// link-local, which needs an interface index to be reachable.
+/// An address another device can dial as it is: allowed, not loopback
+/// (an announcement must not make this device dial its own ports), and
+/// not IPv6 link-local, which needs an interface index to be reachable.
 fn dialable(ip: &IpAddr) -> bool {
     let v6_link_local = matches!(ip, IpAddr::V6(v6) if (v6.segments()[0] & 0xffc0) == 0xfe80);
-    is_allowed_peer(*ip) && !v6_link_local
+    is_allowed_peer(*ip) && !ip.is_loopback() && !v6_link_local
+}
+
+/// The tags a member of `group` may announce around now: this hour's,
+/// and the hours either side for clocks that disagree a little.
+fn wanted_tags(group: &GroupId) -> [String; 3] {
+    let now = hour();
+    [
+        group_tag(group, now.saturating_sub(1)),
+        group_tag(group, now),
+        group_tag(group, now + 1),
+    ]
 }
 
 /// This machine's local-network addresses, with `port`, for an
@@ -74,7 +86,7 @@ pub fn local_addresses(port: u16) -> Vec<SocketAddr> {
     let mut addrs: Vec<SocketAddr> = interfaces
         .into_iter()
         .map(|i| i.ip())
-        .filter(|ip| !ip.is_loopback() && dialable(ip))
+        .filter(dialable)
         .map(|ip| SocketAddr::new(ip, port))
         .collect();
     // IPv4 first: what most home networks route between devices.
@@ -97,6 +109,10 @@ pub struct Found {
 
 #[derive(Default)]
 struct Seen {
+    /// The group whose members are worth remembering; announcements of
+    /// anything else are not kept, so strangers cannot fill the cache and
+    /// hide the devices that matter.
+    group: Option<GroupId>,
     tags: HashMap<String, (String, Vec<SocketAddr>)>,
 }
 
@@ -140,6 +156,14 @@ impl Discovery {
                             let Some(tag) = info.get_property_val_str("g") else {
                                 continue;
                             };
+                            let ours = seen
+                                .group
+                                .as_ref()
+                                .is_some_and(|g| wanted_tags(g).iter().any(|t| t == tag));
+                            if !ours {
+                                seen.tags.remove(&info.fullname);
+                                continue;
+                            }
                             let addrs = resolved_addrs(
                                 info.addresses.iter().map(|a| a.to_ip_addr()),
                                 info.port,
@@ -201,6 +225,13 @@ impl Discovery {
 
     /// Announce membership of `group` (or stop, with `None`).
     pub fn advertise_sync(&self, group: Option<&GroupId>) {
+        {
+            let mut seen = self.seen.lock().unwrap_or_else(|e| e.into_inner());
+            if seen.group.as_ref() != group {
+                seen.tags.clear();
+            }
+            seen.group = group.copied();
+        }
         let mut current = self.sync_name.lock().unwrap_or_else(|e| e.into_inner());
         self.unregister(current.take().map(|(name, _, _)| name));
         if let Some(group) = group {
@@ -229,11 +260,7 @@ impl Discovery {
 
     /// Addresses of devices announcing `group` this hour or the last.
     pub fn sync_peers(&self, group: &GroupId) -> Vec<SocketAddr> {
-        let now = hour();
-        let tags = [
-            group_tag(group, now),
-            group_tag(group, now.saturating_sub(1)),
-        ];
+        let tags = wanted_tags(group);
         let seen = self.seen.lock().unwrap_or_else(|e| e.into_inner());
         seen.tags
             .iter()

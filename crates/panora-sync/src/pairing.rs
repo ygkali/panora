@@ -8,8 +8,8 @@
 //!
 //! ```text
 //! Joiner                                   Inviter
-//!   Commit { mode, H(eJ) }          ─────►
-//!                                   ◄─────  Offer { eI, identity I, group id }
+//!   Commit { mode, H(eJ), proof }   ─────►
+//!                                   ◄─────  Offer { eI, identity I }
 //!   Reveal { eJ }                   ─────►  (checks H(eJ))
 //!        both: shared = X25519(eI, eJ), th = H(transcript)
 //!        keys = KDF(shared ‖ invitation secret or zeros ‖ th)
@@ -37,7 +37,7 @@
 //! The mode is part of the transcript and each side accepts only the mode
 //! its user chose, so neither can be downgraded to the other.
 
-use crate::bytes::{b64, b64_vec, put};
+use crate::bytes::{b64, b64_opt, b64_vec, put};
 use crate::error::{Error, Result};
 use crate::group::{
     check_successor, validate_device_id, validate_name, GroupId, GroupKey, GroupState, Member,
@@ -108,17 +108,20 @@ pub enum PairMessage {
         /// Hash of the joiner's ephemeral public key.
         #[serde(with = "b64")]
         commitment: [u8; 32],
+        /// Invitation mode: a MAC of the commitment under the invitation
+        /// secret, so the inviter can turn away a stranger before it costs
+        /// the window an attempt.
+        #[serde(default, skip_serializing_if = "Option::is_none", with = "b64_opt")]
+        proof: Option<[u8; 32]>,
     },
-    /// Inviter → joiner: its ephemeral key, identity and group.
+    /// Inviter → joiner: its ephemeral key and identity. The group id is
+    /// not sent before the joiner is admitted (it names the mDNS tag).
     Offer {
         /// Inviter's X25519 ephemeral public key.
         #[serde(with = "b64")]
         ephemeral: [u8; 32],
         /// Inviter's identity key.
         inviter: PublicIdentity,
-        /// The group being joined.
-        #[serde(with = "b64")]
-        group_id: GroupId,
     },
     /// Joiner → inviter: the committed ephemeral key.
     Reveal {
@@ -230,13 +233,50 @@ fn commitment(ephemeral: &[u8; 32]) -> [u8; 32] {
     blake3::derive_key("panora-pair/1 commitment", ephemeral)
 }
 
+/// What a joiner holding the invitation secret attaches to its commit.
+fn invitation_proof(secret: &[u8; 32], commitment: &[u8; 32]) -> blake3::Hash {
+    let key = Zeroizing::new(blake3::derive_key("panora-pair/1 invitation proof", secret));
+    blake3::keyed_hash(&key, commitment)
+}
+
+/// Whether `commit` may start a session in `window`, checked before the
+/// session costs the window an attempt: the right protocol and mode and,
+/// for an invitation, proof that the joiner holds its secret. A stranger
+/// on the network can do neither, so it cannot use up an invitation.
+/// (A code window cannot tell a stranger from the device the user means
+/// before the codes are compared; its three attempts are the bound.)
+pub(crate) fn check_commit(window: &PairingWindow, msg: &PairMessage) -> Result<()> {
+    let PairMessage::Commit {
+        protocol,
+        mode,
+        commitment,
+        proof,
+    } = msg
+    else {
+        return Err(out_of_order());
+    };
+    if protocol != PROTOCOL {
+        return Err(Error::Protocol("unsupported pairing protocol version"));
+    }
+    if *mode != window.mode() {
+        return Err(Error::ModeMismatch);
+    }
+    if let Some(invitation) = window.invitation() {
+        let expected = invitation_proof(invitation.secret(), commitment);
+        // `blake3::Hash` compares in constant time.
+        if proof.map(blake3::Hash::from) != Some(expected) {
+            return Err(Error::Auth("the other device does not hold the invitation"));
+        }
+    }
+    Ok(())
+}
+
 /// Transcript fields, in protocol order.
 struct Transcript<'t> {
     mode: PairingMode,
     commitment: &'t [u8; 32],
     inviter_ephemeral: &'t [u8; 32],
     inviter: &'t PublicIdentity,
-    group_id: &'t GroupId,
     joiner_ephemeral: &'t [u8; 32],
 }
 
@@ -261,7 +301,6 @@ impl Session {
         put(&mut transcript, t.commitment);
         put(&mut transcript, t.inviter_ephemeral);
         put(&mut transcript, t.inviter.as_bytes());
-        put(&mut transcript, t.group_id);
         put(&mut transcript, t.joiner_ephemeral);
         let th = blake3::derive_key("panora-pair/1 transcript", &transcript);
 
@@ -328,7 +367,6 @@ enum JoinerState {
     Keyed {
         session: Session,
         inviter: PublicIdentity,
-        group_id: GroupId,
         sent_join: bool,
     },
 }
@@ -374,10 +412,15 @@ impl<'a> Joiner<'a> {
                 commitment,
             }),
         };
+        let proof = joiner
+            .invitation
+            .as_ref()
+            .map(|inv| *invitation_proof(inv.secret(), &commitment).as_bytes());
         let msg = PairMessage::Commit {
             protocol: PROTOCOL.to_string(),
             mode: joiner.mode(),
             commitment,
+            proof,
         };
         Ok((joiner, msg))
     }
@@ -403,7 +446,6 @@ impl<'a> Joiner<'a> {
             PairMessage::Offer {
                 ephemeral: inviter_ephemeral,
                 inviter,
-                group_id,
             },
         ) = (state, msg)
         else {
@@ -429,7 +471,6 @@ impl<'a> Joiner<'a> {
                 commitment: &commitment,
                 inviter_ephemeral: &inviter_ephemeral,
                 inviter: &inviter,
-                group_id: &group_id,
                 joiner_ephemeral: &joiner_ephemeral,
             },
             &shared,
@@ -438,7 +479,6 @@ impl<'a> Joiner<'a> {
         self.state = Some(JoinerState::Keyed {
             session,
             inviter,
-            group_id,
             sent_join: false,
         });
         Ok(PairMessage::Reveal {
@@ -501,7 +541,6 @@ impl<'a> Joiner<'a> {
             Some(JoinerState::Keyed {
                 session,
                 inviter,
-                group_id,
                 sent_join: true,
             }),
             PairMessage::Welcome { sealed },
@@ -524,8 +563,7 @@ impl<'a> Joiner<'a> {
         current.verify()?;
         check_successor(parent, current)?;
         let entry = current.member(&me);
-        let admitted = current.group_id == group_id
-            && current.signer == inviter
+        let admitted = current.signer == inviter
             && parent.member(&me).is_none()
             && entry.is_some_and(|m| m.device_id == self.device_id && m.name == self.name);
         if !admitted {
@@ -599,28 +637,18 @@ impl<'a> Inviter<'a> {
     pub fn on_commit(&mut self, msg: PairMessage) -> Result<PairMessage> {
         let state = self.state.take();
         check_abort(&msg)?;
-        let (
-            Some(InviterState::AwaitCommit),
-            PairMessage::Commit {
-                protocol,
-                mode,
-                commitment,
-            },
-        ) = (state, msg)
+        let (Some(InviterState::AwaitCommit), msg @ PairMessage::Commit { .. }) = (state, msg)
         else {
             return Err(out_of_order());
         };
-        if protocol != PROTOCOL {
-            return Err(Error::Protocol("unsupported pairing protocol version"));
-        }
-        if mode != self.mode {
-            return Err(Error::ModeMismatch);
-        }
+        check_commit(self.window, &msg)?;
+        let PairMessage::Commit { commitment, .. } = msg else {
+            return Err(out_of_order());
+        };
         let ephemeral = Ephemeral::generate()?;
         let offer = PairMessage::Offer {
             ephemeral: ephemeral.public,
             inviter: self.identity.public(),
-            group_id: self.group_id,
         };
         self.state = Some(InviterState::Offered {
             ephemeral,
@@ -657,7 +685,6 @@ impl<'a> Inviter<'a> {
                 commitment: &committed,
                 inviter_ephemeral: &inviter_ephemeral,
                 inviter: &self.identity.public(),
-                group_id: &self.group_id,
                 joiner_ephemeral: &joiner_ephemeral,
             },
             &shared,
@@ -902,6 +929,7 @@ mod tests {
             protocol: PROTOCOL.into(),
             mode: PairingMode::Code,
             commitment: commitment(&zero),
+            proof: None,
         })
         .unwrap();
         assert!(matches!(
@@ -913,7 +941,6 @@ mod tests {
             .on_offer(PairMessage::Offer {
                 ephemeral: zero,
                 inviter: a.id.public(),
-                group_id: ga.group_id(),
             })
             .is_err());
     }
@@ -940,6 +967,7 @@ mod tests {
             protocol: "panora-pair/9".into(),
             mode: PairingMode::Code,
             commitment: [0; 32],
+            proof: None,
         };
         let mut window = PairingWindow::for_code(NOW);
         let mut i = Inviter::new(&a.id, &ga, &mut window, NOW).unwrap();
@@ -1018,7 +1046,6 @@ mod tests {
             .on_offer(PairMessage::Offer {
                 ephemeral: attacker_public,
                 inviter: i_dev.id.public(),
-                group_id: gi.group_id(),
             })
             .unwrap();
         let PairMessage::Reveal { ephemeral: ej } = reveal else {
@@ -1028,13 +1055,11 @@ mod tests {
             unreachable!()
         };
         let shared = attacker.agree(&ej).unwrap();
-        let gid = gi.group_id();
         let transcript = || Transcript {
             mode: PairingMode::Invitation,
             commitment: &c,
             inviter_ephemeral: &attacker_public,
             inviter: &inv.inviter,
-            group_id: &gid,
             joiner_ephemeral: &ej,
         };
         let guess = Session::derive(transcript(), &shared, Some(&[7; 32]));
@@ -1082,7 +1107,13 @@ mod tests {
         let mut m = Inviter::new(&m_dev.id, &gm, &mut window, NOW).unwrap();
         let (mut j, commit) =
             Joiner::start(&j_dev.id, &j_dev.device_id, &j_dev.name, Some(inv), NOW).unwrap();
-        let offer = m.on_commit(commit).unwrap();
+        // M's own window turns the commit away: it proves I's secret, not M's.
+        assert!(matches!(m.on_commit(commit), Err(Error::Auth(_))));
+        // And an offer in M's name is refused by the joiner in any case.
+        let offer = PairMessage::Offer {
+            ephemeral: Ephemeral::generate().unwrap().public,
+            inviter: m_dev.id.public(),
+        };
         assert!(matches!(j.on_offer(offer), Err(Error::Auth(_))));
     }
 
@@ -1136,6 +1167,66 @@ mod tests {
     }
 
     #[test]
+    fn a_commit_without_the_invitation_secret_costs_no_attempt() {
+        let a = dev(1);
+        let b = dev(2);
+        let ga = group(&a);
+        let inv = Invitation::new(a.id.public(), vec![], NOW);
+        let window = PairingWindow::for_invitation(inv.clone());
+        let before = window.attempts_left();
+        let stranger = PairMessage::Commit {
+            protocol: PROTOCOL.into(),
+            mode: PairingMode::Invitation,
+            commitment: [1; 32],
+            proof: None,
+        };
+        assert!(matches!(
+            check_commit(&window, &stranger),
+            Err(Error::Auth(_))
+        ));
+        let guessed = PairMessage::Commit {
+            protocol: PROTOCOL.into(),
+            mode: PairingMode::Invitation,
+            commitment: [1; 32],
+            proof: Some([2; 32]),
+        };
+        assert!(matches!(
+            check_commit(&window, &guessed),
+            Err(Error::Auth(_))
+        ));
+        let wrong_mode = PairMessage::Commit {
+            protocol: PROTOCOL.into(),
+            mode: PairingMode::Code,
+            commitment: [1; 32],
+            proof: None,
+        };
+        assert!(matches!(
+            check_commit(&window, &wrong_mode),
+            Err(Error::ModeMismatch)
+        ));
+        assert_eq!(window.attempts_left(), before);
+        // The device that holds the link passes, and pairs.
+        let (_, commit) = Joiner::start(&b.id, &b.device_id, &b.name, Some(inv), NOW).unwrap();
+        check_commit(&window, &commit).unwrap();
+        let _ = ga;
+    }
+
+    #[test]
+    fn a_commit_round_trips_with_and_without_a_proof() {
+        for proof in [None, Some([9; 32])] {
+            let msg = PairMessage::Commit {
+                protocol: PROTOCOL.into(),
+                mode: PairingMode::Code,
+                commitment: [3; 32],
+                proof,
+            };
+            let json = serde_json::to_string(&msg).unwrap();
+            assert_eq!(json.contains("proof"), proof.is_some(), "{json}");
+            assert_eq!(serde_json::from_str::<PairMessage>(&json).unwrap(), msg);
+        }
+    }
+
+    #[test]
     fn sas_code_formatting() {
         assert_eq!(SasCode(42_917).to_string(), "042 917");
         assert_eq!(SasCode(0).to_string(), "000 000");
@@ -1147,7 +1238,6 @@ mod tests {
         let msg = PairMessage::Offer {
             ephemeral: [3; 32],
             inviter: PublicIdentity::from_bytes([4; 32]),
-            group_id: [5; 16],
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("\"type\":\"offer\""));
