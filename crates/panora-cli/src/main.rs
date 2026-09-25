@@ -14,12 +14,14 @@ use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
 use panora_core::config::Config;
 use panora_core::error::Error;
-use panora_core::i18n::{fill, Language, Strings};
+use panora_core::i18n::{fill, pluralize, Language, Strings};
 use panora_core::ipc::{client, QueryRequest, Request, ResponseData, MAX_FRAME_BYTES};
-use panora_core::model::{Entry, MimePayload};
+use panora_core::model::{Entry, MimePayload, Selection};
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
+
+mod schema;
 
 /// Exit statuses, documented in `--help` and the man page. `2` is clap's
 /// usage error and is not listed here.
@@ -80,12 +82,15 @@ enum Command {
     Copy {
         /// Entry id as shown by `list`
         id: i64,
-        /// Also send a paste keystroke to the focused window
+        /// Also send a paste keystroke to the focused window (ignored with --primary)
         #[arg(long)]
         paste: bool,
         /// Offer only this format (e.g. text/plain to drop the HTML of a rich-text entry)
         #[arg(long, value_name = "TYPE")]
         mime: Option<String>,
+        /// Put it on PRIMARY (middle-click paste) instead of CLIPBOARD
+        #[arg(long)]
+        primary: bool,
     },
     /// Print or export the decrypted payloads of an entry
     #[command(alias = "show")]
@@ -124,10 +129,24 @@ enum Command {
     },
     /// Show daemon health, backend capabilities and history size
     Status,
+    /// Show history statistics: counts by kind, pinned/sensitive, total
+    /// payload bytes, oldest and newest entry
+    Stats,
     /// Show or hide the popup
     Toggle,
     /// Re-read config.toml and apply it without restarting the daemon
     Reload,
+    /// Read or change config.toml (CLI-05)
+    ///
+    /// Operates on the file directly, the same one the settings dialog
+    /// writes; `set` and a valid `edit` also tell a running daemon to
+    /// re-read it (same as `panora-cli reload`), best-effort. Keys are
+    /// dotted paths (`history.max_entries`, `privacy.sensitive_policy`);
+    /// `panora-cli config get` with no key prints the whole file.
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
     /// Generate a new master key and reseal the whole history under it
     ///
     /// Safe to interrupt (Ctrl+C, a crash, a daemon restart): history stays
@@ -231,8 +250,9 @@ enum Command {
     ///
     /// The first line is the daemon's current revision, so a watcher never
     /// misses a change that happened just before it connected. Text mode
-    /// prints `revision=N`; `--json` prints the same shape `status`'s JSON
-    /// output uses for its `revision` field. Compose with `list`/`search`:
+    /// prints `revision=N`; `--json` prints one versioned envelope per line
+    /// (`panora-cli schema`'s `watch` entry has the exact shape). Compose
+    /// with `list`/`search`:
     /// `panora-cli watch | while read -r _; do panora-cli list; done`
     Watch,
     /// Print a shell completion script to standard output
@@ -246,6 +266,8 @@ enum Command {
         /// Output directory
         dir: PathBuf,
     },
+    /// Print the JSON Schema for every command's `--json` output (CLI-08)
+    Schema,
 }
 
 /// Filters shared by `list` and `search`.
@@ -316,6 +338,36 @@ enum LockAction {
     /// current password from standard input to verify.
     #[command(name = "remove-password")]
     Remove,
+}
+
+/// `config` subcommands (CLI-05).
+#[derive(Subcommand, Debug)]
+enum ConfigAction {
+    /// Print one value, or the whole file when KEY is omitted
+    Get {
+        /// Dotted key path, e.g. `history.max_entries`
+        key: Option<String>,
+    },
+    /// Change one value and save the file
+    ///
+    /// The new value is parsed to match the existing one's type: `true`/
+    /// `false`/`1`/`0`/`yes`/`no` for a boolean, a plain integer, a
+    /// comma-separated list for an array (e.g. `excluded_apps`), anything
+    /// else as text. Refused, and the file left untouched, if the result
+    /// would not pass `panora-cli config validate`.
+    Set {
+        /// Dotted key path
+        key: String,
+        /// New value
+        value: String,
+    },
+    /// Check the current file without changing anything
+    Validate,
+    /// Open the file in `$VISUAL`/`$EDITOR` (`vi` if neither is set)
+    ///
+    /// Validated after you save and exit; an invalid result is reported but
+    /// left in place, exactly as you saved it, for another `edit` to fix.
+    Edit,
 }
 
 /// Clipboard managers `import-legacy` can read history from (CLI-03).
@@ -410,6 +462,14 @@ fn run(cli: Cli, s: &Strings) -> Result<(), Failure> {
             write_man_pages(&dir).map_err(|e| format!("cannot write man pages: {e}"))?;
             return Ok(());
         }
+        Command::Schema => {
+            let doc = schema::document();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())?
+            );
+            return Ok(());
+        }
         Command::Watch => return run_watch(json),
         Command::RotateKey => {
             // Reseals the whole history inline before replying; 5s (the
@@ -451,7 +511,12 @@ fn run(cli: Cli, s: &Strings) -> Result<(), Failure> {
             std::fs::write(&out, &archive)
                 .map_err(|e| format!("cannot write {}: {e}", out.display()))?;
             if json {
-                println!("{{\"bytes\":{}}}", archive.len());
+                println!(
+                    "{}",
+                    schema::to_pretty(&schema::ExportResult {
+                        bytes: archive.len() as u64
+                    })?
+                );
             } else {
                 println!("exported {} bytes to {}", archive.len(), out.display());
             }
@@ -463,9 +528,13 @@ fn run(cli: Cli, s: &Strings) -> Result<(), Failure> {
                 std::fs::read(&file).map_err(|e| format!("cannot read {}: {e}", file.display()))?;
             let count = import_via_v3(&passphrase, archive)?;
             if json {
-                println!("{{\"imported\":{count}}}");
+                println!(
+                    "{}",
+                    schema::to_pretty(&schema::ImportResult { imported: count })?
+                );
             } else {
-                println!("{}", fill(s.cli_count, "n", &count.to_string()));
+                let template = pluralize(count as i64, s.cli_count_one, s.cli_count);
+                println!("{}", fill(template, "n", &count.to_string()));
             }
             return Ok(());
         }
@@ -490,9 +559,10 @@ fn run(cli: Cli, s: &Strings) -> Result<(), Failure> {
                 }
             }
             if json {
-                println!("{{\"imported\":{imported}}}");
+                println!("{}", schema::to_pretty(&schema::ImportResult { imported })?);
             } else {
-                println!("{}", fill(s.cli_count, "n", &imported.to_string()));
+                let template = pluralize(imported as i64, s.cli_count_one, s.cli_count);
+                println!("{}", fill(template, "n", &imported.to_string()));
             }
             return Ok(());
         }
@@ -549,6 +619,7 @@ fn run(cli: Cli, s: &Strings) -> Result<(), Failure> {
                 format: None,
             }
         }
+        Command::Config { action } => return config_command(action, json),
         other => to_invocation(other),
     };
     let data = client::call(&invocation.request)?;
@@ -583,7 +654,21 @@ fn to_invocation(command: Command) -> Invocation {
         Command::Pick { format, filter } => {
             listing(Request::List(query_request(None, filter)), Some(format))
         }
-        Command::Copy { id, paste, mime } => plain(Request::Recall { id, paste, mime }),
+        Command::Copy {
+            id,
+            paste,
+            mime,
+            primary,
+        } => plain(Request::Recall {
+            id,
+            paste,
+            mime,
+            to: if primary {
+                Selection::Primary
+            } else {
+                Selection::Clipboard
+            },
+        }),
         Command::Preview { id, mime, out } => Invocation {
             request: Request::Preview {
                 id,
@@ -602,10 +687,12 @@ fn to_invocation(command: Command) -> Invocation {
             enabled: state == OnOff::On,
         }),
         Command::Status => plain(Request::Status),
+        Command::Stats => plain(Request::Stats),
         Command::Toggle => plain(Request::Toggle),
         Command::Reload => plain(Request::ReloadConfig),
         Command::Completions { .. }
         | Command::Man { .. }
+        | Command::Schema
         | Command::Store { .. }
         | Command::Watch
         | Command::RotateKey
@@ -614,7 +701,8 @@ fn to_invocation(command: Command) -> Invocation {
         | Command::Wipe { .. }
         | Command::Export { .. }
         | Command::Import { .. }
-        | Command::ImportLegacy { .. } => {
+        | Command::ImportLegacy { .. }
+        | Command::Config { .. } => {
             unreachable!("handled before reaching the daemon")
         }
     }
@@ -834,7 +922,7 @@ fn run_watch(json: bool) -> Result<(), Failure> {
         let event = subscription.next()?;
         let mut out = stdout.lock();
         if json {
-            let line = serde_json::to_string(&event).map_err(|e| e.to_string())?;
+            let line = schema::to_line(&event)?;
             writeln!(out, "{line}").map_err(|e| e.to_string())?;
         } else {
             let panora_core::ipc::Event::Changed { revision } = event;
@@ -906,8 +994,7 @@ fn print_response(
     data: ResponseData,
 ) -> Result<(), Failure> {
     if json {
-        let json = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
-        println!("{json}");
+        println!("{}", schema::to_pretty(&data)?);
         return Ok(());
     }
     match data {
@@ -962,7 +1049,25 @@ fn print_response(
                 println!("health={} {}", item.code, item.message);
             }
         }
-        ResponseData::Count(count) => println!("{}", fill(s.cli_count, "n", &count.to_string())),
+        ResponseData::Stats(stats) => {
+            println!(
+                "total={} pinned={} sensitive={} total_size={}",
+                stats.total,
+                stats.pinned,
+                stats.sensitive,
+                human_size(stats.total_bytes, s)
+            );
+            for (kind, count) in &stats.by_kind {
+                println!("  {kind}: {count}");
+            }
+            if let (Some(oldest), Some(newest)) = (stats.oldest_at, stats.newest_at) {
+                println!("oldest={oldest} newest={newest}");
+            }
+        }
+        ResponseData::Count(count) => {
+            let template = pluralize(count as i64, s.cli_count_one, s.cli_count);
+            println!("{}", fill(template, "n", &count.to_string()));
+        }
         ResponseData::Payloads(payloads) => {
             if let Some(mime) = &invocation.mime {
                 let payload = payloads
@@ -1009,6 +1114,208 @@ fn print_response(
         ResponseData::Archive(bytes) => println!("{} bytes", bytes.len()),
     }
     Ok(())
+}
+
+/// `config get/set/validate/edit` (CLI-05).
+fn config_command(action: ConfigAction, json: bool) -> Result<(), Failure> {
+    match action {
+        ConfigAction::Get { key: None } => {
+            let config = Config::load().map_err(|e| format!("cannot load config: {e}"))?;
+            if json {
+                println!("{}", schema::to_pretty(&config)?);
+            } else {
+                print!(
+                    "{}",
+                    toml::to_string_pretty(&config)
+                        .map_err(|e| format!("cannot render config: {e}"))?
+                );
+            }
+            Ok(())
+        }
+        ConfigAction::Get { key: Some(key) } => {
+            let root = config_toml_value()?;
+            let value =
+                config_path_get(&root, &key).ok_or_else(|| format!("unknown config key: {key}"))?;
+            if json {
+                println!("{}", schema::to_pretty(value)?);
+            } else {
+                println!("{value}");
+            }
+            Ok(())
+        }
+        ConfigAction::Set { key, value } => {
+            let mut root = config_toml_value()?;
+            let existing =
+                config_path_get(&root, &key).ok_or_else(|| format!("unknown config key: {key}"))?;
+            let new_value =
+                coerce_config_value(existing, &value).map_err(|e| format!("{key}: {e}"))?;
+            config_path_set(&mut root, &key, new_value)?;
+            let config: Config = root
+                .try_into()
+                .map_err(|e| format!("internal error building the new config: {e}"))?;
+            config
+                .save()
+                .map_err(|e| format!("refusing to save: {e}"))?;
+            // Best-effort: if panod is not running, `set` still took effect
+            // for its next start.
+            let _ = client::call(&Request::ReloadConfig);
+            if json {
+                println!(
+                    "{}",
+                    schema::to_pretty(&schema::ConfigSetResult { key, value })?
+                );
+            } else {
+                println!("{key} = {value}");
+            }
+            Ok(())
+        }
+        ConfigAction::Validate => match Config::load() {
+            Ok(_) if json => {
+                println!(
+                    "{}",
+                    schema::to_pretty(&schema::ConfigValidateResult { valid: true })?
+                );
+                Ok(())
+            }
+            Ok(_) => {
+                println!("config.toml is valid");
+                Ok(())
+            }
+            // Errors always go through the plain-text Failure path
+            // (stderr, "panora-cli: ..."), the same as every other command
+            // regardless of --json — only successful output shape changes.
+            Err(e) => Err(format!("config.toml is invalid: {e}").into()),
+        },
+        ConfigAction::Edit => {
+            let path = panora_core::config::config_path();
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
+            }
+            if !path.exists() {
+                // An empty file, not a dump of every default: every key
+                // already has one, so only what is actually being changed
+                // needs to be here.
+                std::fs::write(&path, "")
+                    .map_err(|e| format!("cannot create {}: {e}", path.display()))?;
+            }
+            let editor = std::env::var("VISUAL")
+                .or_else(|_| std::env::var("EDITOR"))
+                .unwrap_or_else(|_| "vi".into());
+            let status = std::process::Command::new(&editor)
+                .arg(&path)
+                .status()
+                .map_err(|e| format!("cannot start {editor}: {e}"))?;
+            if !status.success() {
+                return Err(format!("{editor} exited with {status}").into());
+            }
+            match Config::load() {
+                Ok(_) => {
+                    println!("config.toml is valid");
+                    let _ = client::call(&Request::ReloadConfig);
+                }
+                Err(e) => eprintln!("panora-cli: warning: config.toml is now invalid: {e}"),
+            }
+            Ok(())
+        }
+    }
+}
+
+/// The current configuration, fully populated with defaults for anything
+/// `config.toml` does not mention, as a generic value a dotted key can
+/// navigate — the raw parsed file alone would be missing every key the
+/// user has not overridden, since `#[serde(default)]` only fills those in
+/// on the way to the typed `Config`.
+fn config_toml_value() -> Result<toml::Value, Failure> {
+    let config = Config::load().map_err(|e| format!("cannot load config: {e}"))?;
+    toml::Value::try_from(&config).map_err(|e| format!("cannot represent config: {e}").into())
+}
+
+fn config_path_get<'a>(value: &'a toml::Value, key: &str) -> Option<&'a toml::Value> {
+    let mut current = value;
+    for segment in key.split('.') {
+        current = current.as_table()?.get(segment)?;
+    }
+    Some(current)
+}
+
+fn config_path_set(
+    root: &mut toml::Value,
+    key: &str,
+    new_value: toml::Value,
+) -> Result<(), Failure> {
+    let mut segments: Vec<&str> = key.split('.').collect();
+    let Some(last) = segments.pop() else {
+        return Err(format!("unknown config key: {key}").into());
+    };
+    let mut current = root;
+    for segment in segments {
+        current = current
+            .as_table_mut()
+            .and_then(|t| t.get_mut(segment))
+            .ok_or_else(|| format!("unknown config key: {key}"))?;
+    }
+    let table = current
+        .as_table_mut()
+        .ok_or_else(|| format!("unknown config key: {key}"))?;
+    if !table.contains_key(last) {
+        return Err(format!("unknown config key: {key}").into());
+    }
+    table.insert(last.to_string(), new_value);
+    Ok(())
+}
+
+/// Parse `raw` to match `existing`'s TOML type, so `set` cannot silently
+/// change a key's type (a string where a boolean belongs would otherwise
+/// pass `toml::Value::try_into::<Config>()` as a type error anyway, but
+/// with a much less specific message than this gives).
+fn coerce_config_value(existing: &toml::Value, raw: &str) -> Result<toml::Value, String> {
+    match existing {
+        toml::Value::Boolean(_) => match raw.to_ascii_lowercase().as_str() {
+            "1" | "true" | "yes" | "on" => Ok(toml::Value::Boolean(true)),
+            "0" | "false" | "no" | "off" => Ok(toml::Value::Boolean(false)),
+            _ => Err(format!("expected a boolean (true/false), got {raw:?}")),
+        },
+        toml::Value::Integer(_) => raw
+            .parse::<i64>()
+            .map(toml::Value::Integer)
+            .map_err(|e| format!("expected an integer: {e}")),
+        toml::Value::Float(_) => raw
+            .parse::<f64>()
+            .map(toml::Value::Float)
+            .map_err(|e| format!("expected a number: {e}")),
+        toml::Value::String(_) => Ok(toml::Value::String(raw.to_string())),
+        toml::Value::Array(_) => Ok(toml::Value::Array(
+            raw.split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(|s| toml::Value::String(s.to_string()))
+                .collect(),
+        )),
+        other => Err(format!(
+            "cannot set a value of this type ({other}) from the command line"
+        )),
+    }
+}
+
+/// `1536` -> `"1.5 KiB"` (I18N-02: `"1,5 KiB"` in a language whose decimal
+/// separator is a comma). Binary (1024) units, one decimal, `B` under 1 KiB.
+fn human_size(bytes: i64, s: &Strings) -> String {
+    const UNITS: &[&str] = &["KiB", "MiB", "GiB", "TiB"];
+    let bytes = bytes.max(0) as f64;
+    if bytes < 1024.0 {
+        return format!("{bytes} B");
+    }
+    let mut value = bytes / 1024.0;
+    let mut unit = UNITS[0];
+    for &next in &UNITS[1..] {
+        if value < 1024.0 {
+            break;
+        }
+        value /= 1024.0;
+        unit = next;
+    }
+    format!("{value:.1} {unit}").replacen('.', s.decimal_separator, 1)
 }
 
 fn write_payload(data: &[u8], out: Option<&std::path::Path>) -> Result<(), Failure> {
@@ -1065,13 +1372,24 @@ mod tests {
             Request::Recall {
                 id: 7,
                 paste: true,
-                mime: None
+                mime: None,
+                to: Selection::Clipboard,
             }
         ));
         let cli = parse(&["recall", "8", "--mime", "text/plain"]).unwrap();
         assert!(matches!(
             to_invocation(cli.command).request,
-            Request::Recall { id: 8, paste: false, mime: Some(m) } if m == "text/plain"
+            Request::Recall { id: 8, paste: false, mime: Some(m), to: Selection::Clipboard } if m == "text/plain"
+        ));
+        let cli = parse(&["copy", "9", "--primary"]).unwrap();
+        assert!(matches!(
+            to_invocation(cli.command).request,
+            Request::Recall {
+                id: 9,
+                paste: false,
+                mime: None,
+                to: Selection::Primary,
+            }
         ));
         let cli = parse(&["preview", "3", "--mime", "image/png", "--out", "x.png"]).unwrap();
         let inv = to_invocation(cli.command);
@@ -1099,6 +1417,10 @@ mod tests {
             Request::Status
         ));
         assert!(matches!(
+            to_invocation(parse(&["stats"]).unwrap().command).request,
+            Request::Stats
+        ));
+        assert!(matches!(
             to_invocation(parse(&["toggle"]).unwrap().command).request,
             Request::Toggle
         ));
@@ -1121,6 +1443,124 @@ mod tests {
                 pinned: false
             }
         ));
+    }
+
+    #[test]
+    fn human_size_formats_binary_units() {
+        let en = Language::English.strings();
+        assert_eq!(human_size(0, en), "0 B");
+        assert_eq!(human_size(1023, en), "1023 B");
+        assert_eq!(human_size(1024, en), "1.0 KiB");
+        assert_eq!(human_size(1536, en), "1.5 KiB");
+        assert_eq!(human_size(10 * 1024 * 1024, en), "10.0 MiB");
+        assert_eq!(
+            human_size(-5, en),
+            "0 B",
+            "negative sizes never occur but must not panic"
+        );
+    }
+
+    #[test]
+    fn human_size_uses_the_language_decimal_separator() {
+        let tr = Language::Turkish.strings();
+        assert_eq!(human_size(1536, tr), "1,5 KiB");
+        // Whole-KiB sizes have no separator to replace either way.
+        assert_eq!(human_size(1024, tr), "1,0 KiB");
+        assert_eq!(human_size(512, tr), "512 B");
+    }
+
+    #[test]
+    fn config_subcommands_parse() {
+        assert!(matches!(
+            parse(&["config", "get"]).unwrap().command,
+            Command::Config {
+                action: ConfigAction::Get { key: None }
+            }
+        ));
+        assert!(matches!(
+            parse(&["config", "get", "ui.theme"]).unwrap().command,
+            Command::Config {
+                action: ConfigAction::Get { key: Some(k) }
+            } if k == "ui.theme"
+        ));
+        assert!(matches!(
+            parse(&["config", "set", "ui.theme", "dark"]).unwrap().command,
+            Command::Config {
+                action: ConfigAction::Set { key, value }
+            } if key == "ui.theme" && value == "dark"
+        ));
+        assert!(matches!(
+            parse(&["config", "validate"]).unwrap().command,
+            Command::Config {
+                action: ConfigAction::Validate
+            }
+        ));
+        assert!(matches!(
+            parse(&["config", "edit"]).unwrap().command,
+            Command::Config {
+                action: ConfigAction::Edit
+            }
+        ));
+    }
+
+    #[test]
+    fn coerce_config_value_matches_the_existing_type() {
+        assert_eq!(
+            coerce_config_value(&toml::Value::Boolean(false), "yes").unwrap(),
+            toml::Value::Boolean(true)
+        );
+        assert_eq!(
+            coerce_config_value(&toml::Value::Boolean(true), "0").unwrap(),
+            toml::Value::Boolean(false)
+        );
+        assert!(coerce_config_value(&toml::Value::Boolean(false), "maybe").is_err());
+
+        assert_eq!(
+            coerce_config_value(&toml::Value::Integer(0), "42").unwrap(),
+            toml::Value::Integer(42)
+        );
+        assert!(coerce_config_value(&toml::Value::Integer(0), "not a number").is_err());
+
+        assert_eq!(
+            coerce_config_value(&toml::Value::String(String::new()), "hello").unwrap(),
+            toml::Value::String("hello".into())
+        );
+
+        assert_eq!(
+            coerce_config_value(&toml::Value::Array(vec![]), "a, b ,c").unwrap(),
+            toml::Value::Array(vec![
+                toml::Value::String("a".into()),
+                toml::Value::String("b".into()),
+                toml::Value::String("c".into()),
+            ])
+        );
+    }
+
+    #[test]
+    fn config_path_get_and_set_round_trip() {
+        let config = Config::default();
+        let mut root = toml::Value::try_from(&config).unwrap();
+
+        assert_eq!(
+            config_path_get(&root, "history.max_entries"),
+            Some(&toml::Value::Integer(1000))
+        );
+        assert!(config_path_get(&root, "history.nope").is_none());
+        assert!(config_path_get(&root, "nope.nope").is_none());
+        // A path stopping at a table, not a leaf, is not an error.
+        assert!(config_path_get(&root, "history").unwrap().is_table());
+
+        config_path_set(&mut root, "history.max_entries", toml::Value::Integer(7)).unwrap();
+        assert_eq!(
+            config_path_get(&root, "history.max_entries"),
+            Some(&toml::Value::Integer(7))
+        );
+        assert!(config_path_set(&mut root, "history.nope", toml::Value::Integer(1)).is_err());
+        assert!(config_path_set(&mut root, "nope.nope", toml::Value::Integer(1)).is_err());
+
+        // The mutated tree still deserializes into a real Config.
+        let updated: Config = root.try_into().unwrap();
+        assert_eq!(updated.history.max_entries, 7);
     }
 
     #[test]

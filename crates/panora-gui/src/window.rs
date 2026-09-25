@@ -6,15 +6,15 @@
 use crate::util::{
     call, call_async, format_size, kind_icon, kind_label, relative_time, spawn, unix_now,
 };
-use crate::{details, placement, settings, welcome, App};
+use crate::{details, placement, settings, welcome, window_state, App};
 use gdk_pixbuf::PixbufLoader;
 use gtk::gdk;
 use gtk4 as gtk;
 use libadwaita as adw;
 use libadwaita::prelude::*;
-use panora_core::i18n::{fill, Strings};
+use panora_core::i18n::{fill, pluralize, Strings};
 use panora_core::ipc::{health, HealthItem, QueryRequest, Request, ResponseData};
-use panora_core::model::{ContentKind, Entry};
+use panora_core::model::{ContentKind, Entry, Selection, TEXT_MIMES};
 use panora_core::search::{mark_matches, ParsedQuery};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -132,14 +132,26 @@ pub fn build(app: &adw::Application, state: &Rc<App>) {
     // A clipboard picker is a panel, not a document window: one column of
     // full-width rows, sized like the Windows Win+V flyout so the eye travels
     // straight down the history instead of scanning a grid.
+    // UI-24: open at the size the user last left it, not always the design
+    // default.
+    let (saved_width, saved_height) = window_state::load();
     let window = adw::ApplicationWindow::builder()
         .application(app)
         .title(s.app_name)
-        .default_width(420)
-        .default_height(660)
+        .default_width(saved_width)
+        .default_height(saved_height)
         .width_request(340)
         .height_request(420)
         .build();
+    // Remember whatever size the window is closed at -- close_request fires
+    // for every path that closes the popup (Esc, the window manager, focus
+    // loss), and reading the size here (its final value) instead of on every
+    // intermediate resize event avoids writing the state file on every pixel
+    // of a drag.
+    window.connect_close_request(|window| {
+        window_state::save(window.default_width(), window.default_height());
+        glib::Propagation::Proceed
+    });
     // On wlroots compositors the panel is a layer-shell overlay; this has to
     // happen before the window is realized.
     let layered = placement::prepare(&window, &state.config.borrow().ui);
@@ -506,10 +518,12 @@ fn confirm_clear(ui: &Rc<Ui>) {
     let handler = ui.clone();
     dialog.connect_response(Some("clear"), move |_, _| match call(&Request::Clear) {
         Ok(ResponseData::Count(count)) => {
-            toast(
-                &handler,
-                &fill(handler.s.toast_cleared_n, "n", &count.to_string()),
+            let template = pluralize(
+                count as i64,
+                handler.s.toast_cleared_n_one,
+                handler.s.toast_cleared_n,
             );
+            toast(&handler, &fill(template, "n", &count.to_string()));
             refresh(&handler);
         }
         Ok(_) => {
@@ -1003,7 +1017,11 @@ fn subtitle_for(s: &Strings, count: usize, more: bool, filter: Filter) -> String
     } else {
         count.to_string()
     };
-    let base = fill(s.subtitle_count, "n", &shown);
+    // `more` means "60+", never a singular count, even when `count` itself
+    // happens to be 1 (a page boundary landing exactly there).
+    let plural_count = if more { 0 } else { count as i64 };
+    let template = pluralize(plural_count, s.subtitle_count_one, s.subtitle_count);
+    let base = fill(template, "n", &shown);
     match filter {
         Filter::All => base,
         other => format!("{base} · {}", other.label(s).to_lowercase()),
@@ -1037,6 +1055,20 @@ fn build_card(
     let s = ui.s;
     let card = gtk::Box::new(gtk::Orientation::Vertical, 8);
     card.add_css_class("history-card");
+
+    // UI-16: drag a row onto another application. Text-representable kinds
+    // only for now -- `Image`'s full bytes would need an async fetch to
+    // avoid blocking the GTK thread the way every other payload-sized
+    // request already does (`call_async`), which drag-and-drop's
+    // synchronous `prepare` callback does not have a place for yet.
+    if !matches!(entry.kind, ContentKind::Image | ContentKind::Binary) {
+        let drag = gtk::DragSource::new();
+        drag.set_actions(gdk::DragAction::COPY);
+        let id = entry.id;
+        let kind = entry.kind;
+        drag.connect_prepare(move |_source, _x, _y| drag_content(id, kind));
+        card.add_controller(drag);
+    }
 
     match entry.kind {
         ContentKind::Image => {
@@ -1173,7 +1205,7 @@ fn build_card(
 fn card_meta(s: &Strings, entry: &Entry) -> String {
     let mut parts = vec![
         relative_time(s, entry.last_seen_at),
-        format_size(entry.size_bytes),
+        format_size(s, entry.size_bytes),
     ];
     if let Some(app) = entry.source_app.as_deref().filter(|app| !app.is_empty()) {
         parts.push(app.to_string());
@@ -1218,15 +1250,52 @@ fn rounded_rect(cr: &gtk::cairo::Context, w: f64, h: f64, r: f64) {
 }
 
 /// The preview text of a row; with a query, its matches in bold.
+/// UI-16: the drag content for one entry, fetched synchronously (a plain
+/// `Preview` request is small and the daemon answers it well under a
+/// millisecond, the same trade the pin/delete/etc. buttons already make)
+/// so the real payload -- not just the truncated card preview -- is what
+/// lands in the target application. `None` cancels the drag rather than
+/// dropping something misleading (no usable format, or the daemon is
+/// unreachable).
+fn drag_content(id: i64, kind: ContentKind) -> Option<gdk::ContentProvider> {
+    let payloads = match call(&Request::Preview {
+        id,
+        thumbnail: false,
+    }) {
+        Ok(ResponseData::Payloads(payloads)) => payloads,
+        _ => return None,
+    };
+    if kind == ContentKind::FileList {
+        let list = payloads.iter().find(|p| p.mime == "text/uri-list")?;
+        return Some(gdk::ContentProvider::for_bytes(
+            "text/uri-list",
+            &glib::Bytes::from(&list.data),
+        ));
+    }
+    let text = TEXT_MIMES
+        .iter()
+        .find_map(|m| payloads.iter().find(|p| p.mime == *m))
+        .and_then(|p| String::from_utf8(p.data.clone()).ok())?;
+    Some(gdk::ContentProvider::for_value(&text.to_value()))
+}
+
 fn preview_widget(entry: &Entry, query: Option<&ParsedQuery>, lines: i32) -> gtk::Label {
-    match query {
+    let label = match query {
         Some(query) => {
             let label = preview_label("", lines);
             label.set_markup(&mark_matches(entry.preview.trim(), query));
             label
         }
         None => preview_label(&entry.preview, lines),
+    };
+    // UI-10: a plain-text entry that reads as source code gets a monospace
+    // font, so indentation and alignment survive the card. Only plain
+    // `Text` -- rich text and links already have their own MIME-driven
+    // rendering, and the heuristic is tuned against code-as-plain-text.
+    if entry.kind == ContentKind::Text && panora_core::code::looks_like_code(&entry.preview) {
+        label.add_css_class("code-preview");
     }
+    label
 }
 
 fn preview_label(text: &str, lines: i32) -> gtk::Label {
@@ -1262,6 +1331,7 @@ pub fn recall_with(ui: &Rc<Ui>, id: i64, mime: Option<&'static str>) {
             id,
             paste,
             mime: mime.map(String::from),
+            to: Selection::Clipboard,
         };
         call_async(request, move |result| match result {
             Ok(ResponseData::Recalled { pasted }) => {
@@ -1289,6 +1359,7 @@ pub fn recall_as(ui: &Rc<Ui>, id: i64, mime: &str) -> bool {
         id,
         paste: false,
         mime: Some(mime.to_string()),
+        to: Selection::Clipboard,
     }) {
         Ok(_) => true,
         Err(_) => {
@@ -1542,6 +1613,10 @@ pub fn install_css() {
          }
 
          .preview-text { color: @card_fg_color; }
+         /* UI-10: monospace for text that reads as source code, so
+            indentation and column alignment survive the card. `monospace`
+            (not a named family) follows the user's own monospace choice. */
+         .code-preview { font-family: monospace; }
          /* No px font-size: .caption-heading tracks the user's text scale. */
          .card-meta {
              font-size: 0.8em;
@@ -1585,5 +1660,81 @@ pub fn install_css() {
             &provider,
             gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use panora_core::i18n::Language;
+
+    // UI-16: exercised against `crate::fixture`'s canned entries, the same
+    // in-process responder `--features fixture` gives the popup itself, so
+    // this is a real call through `drag_content`'s only interesting logic
+    // (which MIME formats it offers per content kind), not a mock of it.
+    #[cfg(feature = "fixture")]
+    #[test]
+    fn drag_content_offers_text_for_text_like_entries() {
+        // Fixture entries: 1 Text, 2 Link, 4 Color, 5 RichText (see fixture.rs).
+        for (id, kind) in [
+            (1, ContentKind::Text),
+            (2, ContentKind::Link),
+            (4, ContentKind::Color),
+            (5, ContentKind::RichText),
+        ] {
+            let provider =
+                drag_content(id, kind).unwrap_or_else(|| panic!("no drag content for entry {id}"));
+            assert!(
+                provider.formats().contains_type(glib::types::Type::STRING),
+                "entry {id} should offer its text as a string value"
+            );
+        }
+    }
+
+    #[cfg(feature = "fixture")]
+    #[test]
+    fn drag_content_offers_uri_list_for_file_lists() {
+        // Fixture entry 6 is a FileList with a real `text/uri-list` payload.
+        let provider = drag_content(6, ContentKind::FileList).expect("entry 6 has files");
+        assert!(provider.formats().contain_mime_type("text/uri-list"));
+    }
+
+    #[cfg(feature = "fixture")]
+    #[test]
+    fn drag_content_is_none_without_a_text_payload() {
+        // Entry 3 is an Image with only a PNG payload; `build_card` never
+        // attaches a `DragSource` for Image/Binary kinds in the first
+        // place (see its comment), but `drag_content` itself is exercised
+        // directly here and must not offer nothing as if it were something.
+        assert!(drag_content(3, ContentKind::Image).is_none());
+    }
+
+    #[test]
+    fn subtitle_count_is_grammatically_plural_in_english() {
+        let en = Language::English.strings();
+        assert_eq!(subtitle_for(en, 0, false, Filter::All), "0 items");
+        assert_eq!(subtitle_for(en, 1, false, Filter::All), "1 item");
+        assert_eq!(subtitle_for(en, 2, false, Filter::All), "2 items");
+        // Turkish nouns do not inflect for count: both forms read the same.
+        let tr = Language::Turkish.strings();
+        assert_eq!(subtitle_for(tr, 1, false, Filter::All), "1 kayıt");
+        assert_eq!(subtitle_for(tr, 2, false, Filter::All), "2 kayıt");
+    }
+
+    #[test]
+    fn subtitle_count_more_is_never_singular_even_at_one() {
+        let en = Language::English.strings();
+        // "1+" is the plural form even though the raw count is 1: the page
+        // is known to hold more than that, `more` overrides the count.
+        assert_eq!(subtitle_for(en, 1, true, Filter::All), "1+ items");
+    }
+
+    #[test]
+    fn subtitle_count_appends_the_active_filter_label() {
+        let en = Language::English.strings();
+        let base = subtitle_for(en, 3, false, Filter::All);
+        let filtered = subtitle_for(en, 3, false, Filter::Pinned);
+        assert_eq!(base, "3 items");
+        assert!(filtered.starts_with("3 items · "));
     }
 }

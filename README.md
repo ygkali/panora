@@ -11,6 +11,9 @@ connection, and never reads what a password manager copied.
 
 *Türkçe: [README.tr.md](README.tr.md).*
 
+▶ [45-second tour of the popup](docs/book/src/media/tour.webm) (WebM, also
+on the [documentation site](https://ygkali.github.io/panora/docs/popup.html)).
+
 <p align="center">
   <img src="docs/screenshots/popup-light.png" width="300" alt="Panora popup, light style">
   <img src="docs/screenshots/popup-dark.png" width="300" alt="Panora popup, dark style">
@@ -209,10 +212,11 @@ Matches are shown in bold in the popup.
 ```sh
 panora-cli list [query] [--kind image] [--pinned] [--limit 20] [--offset 20]
 panora-cli search <text>
-panora-cli copy <id> [--paste] [--mime text/plain]
+panora-cli copy <id> [--paste] [--mime text/plain] [--primary]
 panora-cli preview <id> [--mime image/png] [--out photo.png]
 panora-cli pin|unpin|delete|restore <id>
-panora-cli clear | private on|off | status | toggle | reload
+panora-cli clear | private on|off | status | stats | toggle | reload
+panora-cli config get [KEY] | set <KEY> <VALUE> | validate | edit
 panora-cli store [FILE] [--mime TYPE] [--app NAME] [--no-copy]   # record text from a file or stdin
 panora-cli pick [--format '{id}\t{kind}\t{preview}']              # one line per entry for pickers
 panora-cli --json status
@@ -283,7 +287,8 @@ each, is in [docs/DESKTOPS.md](docs/DESKTOPS.md).
   which distributions are tested, how long a release is supported, and
   notes for packagers.
 - [CHANGELOG.md](CHANGELOG.md), [CONTRIBUTING.md](CONTRIBUTING.md),
-  [SECURITY.md](SECURITY.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+  [GOVERNANCE.md](GOVERNANCE.md), [SECURITY.md](SECURITY.md),
+  [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 - Architecture: `crates/panora-core` (model, privacy, storage, IPC, i18n),
   `crates/panod` (daemon, backends, keyring, D-Bus), `crates/panora-gui`,
   `crates/panora-cli`, `gnome-extension`, `packaging`.

@@ -5,6 +5,7 @@
 
 use crate::error::{Error, Result};
 use directories::ProjectDirs;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -18,7 +19,7 @@ use std::path::PathBuf;
 pub const MAX_MIME_BYTES_LIMIT: usize = 40 * 1024 * 1024;
 
 /// Clipboard history limits and retention settings.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct HistoryConfig {
     /// Whether PRIMARY selection should be recorded where supported.
@@ -45,6 +46,12 @@ pub struct HistoryConfig {
     /// Image entries kept; the oldest unpinned images go first. Zero means
     /// no limit.
     pub max_images: usize,
+    /// What a re-copy of content already at the top of the history does
+    /// (CAP-08): `bump` moves it to the top with a fresh timestamp (the
+    /// long-standing behaviour), `ignore` leaves the existing entry
+    /// exactly where it was. Either way it is still the same entry, never
+    /// a duplicate row.
+    pub duplicate_policy: String,
 }
 
 impl Default for HistoryConfig {
@@ -58,12 +65,16 @@ impl Default for HistoryConfig {
             index_full_text: true,
             max_total_bytes: 512 * 1024 * 1024,
             max_images: 200,
+            duplicate_policy: "bump".into(),
         }
     }
 }
 
+/// Values `history.duplicate_policy` accepts.
+pub const DUPLICATE_POLICIES: &[&str] = &["bump", "ignore"];
+
 /// Privacy-related settings.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct PrivacyConfig {
     /// Start with recording paused.
@@ -98,6 +109,12 @@ pub struct PrivacyConfig {
     /// lock on its own (SEC-02), if a lock password is set; 0 disables
     /// idle locking (the user still locks and unlocks by hand).
     pub lock_after_idle_minutes: u32,
+    /// Seconds after a recall before the daemon clears the live system
+    /// clipboard on its own (CAP-07), the way a password manager does; 0
+    /// disables it. Only fires when the clipboard still holds exactly what
+    /// the recall put there — copying something else in the meantime
+    /// cancels it. The history entry itself is untouched either way.
+    pub clear_clipboard_after_seconds: u32,
 }
 
 impl Default for PrivacyConfig {
@@ -121,6 +138,7 @@ impl Default for PrivacyConfig {
             sensitive_policy: "mask".into(),
             sensitive_ttl_minutes: 10,
             lock_after_idle_minutes: 0,
+            clear_clipboard_after_seconds: 0,
         }
     }
 }
@@ -168,7 +186,7 @@ pub const CONTENT_KIND_NAMES: &[&str] = &[
 ];
 
 /// UI preferences kept intentionally small to avoid runtime state bloat.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct UiConfig {
     /// Interface language; `system`, `tr`, or `en`.
@@ -204,7 +222,7 @@ impl Default for UiConfig {
 }
 
 /// Complete user configuration.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct Config {
     /// History and payload limits.
     #[serde(default)]
@@ -250,6 +268,12 @@ impl Config {
                 "persist_on_wayland must be auto, always or never".into(),
             ));
         }
+        if !DUPLICATE_POLICIES.contains(&self.history.duplicate_policy.as_str()) {
+            return Err(Error::Config(format!(
+                "duplicate_policy must be one of {}",
+                DUPLICATE_POLICIES.join(", ")
+            )));
+        }
         if self.history.max_age_days > 36_500 {
             return Err(Error::Config("max_age_days must be at most 36500".into()));
         }
@@ -289,6 +313,11 @@ impl Config {
         if self.privacy.lock_after_idle_minutes > 525_600 {
             return Err(Error::Config(
                 "lock_after_idle_minutes must be at most 525600 (a year)".into(),
+            ));
+        }
+        if self.privacy.clear_clipboard_after_seconds > 3600 {
+            return Err(Error::Config(
+                "clear_clipboard_after_seconds must be at most 3600 (an hour)".into(),
             ));
         }
         if !POSITIONS.contains(&self.ui.position.as_str()) {
@@ -460,6 +489,17 @@ mod tests {
         cfg.privacy.ignore_patterns = vec!["^\\d{16}$".into()];
         cfg.privacy.capture_kinds = vec!["text".into(), "link".into()];
         cfg.privacy.min_text_length = 3;
+        cfg.validate().unwrap();
+        // CAP-08 / CAP-07.
+        let mut cfg = Config::default();
+        cfg.history.duplicate_policy = "always".into();
+        assert!(cfg.validate().is_err());
+        cfg.history.duplicate_policy = "ignore".into();
+        cfg.validate().unwrap();
+        let mut cfg = Config::default();
+        cfg.privacy.clear_clipboard_after_seconds = 3601;
+        assert!(cfg.validate().is_err());
+        cfg.privacy.clear_clipboard_after_seconds = 3600;
         cfg.validate().unwrap();
     }
 

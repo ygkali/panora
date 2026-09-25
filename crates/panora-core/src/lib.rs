@@ -21,6 +21,8 @@ pub mod apps;
 pub mod backend;
 /// Encrypted export/import archive format (CLI-03).
 pub mod backup;
+/// Code-detection heuristic for the popup's monospace font (UI-10).
+pub mod code;
 /// Configuration loading and defaults.
 pub mod config;
 /// Error types shared across the crate.
@@ -35,6 +37,8 @@ pub mod lock;
 pub mod model;
 /// Privacy engine: secret flags, exclusion lists, private mode.
 pub mod privacy;
+/// HTML to Pango markup for the rich-text preview (UI-22).
+pub mod richtext;
 /// The search grammar (`kind:` `app:` `after:` `re:` ...) and match highlighting.
 pub mod search;
 /// Heuristics for secrets, keys and card numbers (`privacy.sensitive_policy`).

@@ -160,6 +160,28 @@ impl ClipboardBackend for WaylandBackend {
     async fn synthetic_paste(&self) -> Result<()> {
         crate::paste::wayland_paste().await
     }
+
+    async fn clear(&self, selection: Selection) -> Result<()> {
+        tokio::task::spawn_blocking(move || clear_blocking(selection))
+            .await
+            .map_err(|e| Error::Backend(e.to_string()))?
+    }
+}
+
+/// Release ownership of `selection` (CAP-07). Any client may set a null
+/// source regardless of who currently holds it, so the caller is
+/// responsible for confirming (via `read_targets`) that this is still the
+/// content it put there before calling this.
+fn clear_blocking(selection: Selection) -> Result<()> {
+    let mut session = Session::new()?;
+    if selection == Selection::Primary && !session.manager.supports_primary() {
+        return Err(Error::Backend(
+            "wayland: compositor has no primary selection support".into(),
+        ));
+    }
+    session.device.clear_selection(selection);
+    session.queue.roundtrip(&mut session.state).map_err(wlerr)?;
+    Ok(())
 }
 
 fn wlerr(e: impl std::fmt::Display) -> Error {
@@ -222,6 +244,16 @@ impl Device {
                 d.set_primary_selection(Some(s))
             }
             _ => {}
+        }
+    }
+
+    /// Release ownership (CAP-07): a null source clears the selection.
+    fn clear_selection(&self, selection: Selection) {
+        match (self, selection) {
+            (Device::Ext(d), Selection::Clipboard) => d.set_selection(None),
+            (Device::Ext(d), Selection::Primary) => d.set_primary_selection(None),
+            (Device::Wlr(d), Selection::Clipboard) => d.set_selection(None),
+            (Device::Wlr(d), Selection::Primary) => d.set_primary_selection(None),
         }
     }
 }

@@ -555,8 +555,12 @@ impl Database {
         Ok(())
     }
 
-    /// Insert a new entry or bump `last_seen_at` when the same content
-    /// is copied again (dedup). Returns the entry id.
+    /// Insert a new entry or, when the same content is copied again
+    /// (dedup), either bump `last_seen_at` to the top or leave the
+    /// existing row exactly where it is (`bump_on_duplicate`, CAP-08: the
+    /// live capture path ties this to `history.duplicate_policy`; a
+    /// restore from a backup always bumps, since it is not a live re-copy
+    /// the user would want to leave in place). Returns the entry id.
     #[allow(clippy::too_many_arguments)]
     pub fn upsert_entry(
         &self,
@@ -570,6 +574,7 @@ impl Database {
         now: i64,
         device_id: &str,
         lamport: i64,
+        bump_on_duplicate: bool,
     ) -> Result<i64> {
         let preview_aad = Self::preview_aad(content_hash);
         let sealed_preview = self
@@ -586,14 +591,16 @@ impl Database {
             )
             .ok();
         let id = if let Some((id, false)) = existing {
-            tx.execute(
-                // Same-second re-copies must still move to the top, so the
-                // timestamp never ties with the current newest row.
-                "UPDATE entries SET last_seen_at = MAX(?1,
-                    (SELECT COALESCE(MAX(last_seen_at), 0) FROM entries WHERE id != ?2) + 1)
-                 WHERE id = ?2",
-                params![now, id],
-            )?;
+            if bump_on_duplicate {
+                tx.execute(
+                    // Same-second re-copies must still move to the top, so
+                    // the timestamp never ties with the current newest row.
+                    "UPDATE entries SET last_seen_at = MAX(?1,
+                        (SELECT COALESCE(MAX(last_seen_at), 0) FROM entries WHERE id != ?2) + 1)
+                     WHERE id = ?2",
+                    params![now, id],
+                )?;
+            }
             id
         } else if let Some((id, true)) = existing {
             // Revive a tombstoned row: its blobs were removed with it, so the
@@ -1218,6 +1225,46 @@ impl Database {
         Ok(n)
     }
 
+    /// Aggregate statistics over the visible history (CLI-06). Computed in
+    /// SQL rather than by loading every entry, so it stays cheap regardless
+    /// of history size.
+    pub fn stats(&self) -> Result<crate::ipc::StatsData> {
+        let (total, pinned, sensitive, total_bytes, oldest_at, newest_at) = self.conn.query_row(
+            "SELECT COUNT(*), COALESCE(SUM(pinned), 0), COALESCE(SUM(sensitive), 0),
+                    COALESCE(SUM(size_bytes), 0), MIN(last_seen_at), MAX(last_seen_at)
+             FROM entries WHERE deleted = 0",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, Option<i64>>(4)?,
+                    row.get::<_, Option<i64>>(5)?,
+                ))
+            },
+        )?;
+        let mut stmt = self.conn.prepare(
+            "SELECT kind, COUNT(*) FROM entries WHERE deleted = 0
+             GROUP BY kind ORDER BY COUNT(*) DESC",
+        )?;
+        let by_kind = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(crate::ipc::StatsData {
+            total,
+            pinned,
+            sensitive,
+            by_kind,
+            total_bytes,
+            oldest_at,
+            newest_at,
+        })
+    }
+
     /// Highest lamport clock seen (sync-ready; v1.0 keeps it monotonic).
     pub fn max_lamport(&self) -> Result<i64> {
         let n: i64 =
@@ -1260,6 +1307,7 @@ mod tests {
             ts,
             "dev0",
             1,
+            true,
         )
         .unwrap()
     }
@@ -1285,6 +1333,101 @@ mod tests {
         assert_eq!(id1, id2, "same content must dedup to one row");
         assert_eq!(db.count().unwrap(), 1);
         assert_eq!(db.get(id1).unwrap().last_seen_at, 2000);
+    }
+
+    #[test]
+    fn duplicate_policy_ignore_leaves_the_row_in_place() {
+        // CAP-08: bump_on_duplicate = false is what
+        // history.duplicate_policy = "ignore" wires up. A re-copy still
+        // dedups to the same row (never a second row), but its position
+        // and last_seen_at are left exactly where they were.
+        let db = db();
+        let hash = crate::storage::crypto::content_hash(b"same text");
+        let id1 = db
+            .upsert_entry(
+                &hash,
+                "same text",
+                ContentKind::Text,
+                "text/plain",
+                9,
+                None,
+                Selection::Clipboard,
+                1000,
+                "dev0",
+                1,
+                true,
+            )
+            .unwrap();
+        let id2 = db
+            .upsert_entry(
+                &hash,
+                "same text",
+                ContentKind::Text,
+                "text/plain",
+                9,
+                None,
+                Selection::Clipboard,
+                2000,
+                "dev0",
+                2,
+                false,
+            )
+            .unwrap();
+        assert_eq!(id1, id2, "same content must still dedup to one row");
+        assert_eq!(db.count().unwrap(), 1);
+        assert_eq!(
+            db.get(id1).unwrap().last_seen_at,
+            1000,
+            "ignore must not bump last_seen_at"
+        );
+    }
+
+    #[test]
+    fn stats_aggregates_the_visible_history() {
+        // CLI-06.
+        let db = db();
+        let a = insert(&db, "aaa", ContentKind::Text, 100);
+        let b = insert(&db, "bbbbb", ContentKind::Image, 200);
+        let c = insert(&db, "cc", ContentKind::Text, 300);
+        db.set_pinned(a, true).unwrap();
+        db.mark_sensitive(b).unwrap();
+        let deleted = insert(&db, "deleted", ContentKind::Text, 400);
+        db.tombstone(deleted, 500).unwrap();
+        let _ = c;
+
+        let stats = db.stats().unwrap();
+        assert_eq!(stats.total, 3, "the tombstoned entry must not count");
+        assert_eq!(stats.pinned, 1);
+        assert_eq!(stats.sensitive, 1);
+        assert_eq!(stats.total_bytes, 3 + 5 + 2);
+        assert_eq!(stats.oldest_at, Some(100));
+        assert_eq!(stats.newest_at, Some(300));
+        assert_eq!(
+            stats
+                .by_kind
+                .iter()
+                .find(|(k, _)| k == "text")
+                .map(|&(_, c)| c),
+            Some(2)
+        );
+        assert_eq!(
+            stats
+                .by_kind
+                .iter()
+                .find(|(k, _)| k == "image")
+                .map(|&(_, c)| c),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn stats_on_an_empty_history() {
+        let db = db();
+        let stats = db.stats().unwrap();
+        assert_eq!(stats.total, 0);
+        assert!(stats.by_kind.is_empty());
+        assert_eq!(stats.oldest_at, None);
+        assert_eq!(stats.newest_at, None);
     }
 
     #[test]
@@ -1439,6 +1582,7 @@ mod tests {
             1,
             "dev0",
             41,
+            true,
         )
         .unwrap();
         let hash_b = crate::storage::crypto::content_hash(b"b");
@@ -1453,6 +1597,7 @@ mod tests {
             2,
             "dev0",
             42,
+            true,
         )
         .unwrap();
         assert_eq!(db.max_lamport().unwrap(), 42);
@@ -1566,6 +1711,7 @@ mod lifecycle_tests {
             1,
             "dev0",
             1,
+            true,
         )
         .unwrap();
     }
@@ -1841,6 +1987,7 @@ mod lifecycle_tests {
                 ts,
                 "dev",
                 ts,
+                true,
             )
             .unwrap()
         };
@@ -1895,6 +2042,7 @@ mod lifecycle_tests {
                 ts,
                 "dev",
                 ts,
+                true,
             )
             .unwrap()
         };
@@ -1934,6 +2082,7 @@ mod lifecycle_tests {
                 ts,
                 "dev",
                 ts,
+                true,
             )
             .unwrap()
         };
@@ -1974,6 +2123,7 @@ mod lifecycle_tests {
                 now,
                 "dev",
                 now,
+                true,
             )
             .unwrap()
         };
@@ -2116,6 +2266,7 @@ mod lifecycle_tests {
                 1,
                 "dev0",
                 1,
+                true,
             )
             .unwrap();
         db.tombstone(deleted_id, 1).unwrap();

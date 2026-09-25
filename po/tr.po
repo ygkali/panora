@@ -19,6 +19,10 @@ msgctxt "app_name"
 msgid "Panora"
 msgstr "Panora"
 
+msgctxt "decimal_separator"
+msgid "."
+msgstr ","
+
 msgctxt "subtitle_history"
 msgid "clipboard history"
 msgstr "pano geçmişi"
@@ -34,6 +38,10 @@ msgstr "bağlantı sorunu"
 #. `{n}` = entry count.
 msgctxt "subtitle_count"
 msgid "{n} items"
+msgstr "{n} kayıt"
+
+msgctxt "subtitle_count_one"
+msgid "{n} item"
 msgstr "{n} kayıt"
 
 msgctxt "search_placeholder"
@@ -212,6 +220,10 @@ msgstr "Özel mod değiştirilemedi"
 #. `{n}` = cleared count.
 msgctxt "toast_cleared_n"
 msgid "{n} items deleted"
+msgstr "{n} kayıt silindi"
+
+msgctxt "toast_cleared_n_one"
+msgid "{n} item deleted"
 msgstr "{n} kayıt silindi"
 
 msgctxt "toast_cleared"
@@ -738,4 +750,8 @@ msgstr "tamam"
 #. `{n}` = affected count.
 msgctxt "cli_count"
 msgid "{n} items processed."
+msgstr "{n} kayıt işlendi."
+
+msgctxt "cli_count_one"
+msgid "{n} item processed."
 msgstr "{n} kayıt işlendi."

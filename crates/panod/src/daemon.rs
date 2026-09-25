@@ -104,6 +104,19 @@ pub struct Daemon {
     /// `privacy.lock_after_idle_minutes`. Starts at daemon startup, not 0,
     /// so idle locking cannot fire immediately after a restart.
     last_activity: AtomicI64,
+    /// Bumped on every real change to the live clipboard: `handle_event`
+    /// (any backend, self-offers are already filtered out before it is
+    /// called) and `recall`. `Arc` because CAP-07's delayed clear task is
+    /// `tokio::spawn`ed detached from `self` (`Daemon` is held in an `Rc`,
+    /// not `Send`) and needs its own handle to compare against later.
+    capture_generation: Arc<AtomicU64>,
+    /// Set just before CAP-07's delayed clear calls `backend.clear`, and
+    /// consumed by the very next `OwnerGone` event `handle_event` sees.
+    /// Without this, a deliberate clear looks exactly like a source
+    /// application exiting (the selection is empty either way), so
+    /// `persist_after_owner_gone` would immediately re-offer the entry the
+    /// clear just removed.
+    clearing_deliberately: Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// How long a deleted entry can be brought back with `restore` before its
@@ -178,6 +191,8 @@ impl Daemon {
             extension_present: std::sync::atomic::AtomicBool::new(true),
             app_locked: std::sync::atomic::AtomicBool::new(false),
             last_activity: AtomicI64::new(unix_now()),
+            capture_generation: Arc::new(AtomicU64::new(0)),
+            clearing_deliberately: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
@@ -609,6 +624,9 @@ impl Daemon {
             record.last_seen_at,
             &self.device_id,
             lamport,
+            // A restore is not a live re-copy the user would leave in
+            // place; `duplicate_policy` governs capture, not import.
+            true,
         )?;
         if record.sensitive {
             self.db.mark_sensitive(id)?;
@@ -659,6 +677,11 @@ impl Daemon {
             lock_password_set: self.lock_password_set()?,
             health: self.health(),
         })
+    }
+
+    /// Aggregate history statistics for `panora-cli stats` (CLI-06).
+    pub fn stats(&self) -> Result<panora_core::ipc::StatsData> {
+        self.db.stats()
     }
 
     /// Run the capture loop until the shutdown channel closes.
@@ -736,8 +759,20 @@ impl Daemon {
     /// Process one clipboard change event: privacy gate first, then
     /// payload read, then encrypted storage, then sync notification.
     pub async fn handle_event(&self, event: ClipboardEvent) {
+        // Any event reaching here is a real change of the live clipboard:
+        // backends already filter out panod's own offers before producing
+        // one (X11's watcher never sees its own ownership change; Wayland's
+        // RECALL_MARKER_MIME and the GNOME bridge's `is_echo_of_recall`
+        // catch the rest). CAP-07's delayed clear compares against this so
+        // it never wipes content that arrived after the recall it belongs
+        // to, even when the new content happens to offer the exact same
+        // MIME types (`same_targets` alone cannot tell those apart).
+        self.capture_generation.fetch_add(1, Ordering::Relaxed);
         if event.kind == EventKind::OwnerGone {
-            if self.persistence_enabled() {
+            if self.clearing_deliberately.swap(false, Ordering::Relaxed) {
+                debug!("selection emptied by our own clear, not re-offering");
+                self.forget_last_stored(event.selection);
+            } else if self.persistence_enabled() {
                 self.persist_after_owner_gone(event.selection).await;
             } else {
                 self.forget_last_stored(event.selection);
@@ -975,6 +1010,11 @@ impl Daemon {
             let _ = self.db.touch(id, unix_now());
             return;
         }
+        // Past this point the bridge is reporting a genuine external
+        // change (see the comment on `capture_generation` in `handle_event`
+        // — the bridge is the one backend that needs its own echo filter
+        // before it can say the same).
+        self.capture_generation.fetch_add(1, Ordering::Relaxed);
 
         if !self.content_allowed(&data) {
             return;
@@ -1046,6 +1086,7 @@ impl Daemon {
             now,
             &self.device_id,
             lamport,
+            self.config().history.duplicate_policy != "ignore",
         )?;
 
         if sensitive.is_some() {
@@ -1216,12 +1257,14 @@ impl Daemon {
     /// PRIMARY are recalled to the clipboard too: that is what the user
     /// pastes with Ctrl+V.
     async fn offer_entry(&self, entry: &Entry) -> Result<()> {
-        self.offer_entry_as(entry, None).await
+        self.offer_entry_as(entry, None, Selection::Clipboard).await
     }
 
     /// Like `offer_entry`, restricted to one format when `only` is given
-    /// (a text request also accepts the other plain-text aliases).
-    async fn offer_entry_as(&self, entry: &Entry, only: Option<&str>) -> Result<()> {
+    /// (a text request also accepts the other plain-text aliases), and
+    /// targeting `to` instead of always CLIPBOARD (CAP-10: recall to
+    /// PRIMARY for a middle-click paste).
+    async fn offer_entry_as(&self, entry: &Entry, only: Option<&str>, to: Selection) -> Result<()> {
         let mut payloads = self.load_payloads(entry.id)?;
         if let Some(only) = only {
             let exact: Vec<MimePayload> = payloads
@@ -1250,32 +1293,42 @@ impl Daemon {
             )));
         }
         let data = ClipboardData {
-            selection: Selection::Clipboard,
+            selection: to,
             offered_mimes: payloads.iter().map(|p| p.mime.clone()).collect(),
             source_app: Some("panora".into()),
             payloads,
         };
-        self.backend.offer(Selection::Clipboard, data).await
+        self.backend.offer(to, data).await
     }
 
-    /// Put a history entry back on the clipboard, then optionally paste it.
+    /// Put a history entry back on `to`, then optionally paste it. `paste`
+    /// only does anything for `Selection::Clipboard`: there is no keyboard
+    /// shortcut for a PRIMARY paste, only middle-click, so it is silently
+    /// ignored for `Selection::Primary`.
     pub async fn recall(
         &self,
         entry_id: i64,
         paste: bool,
         mime: Option<&str>,
+        to: Selection,
     ) -> Result<RecallOutcome> {
         let entry = self.db.get(entry_id)?;
         if entry.deleted {
             return Err(Error::NotFound(entry_id));
         }
-        self.offer_entry_as(&entry, mime).await?;
+        self.offer_entry_as(&entry, mime, to).await?;
+        // Our own change, so `handle_event`/`handle_gnome_data` will not
+        // see it (every backend filters its own echo before producing
+        // one) — bump here instead, so CAP-07's clear timer, captured
+        // right after this, has an up-to-date baseline to compare against.
+        self.capture_generation.fetch_add(1, Ordering::Relaxed);
         if let Ok(mut slot) = self.last_recall.lock() {
             *slot = Some((entry_id, std::time::Instant::now()));
         }
         self.db.touch(entry_id, unix_now())?;
         self.bump();
-        if !paste {
+        self.schedule_clipboard_clear(to).await;
+        if !paste || to != Selection::Clipboard {
             return Ok(RecallOutcome { pasted: false });
         }
         tokio::time::sleep(PASTE_DELAY).await;
@@ -1286,6 +1339,42 @@ impl Daemon {
                 Ok(RecallOutcome { pasted: false })
             }
         }
+    }
+
+    /// CAP-07: if `privacy.clear_clipboard_after_seconds` is set, clear the
+    /// live clipboard that many seconds after a recall — the way a password
+    /// manager times out what it put on the clipboard. Fires only if
+    /// `capture_generation` is still exactly what it was right after the
+    /// recall's own offer; comparing MIME lists (`read_targets`) alone
+    /// cannot tell two different plain-text copies apart, since both
+    /// advertise the same targets.
+    async fn schedule_clipboard_clear(&self, selection: Selection) {
+        let seconds = self.config().privacy.clear_clipboard_after_seconds;
+        if seconds == 0 {
+            return;
+        }
+        let generation = self.capture_generation.clone();
+        let baseline = generation.load(Ordering::Relaxed);
+        let backend = self.backend.clone();
+        let clearing_deliberately = self.clearing_deliberately.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(u64::from(seconds))).await;
+            if generation.load(Ordering::Relaxed) != baseline {
+                return;
+            }
+            // Set right before the call: on Wayland (and possibly X11), an
+            // explicit clear makes the selection empty the same way a
+            // source application exiting does, and `handle_event` cannot
+            // otherwise tell those apart — this flag is what lets it skip
+            // `persist_after_owner_gone` for the specific OwnerGone event
+            // this clear itself is about to cause, without also missing a
+            // later, genuine owner-exit persistence should still handle.
+            clearing_deliberately.store(true, Ordering::Relaxed);
+            if let Err(e) = backend.clear(selection).await {
+                clearing_deliberately.store(false, Ordering::Relaxed);
+                debug!(error = %e, "clearing clipboard after recall failed");
+            }
+        });
     }
 
     /// Query history for IPC clients.
@@ -1658,7 +1747,10 @@ mod tests {
         let rev = daemon.revision();
 
         // Recall puts it back on the (mock) clipboard.
-        let outcome = daemon.recall(entries[0].id, false, None).await.unwrap();
+        let outcome = daemon
+            .recall(entries[0].id, false, None, Selection::Clipboard)
+            .await
+            .unwrap();
         assert!(!outcome.pasted);
         let back = backend
             .read(Selection::Clipboard, "text/plain")
@@ -1675,8 +1767,179 @@ mod tests {
         offer_text(&backend, "paste me").await;
         daemon.handle_event(text_event()).await;
         let id = daemon.query(&QueryFilter::recent(1)).unwrap()[0].id;
-        let outcome = daemon.recall(id, true, None).await.unwrap();
+        let outcome = daemon
+            .recall(id, true, None, Selection::Clipboard)
+            .await
+            .unwrap();
         assert!(!outcome.pasted, "mock backend has no synthetic paste");
+    }
+
+    #[tokio::test]
+    async fn recall_to_primary_does_not_touch_clipboard() {
+        // CAP-10: recall to PRIMARY (middle-click paste) leaves whatever is
+        // on CLIPBOARD alone, and never sends a paste keystroke (there is
+        // no keyboard shortcut for a PRIMARY paste).
+        let dir = tempfile::tempdir().unwrap();
+        let (daemon, backend) = test_daemon(&dir);
+        offer_text(&backend, "middle-click me").await;
+        daemon.handle_event(text_event()).await;
+        let id = daemon.query(&QueryFilter::recent(1)).unwrap()[0].id;
+
+        let outcome = daemon
+            .recall(id, true, None, Selection::Primary)
+            .await
+            .unwrap();
+        assert!(!outcome.pasted, "paste is meaningless for PRIMARY");
+        assert_eq!(
+            backend
+                .read(Selection::Primary, "text/plain")
+                .await
+                .unwrap(),
+            b"middle-click me"
+        );
+        // The original capture is still what CLIPBOARD holds.
+        assert_eq!(
+            backend
+                .read(Selection::Clipboard, "text/plain")
+                .await
+                .unwrap(),
+            b"middle-click me"
+        );
+    }
+
+    #[tokio::test]
+    async fn clipboard_clears_itself_after_a_recall() {
+        // CAP-07: with clear_clipboard_after_seconds set, a recall clears
+        // the live clipboard after the delay — but only if nothing else was
+        // put there in the meantime. Real time, not paused: the clear runs
+        // on a detached `tokio::spawn`ed task that a paused/advanced clock
+        // cannot reliably drive to completion from the test task alone.
+        let dir = tempfile::tempdir().unwrap();
+        let (daemon, backend) = test_daemon(&dir);
+        let mut config = daemon.config();
+        config.privacy.clear_clipboard_after_seconds = 1;
+        daemon.apply_config(config).unwrap();
+
+        offer_text(&backend, "temporary secret").await;
+        daemon.handle_event(text_event()).await;
+        let id = daemon.query(&QueryFilter::recent(1)).unwrap()[0].id;
+        daemon
+            .recall(id, false, None, Selection::Clipboard)
+            .await
+            .unwrap();
+        assert!(!backend
+            .read_targets(Selection::Clipboard)
+            .await
+            .unwrap()
+            .is_empty());
+
+        tokio::time::sleep(std::time::Duration::from_millis(1300)).await;
+        assert!(
+            backend
+                .read_targets(Selection::Clipboard)
+                .await
+                .unwrap()
+                .is_empty(),
+            "clipboard should have been cleared"
+        );
+    }
+
+    #[tokio::test]
+    async fn deliberate_clear_is_not_undone_by_persistence() {
+        // A real backend reports an emptied selection the same way whether
+        // a source application exited or CAP-07 just cleared it on
+        // purpose — `handle_event`'s OwnerGone branch cannot otherwise
+        // tell those apart, and persistence exists specifically to refill
+        // an emptied clipboard. Caught with a headless-sway run of
+        // scripts/wayland-e2e.sh: the clear fired, then panod immediately
+        // re-offered the very entry it had just cleared.
+        let dir = tempfile::tempdir().unwrap();
+        let (daemon, backend) = test_daemon(&dir);
+        let mut config = daemon.config();
+        config.privacy.clear_clipboard_after_seconds = 1;
+        daemon.apply_config(config).unwrap();
+
+        offer_text(&backend, "temporary secret").await;
+        daemon.handle_event(text_event()).await;
+        let id = daemon.query(&QueryFilter::recent(1)).unwrap()[0].id;
+        daemon
+            .recall(id, false, None, Selection::Clipboard)
+            .await
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(1300)).await;
+        assert!(backend
+            .read_targets(Selection::Clipboard)
+            .await
+            .unwrap()
+            .is_empty());
+
+        // The backend would report exactly this next, on a real compositor.
+        daemon
+            .handle_event(ClipboardEvent::owner_gone(Selection::Clipboard))
+            .await;
+        assert!(
+            backend
+                .read_targets(Selection::Clipboard)
+                .await
+                .unwrap()
+                .is_empty(),
+            "persistence must not undo a deliberate clear"
+        );
+    }
+
+    #[tokio::test]
+    async fn clipboard_clear_is_cancelled_by_a_newer_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        let (daemon, backend) = test_daemon(&dir);
+        let mut config = daemon.config();
+        config.privacy.clear_clipboard_after_seconds = 1;
+        daemon.apply_config(config).unwrap();
+
+        offer_text(&backend, "temporary secret").await;
+        daemon.handle_event(text_event()).await;
+        let id = daemon.query(&QueryFilter::recent(1)).unwrap()[0].id;
+        daemon
+            .recall(id, false, None, Selection::Clipboard)
+            .await
+            .unwrap();
+
+        // Something else lands on the clipboard before the timer fires —
+        // through handle_event, the only realistic way the daemon learns
+        // of an external change (see the comment on `capture_generation`).
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        offer_text(&backend, "someone else's copy").await;
+        daemon.handle_event(text_event()).await;
+
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        assert_eq!(
+            backend
+                .read(Selection::Clipboard, "text/plain")
+                .await
+                .unwrap(),
+            b"someone else's copy",
+            "a newer copy must survive the stale clear timer"
+        );
+    }
+
+    #[tokio::test]
+    async fn clear_clipboard_after_seconds_zero_disables_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let (daemon, backend) = test_daemon(&dir);
+        offer_text(&backend, "not cleared").await;
+        daemon.handle_event(text_event()).await;
+        let id = daemon.query(&QueryFilter::recent(1)).unwrap()[0].id;
+        daemon
+            .recall(id, false, None, Selection::Clipboard)
+            .await
+            .unwrap();
+        // The default is 0 (disabled); recall must not have scheduled a
+        // background task that could later clear it out from under us.
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        assert!(!backend
+            .read_targets(Selection::Clipboard)
+            .await
+            .unwrap()
+            .is_empty());
     }
 
     #[tokio::test]
@@ -1707,11 +1970,17 @@ mod tests {
             .await;
         let id = daemon.query(&QueryFilter::recent(1)).unwrap()[0].id;
 
-        daemon.recall(id, false, Some("text/plain")).await.unwrap();
+        daemon
+            .recall(id, false, Some("text/plain"), Selection::Clipboard)
+            .await
+            .unwrap();
         let offered = backend.read_targets(Selection::Clipboard).await.unwrap();
         assert_eq!(offered, vec!["text/plain;charset=utf-8".to_string()]);
 
-        daemon.recall(id, false, None).await.unwrap();
+        daemon
+            .recall(id, false, None, Selection::Clipboard)
+            .await
+            .unwrap();
         assert_eq!(
             backend
                 .read_targets(Selection::Clipboard)
@@ -1720,7 +1989,10 @@ mod tests {
                 .len(),
             2
         );
-        assert!(daemon.recall(id, false, Some("image/png")).await.is_err());
+        assert!(daemon
+            .recall(id, false, Some("image/png"), Selection::Clipboard)
+            .await
+            .is_err());
     }
 
     #[tokio::test]
@@ -1826,7 +2098,10 @@ mod tests {
 
         daemon.delete(id).await.unwrap();
         assert_eq!(daemon.query(&QueryFilter::recent(10)).unwrap().len(), 0);
-        assert!(daemon.recall(id, false, None).await.is_err());
+        assert!(daemon
+            .recall(id, false, None, Selection::Clipboard)
+            .await
+            .is_err());
         assert!(daemon.delete(id).await.is_err());
     }
 
@@ -2011,7 +2286,10 @@ mod tests {
         assert_eq!(full.len(), 1);
         assert_eq!(full[0].mime, "image/png");
         assert_eq!(full[0].data, big);
-        daemon.recall(id, false, None).await.unwrap();
+        daemon
+            .recall(id, false, None, Selection::Clipboard)
+            .await
+            .unwrap();
         let offered = backend.read_targets(Selection::Clipboard).await.unwrap();
         assert_eq!(offered, vec!["image/png".to_string()]);
 
@@ -2450,7 +2728,10 @@ mod tests {
             daemon.handle_event(text_event()).await;
             daemon.apply_config(Config::default()).unwrap();
             let id = daemon.query(&QueryFilter::recent(1)).unwrap()[0].id;
-            daemon.recall(id, true, None).await.unwrap();
+            daemon
+                .recall(id, true, None, Selection::Clipboard)
+                .await
+                .unwrap();
             let _ = daemon
                 .store_external(
                     ClipboardData {
@@ -2776,7 +3057,10 @@ mod tests {
 
         // Recall "first": the extension sees the clipboard change and pushes
         // the very same bytes back. That must not create a third entry.
-        daemon.recall(first, false, None).await.unwrap();
+        daemon
+            .recall(first, false, None, Selection::Clipboard)
+            .await
+            .unwrap();
         daemon
             .handle_gnome_data(bridge_push("first", None), None)
             .await;

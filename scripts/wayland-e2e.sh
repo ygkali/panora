@@ -191,6 +191,55 @@ else
   fail "delete + restore" ""
 fi
 
+
+# 8. CAP-07: restart panod with clear_clipboard_after_seconds set, confirm
+# a recall clears itself off the live clipboard once the delay passes.
+kill "$PANOD_PID" 2>/dev/null || true
+wait "$PANOD_PID" 2>/dev/null || true
+install -d "$XDG_CONFIG_HOME/panora"
+printf "[privacy]\nclear_clipboard_after_seconds = 2\n" > "$XDG_CONFIG_HOME/panora/config.toml"
+RUST_LOG=debug "$BIN/panod" >> "$SCRATCH/panod.log" 2>&1 &
+PANOD_PID=$!
+for _ in $(seq 1 100); do
+  [[ -S "$XDG_RUNTIME_DIR/panora.sock" ]] && break
+  if ! kill -0 "$PANOD_PID" 2>/dev/null; then break; fi
+  sleep 0.1
+done
+"$CLI" status >/dev/null 2>&1 || { fail "panod restart (CAP-07 config)" ""; }
+CLEARME="wayland-e2e-$$-clearme"
+printf "%s" "$CLEARME" | wl-copy
+wait_listed "\[text\] $CLEARME" || true
+CLEAR_ID="$(id_of "\[text\] $CLEARME" || true)"
+if [[ -n "$CLEAR_ID" ]] && "$CLI" copy "$CLEAR_ID" >/dev/null 2>&1; then
+  GOT="$(wl-paste --no-newline 2>/dev/null || true)"
+  if [[ "$GOT" == "$CLEARME" ]]; then pass "CAP-07 recall still there before the delay"; else fail "CAP-07 pre-delay" "wl-paste read \"$GOT\""; fi
+  sleep 3
+  GOT="$(wl-paste --no-newline 2>/dev/null || true)"
+  if [[ -z "$GOT" ]]; then
+    pass "CAP-07 clipboard clears itself after clear_clipboard_after_seconds"
+  else
+    fail "CAP-07 auto-clear" "wl-paste still read \"$GOT\""
+  fi
+else
+  fail "CAP-07 auto-clear" "panora-cli copy failed"
+fi
+
+
+# 9. CAP-10: recall to PRIMARY (middle-click paste) leaves CLIPBOARD alone.
+printf "%s" "wayland-e2e-$$-onclipboard" | wl-copy
+wait_listed "\[text\] wayland-e2e-\$\$-onclipboard" || true
+if [[ -n "$CLEAR_ID" ]] && "$CLI" copy "$CLEAR_ID" --primary >/dev/null 2>&1; then
+  GOT_PRIMARY="$(wl-paste --primary --no-newline 2>/dev/null || true)"
+  GOT_CLIPBOARD="$(wl-paste --no-newline 2>/dev/null || true)"
+  if [[ "$GOT_PRIMARY" == "$CLEARME" && "$GOT_CLIPBOARD" == "wayland-e2e-$$-onclipboard" ]]; then
+    pass "CAP-10 recall to PRIMARY does not touch CLIPBOARD"
+  else
+    fail "CAP-10 primary recall" "primary=\"$GOT_PRIMARY\" clipboard=\"$GOT_CLIPBOARD\""
+  fi
+else
+  fail "CAP-10 primary recall" "panora-cli copy --primary failed"
+fi
+
 echo "------------------------------------------------------------"
 echo "Summary: $PASS PASS, $FAIL FAIL"
 grep -iE "panic|error" "$SCRATCH/panod.log" | head -n 5 || true

@@ -425,12 +425,17 @@ pub async fn handle_request(request: Request, daemon: &Daemon) -> Response {
                 daemon.query(&q.into()).map(ResponseData::Entries)
             }
         }
-        Request::Recall { id, paste, mime } => {
+        Request::Recall {
+            id,
+            paste,
+            mime,
+            to,
+        } => {
             if daemon.is_app_locked() {
                 Err(locked_error())
             } else {
                 daemon
-                    .recall(id, paste, mime.as_deref())
+                    .recall(id, paste, mime.as_deref(), to)
                     .await
                     .map(|outcome| ResponseData::Recalled {
                         pasted: outcome.pasted,
@@ -449,6 +454,7 @@ pub async fn handle_request(request: Request, daemon: &Daemon) -> Response {
         }
         Request::Toggle => gnome::activate_gui().await.map(|_| ResponseData::Empty),
         Request::Status => daemon.status().map(ResponseData::Status),
+        Request::Stats => daemon.stats().map(ResponseData::Stats),
         Request::Preview { id, thumbnail } => {
             if daemon.is_app_locked() {
                 Err(locked_error())

@@ -381,7 +381,7 @@ pub fn show(ui: &Rc<Ui>) {
         let storage_value = storage_value.clone();
         spawn(
             || dir_size(&data_dir()),
-            move |bytes| storage_value.set_text(&format_size(bytes)),
+            move |bytes| storage_value.set_text(&format_size(s, bytes)),
         );
     }
 

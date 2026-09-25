@@ -3,12 +3,14 @@
 
 //! Data model: clipboard entries, MIME payloads, content classification.
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Which selection an entry came from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, JsonSchema)]
 pub enum Selection {
     /// The Ctrl+C / Ctrl+V clipboard.
+    #[default]
     Clipboard,
     /// The X11/Wayland primary selection (mouse highlight, middle-click).
     Primary,
@@ -26,7 +28,7 @@ impl Selection {
 
 /// High-level content classification, derived from the offered MIME types.
 /// Drives UI badges, icons and preview rendering.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 pub enum ContentKind {
     /// Plain text, source code, or any unclassified text.
     Text,
@@ -75,13 +77,17 @@ impl ContentKind {
 
 /// A single MIME payload belonging to an entry. One clipboard event can
 /// offer several formats at once (e.g. text/plain + text/html).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct MimePayload {
     /// MIME type, e.g. "text/plain" or "image/png".
     pub mime: String,
     /// Raw bytes as offered by the source application. Serialized as base64
     /// so image payloads do not explode into JSON number arrays over IPC.
     #[serde(with = "base64_bytes")]
+    #[schemars(
+        with = "String",
+        description = "Base64-encoded (standard alphabet) payload bytes"
+    )]
     pub data: Vec<u8>,
 }
 
@@ -194,7 +200,7 @@ impl ClipboardData {
 }
 
 /// A persisted history entry as returned by the store.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Entry {
     /// Database row id.
     pub id: i64,

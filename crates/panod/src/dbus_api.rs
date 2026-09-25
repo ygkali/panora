@@ -17,7 +17,7 @@
 
 use panora_core::error::{Error, Result};
 use panora_core::ipc::{client, Event, QueryRequest, Request, ResponseData};
-use panora_core::model::Entry;
+use panora_core::model::{Entry, Selection};
 use std::collections::HashMap;
 use tracing::warn;
 use zbus::zvariant::{OwnedValue, Value};
@@ -196,7 +196,14 @@ impl PublicApi {
     /// (meaningless when `paste` is false).
     async fn recall(&self, id: i64, paste: bool, mime: String) -> zbus::fdo::Result<bool> {
         let mime = (!mime.is_empty()).then_some(mime);
-        match call(Request::Recall { id, paste, mime }).await? {
+        match call(Request::Recall {
+            id,
+            paste,
+            mime,
+            to: Selection::Clipboard,
+        })
+        .await?
+        {
             ResponseData::Recalled { pasted } => Ok(pasted),
             other => Err(unexpected(other)),
         }

@@ -146,6 +146,33 @@ impl ClipboardBackend for X11Backend {
             .await
             .map_err(|e| Error::Backend(e.to_string()))?
     }
+
+    async fn clear(&self, selection: Selection) -> Result<()> {
+        tokio::task::spawn_blocking(move || release_selection(selection))
+            .await
+            .map_err(|e| Error::Backend(e.to_string()))?
+    }
+}
+
+/// Release ownership of `selection` (CAP-07). Any client may set a
+/// selection's owner to `NONE` regardless of who currently holds it, so the
+/// caller is responsible for confirming (via `read_targets`) that this is
+/// still the content it put there before calling this.
+fn release_selection(selection: Selection) -> Result<()> {
+    let client = Client::new()?;
+    let sel = selection_atom(&client.atoms, selection);
+    let timestamp = client.server_time()?;
+    // `.check()` round-trips instead of just flushing the request to the
+    // socket: without it, this can return before the X server has actually
+    // processed the ownership change, so a caller that immediately reads
+    // TARGETS again could still see the old owner.
+    client
+        .conn
+        .set_selection_owner(x11rb::NONE, sel, timestamp)
+        .map_err(x11err)?
+        .check()
+        .map_err(x11err)?;
+    Ok(())
 }
 
 fn x11err(e: impl std::fmt::Display) -> Error {

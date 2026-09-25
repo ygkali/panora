@@ -45,6 +45,7 @@ fn store_one_entry(c: &mut Criterion) {
                     counter,
                     "bench-device",
                     counter,
+                    true,
                 )
                 .unwrap();
             db.attach_blob(id, "text/plain", &blob_ref).unwrap();

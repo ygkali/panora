@@ -173,7 +173,8 @@ async fn requests_round_trip_through_the_blocking_client() {
                 call(Request::Recall {
                     id,
                     paste: false,
-                    mime: None
+                    mime: None,
+                    to: Selection::Clipboard,
                 })
                 .await
                 .unwrap()
@@ -641,6 +642,7 @@ async fn locked_history_degrades_list_and_refuses_preview_and_recall() {
                     id,
                     paste: false,
                     mime: None,
+                    to: Selection::Clipboard,
                 })
                 .unwrap(),
             )

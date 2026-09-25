@@ -124,7 +124,7 @@ fn xid_of(window: &gtk::Window) -> Option<u32> {
 }
 
 /// Where the window's top-left corner should go so the pointer sits just
-/// below its top edge, kept inside the screen.
+/// below its top edge, kept inside the monitor the pointer is on.
 fn target_near_pointer(window: &gtk::Window) -> Option<(i32, i32)> {
     use x11rb::connection::Connection as _;
     use x11rb::protocol::xproto::ConnectionExt as _;
@@ -141,11 +141,76 @@ fn target_near_pointer(window: &gtk::Window) -> Option<(i32, i32)> {
             (dw.max(1), dh.max(1))
         }
     };
-    let screen_w = i32::from(screen.width_in_pixels);
-    let screen_h = i32::from(screen.height_in_pixels);
-    let x = (i32::from(pointer.root_x) - width / 2).clamp(0, (screen_w - width).max(0));
-    let y = (i32::from(pointer.root_y) - POINTER_OFFSET_Y).clamp(0, (screen_h - height).max(0));
-    Some((x, y))
+    // UI-24: `screen.width_in_pixels`/`height_in_pixels` is the *combined*
+    // virtual screen across every monitor in a modern (RandR-composited)
+    // multi-monitor X11 setup, not the one the pointer is actually on --
+    // clamping to it lets the popup spill past the edge of the pointer's
+    // monitor and onto (or across the boundary of) a neighbouring one. Fall
+    // back to the combined screen only if the RandR query itself fails or
+    // finds no monitor containing the pointer (a gapped arrangement); wrong
+    // only in that corner case, never worse than the old behaviour.
+    let pointer_xy = (i32::from(pointer.root_x), i32::from(pointer.root_y));
+    let bounds = monitors_of(&conn, screen.root)
+        .and_then(|monitors| monitor_containing(&monitors, pointer_xy))
+        .unwrap_or((
+            0,
+            0,
+            i32::from(screen.width_in_pixels),
+            i32::from(screen.height_in_pixels),
+        ));
+    Some(clamp_to_bounds(pointer_xy, (width, height), bounds))
+}
+
+/// Every RandR monitor's geometry as `(x, y, width, height)`. `None` only
+/// on a protocol failure; an empty list is a valid (if unusual) reply.
+fn monitors_of(
+    conn: &x11rb::rust_connection::RustConnection,
+    root: u32,
+) -> Option<Vec<(i32, i32, i32, i32)>> {
+    use x11rb::protocol::randr::ConnectionExt as _;
+
+    let reply = conn.randr_get_monitors(root, true).ok()?.reply().ok()?;
+    Some(
+        reply
+            .monitors
+            .into_iter()
+            .map(|m| {
+                (
+                    i32::from(m.x),
+                    i32::from(m.y),
+                    i32::from(m.width),
+                    i32::from(m.height),
+                )
+            })
+            .collect(),
+    )
+}
+
+/// The `(x, y, width, height)` of whichever `monitors` entry contains
+/// `point`, if any (a gapped multi-monitor layout can leave a point in no
+/// monitor at all).
+fn monitor_containing(
+    monitors: &[(i32, i32, i32, i32)],
+    (px, py): (i32, i32),
+) -> Option<(i32, i32, i32, i32)> {
+    monitors
+        .iter()
+        .copied()
+        .find(|&(x, y, w, h)| px >= x && px < x + w && py >= y && py < y + h)
+}
+
+/// Where the window's top-left corner should go so `pointer` sits just
+/// above it (`POINTER_OFFSET_Y` below the top edge), kept fully inside
+/// `bounds` (`x, y, width, height`).
+fn clamp_to_bounds(
+    (pointer_x, pointer_y): (i32, i32),
+    (width, height): (i32, i32),
+    (bounds_x, bounds_y, bounds_w, bounds_h): (i32, i32, i32, i32),
+) -> (i32, i32) {
+    let x = (pointer_x - width / 2).clamp(bounds_x, (bounds_x + bounds_w - width).max(bounds_x));
+    let y = (pointer_y - POINTER_OFFSET_Y)
+        .clamp(bounds_y, (bounds_y + bounds_h - height).max(bounds_y));
+    (x, y)
 }
 
 /// Move the X window to `target`; with `hint`, also record the position in
@@ -211,4 +276,73 @@ fn ewmh_move(conn: &x11rb::rust_connection::RustConnection, xid: u32, x: i32, y:
         EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
         event,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Two side-by-side 1920x1080 monitors, the second starting where the
+    /// first ends -- the exact layout that exposed the bug: the pointer
+    /// near the right edge of the *first* monitor has plenty of combined
+    /// virtual-screen width to its right (the whole second monitor), but
+    /// no room left within its own monitor.
+    const SIDE_BY_SIDE: [(i32, i32, i32, i32); 2] = [(0, 0, 1920, 1080), (1920, 0, 1920, 1080)];
+
+    #[test]
+    fn monitor_containing_picks_the_one_with_the_point() {
+        assert_eq!(
+            monitor_containing(&SIDE_BY_SIDE, (100, 100)),
+            Some((0, 0, 1920, 1080))
+        );
+        assert_eq!(
+            monitor_containing(&SIDE_BY_SIDE, (2000, 100)),
+            Some((1920, 0, 1920, 1080))
+        );
+        // The boundary column belongs to the second monitor (`x < x + w`,
+        // half-open), not both or neither.
+        assert_eq!(
+            monitor_containing(&SIDE_BY_SIDE, (1920, 0)),
+            Some((1920, 0, 1920, 1080))
+        );
+    }
+
+    #[test]
+    fn monitor_containing_is_none_outside_every_monitor() {
+        assert_eq!(monitor_containing(&SIDE_BY_SIDE, (-10, 100)), None);
+        assert_eq!(monitor_containing(&SIDE_BY_SIDE, (100, 2000)), None);
+    }
+
+    #[test]
+    fn clamp_stays_within_the_pointers_own_monitor() {
+        // The pointer sits 50px from the right edge of the *first*
+        // monitor; a 420-wide popup centred on it would, if clamped to the
+        // combined 3840-wide virtual screen instead of the 1920-wide
+        // monitor, spill onto the second monitor. Clamped to the correct
+        // monitor, it is pinned to that monitor's right edge instead.
+        let pointer = (1870, 100);
+        let (x, _y) = clamp_to_bounds(pointer, (420, 660), (0, 0, 1920, 1080));
+        assert_eq!(x, 1920 - 420, "popup must stay on the pointer's monitor");
+        assert!(
+            x + 420 <= 1920,
+            "popup must not spill onto the next monitor"
+        );
+    }
+
+    #[test]
+    fn clamp_centres_the_window_above_the_pointer_with_room_to_spare() {
+        // A pointer position far enough from every edge that neither axis
+        // clamps, so this checks the unclamped centring formula itself.
+        let (x, y) = clamp_to_bounds((960, 200), (420, 660), (0, 0, 1920, 1080));
+        assert_eq!(x, 960 - 420 / 2);
+        assert_eq!(y, 200 - POINTER_OFFSET_Y);
+    }
+
+    #[test]
+    fn clamp_never_places_the_window_off_a_tiny_monitor() {
+        // A monitor smaller than the window itself: the window is pinned
+        // to the monitor's origin rather than given a negative position.
+        let (x, y) = clamp_to_bounds((50, 50), (420, 660), (0, 0, 300, 300));
+        assert_eq!((x, y), (0, 0));
+    }
 }

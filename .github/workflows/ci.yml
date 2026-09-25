@@ -257,7 +257,7 @@ jobs:
           shellcheck -S warning install.sh uninstall.sh test-local.sh KUR.sh TEST.sh KALDIR.sh \
             packaging/build-deb.sh packaging/make-kit.sh \
             scripts/panora-doctor scripts/e2e-test.sh scripts/security-check.sh scripts/keyring-test.sh \
-            packaging/apt-repo.sh scripts/a11y-check.sh scripts/upgrade-test.sh
+            packaging/apt-repo.sh scripts/a11y-check.sh scripts/upgrade-test.sh scripts/record-tour.sh
       - name: bash -n
         run: |
           for f in install.sh uninstall.sh test-local.sh packaging/*.sh scripts/panora-doctor scripts/*.sh; do
@@ -361,6 +361,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-4-dev libadwaita-1-dev binutils libglib2.0-bin \
             lintian desktop-file-utils appstream
+      # build-deb.sh builds through `cargo auditable` (SEC-08) and refuses to
+      # run without it; release.yml installs it the same way.
+      - uses: taiki-e/install-action@dfae9bf3d6f6c6f20ef4ebb3486c01a51341ff12 # v2.87.18
+        with:
+          tool: cargo-auditable
       - name: Verify lockfile
         run: cargo metadata --locked --no-deps --format-version 1 >/dev/null
       - name: Validate desktop entry and AppStream metadata

@@ -7,12 +7,13 @@ open.
 ```sh
 panora-cli list [QUERY] [--kind image] [--pinned] [--limit 20] [--offset 20] [--format TEMPLATE]
 panora-cli search <TEXT> [--format TEMPLATE]
-panora-cli copy <ID> [--paste] [--mime text/plain]
+panora-cli copy <ID> [--paste] [--mime text/plain] [--primary]
 panora-cli preview <ID> [--mime image/png] [--out photo.png]
 panora-cli pin <ID> | unpin <ID> | delete <ID> | restore <ID>
 panora-cli clear
 panora-cli private on|off
-panora-cli status | toggle | reload
+panora-cli status | stats | toggle | reload
+panora-cli config get [KEY] | set <KEY> <VALUE> | validate | edit
 panora-cli store [FILE] [--mime TYPE] [--app NAME] [--no-copy]
 panora-cli pick [--format '{id}\t{kind}\t{preview}']
 panora-cli watch
@@ -23,10 +24,34 @@ panora-cli export --out FILE | import <FILE>
 panora-cli import-legacy copyq|gpaste|clipboard-indicator
 panora-cli completions bash|zsh|fish
 panora-cli man <DIR>
+panora-cli schema
 ```
 
 `--json` works on every command that prints something; `man panora-cli` has
 the full text.
+
+## Scripting against `--json`
+
+Every `--json` reply is `{"schema_version": 1, "data": ...}` rather than the
+bare value, so a script can tell which shape it is reading without guessing
+from the command name:
+
+```sh
+panora-cli status --json | jq '.data.entries'
+```
+
+`schema_version` is `panora-cli`'s own JSON output format version (bumped
+only if an existing field's meaning changes or disappears; a new field or
+command is not a breaking change). It is independent of `status`'s own
+`protocol` field (the daemon/client wire protocol) and of the package
+`version` — the three can move on their own schedules.
+
+`panora-cli schema` prints the JSON Schema (draft 2020-12) for `data` in
+every command: a `commands` map from subcommand name to the schema its
+`data` field matches, and the underlying type schemas under `$defs`. It is
+generated with `schemars` from the same Rust types `--json` actually
+serializes, so it cannot drift from the real output the way a hand-written
+copy could.
 
 ## Exit status
 
@@ -85,6 +110,17 @@ panora-cli preview 42 --mime image/png --out shot.png
 With `--mime` the payload is written raw and nothing else, which is what
 you want in a pipe.
 
+`panora-cli copy <ID> --primary` puts the entry on PRIMARY instead of
+CLIPBOARD, so a middle-click pastes it; `--paste` is ignored with it, since
+there is no keyboard shortcut for a PRIMARY paste. `privacy.
+clear_clipboard_after_seconds` (`config.toml`, 0 = disabled) clears whichever
+selection a recall was put on that many seconds later — the way a password
+manager times out what it copied — but only if nothing else was copied in
+the meantime.
+
+`panora-cli stats` prints counts by kind, how many entries are pinned or
+flagged sensitive, total payload bytes, and the oldest/newest entry's time.
+
 ## Watching the daemon
 
 ```sh
@@ -106,6 +142,29 @@ locked`/`lock_password_set` are the second-layer lock, below.
 
 `panora-cli reload` re-reads `config.toml` without restarting, which is what
 the settings dialog does when you press *save*.
+
+### Reading and changing `config.toml` from a script
+
+```sh
+panora-cli config get                              # the whole file
+panora-cli config get history.max_entries           # one key
+panora-cli config set privacy.sensitive_ttl_minutes 30
+panora-cli config set privacy.excluded_apps "keepassxc,bitwarden,1password"
+panora-cli config validate
+panora-cli config edit                               # opens $VISUAL/$EDITOR
+```
+
+Keys are the dotted path you would write in `config.toml` — see
+[config.toml reference](config.md) for every one of them. `set` parses the
+new value to match the existing key's type: `true`/`false`/`1`/`0`/`yes`/`no`
+for a boolean, a plain integer, a comma-separated list for an array key
+(`excluded_apps`, `ignore_patterns`, `capture_kinds`), anything else as
+text — and refuses to write the file at all if the result would not pass
+`config validate`. `set` and a successfully re-read `edit` both tell a
+running daemon to pick up the change immediately (the same as
+`panora-cli reload`), best-effort — nothing breaks if the daemon happens not
+to be running right then, since it reads the file fresh on its own next
+start anyway.
 
 Instead of polling `status`, `panora-cli watch` blocks and prints a line
 every time `revision` changes (the first line is always the current one, so

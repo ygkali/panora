@@ -135,6 +135,18 @@ pub trait ClipboardBackend: Send + Sync {
             "synthetic paste not supported by this backend".into(),
         ))
     }
+
+    /// Release ownership of `selection`, best-effort (CAP-07: clear the
+    /// live clipboard N seconds after a recall). Callers are expected to
+    /// have already confirmed the selection still holds what they put
+    /// there (e.g. via `read_targets`); a backend that cannot tell whether
+    /// it is still the owner releases unconditionally rather than leaving
+    /// stale content in place. Default implementation reports unsupported.
+    async fn clear(&self, _selection: Selection) -> Result<()> {
+        Err(crate::error::Error::Backend(
+            "clearing the clipboard is not supported by this backend".into(),
+        ))
+    }
 }
 
 /// In-memory mock backend for tests and headless development.
@@ -143,7 +155,9 @@ pub trait ClipboardBackend: Send + Sync {
 /// last `offer` call. This lets core logic be tested without a display.
 #[derive(Debug, Default)]
 pub struct MockBackend {
-    offered: std::sync::Mutex<Option<ClipboardData>>,
+    /// Keyed by selection, like a real backend: offering on CLIPBOARD must
+    /// never be visible when a test reads PRIMARY, and vice versa.
+    offered: std::sync::Mutex<std::collections::HashMap<Selection, ClipboardData>>,
     /// One sender per watched selection, so a test can tell whether the
     /// daemon is currently listening to PRIMARY at all.
     senders: std::sync::Mutex<std::collections::HashMap<Selection, mpsc::Sender<ClipboardEvent>>>,
@@ -198,28 +212,33 @@ impl ClipboardBackend for MockBackend {
         Ok(rx)
     }
 
-    async fn read_targets(&self, _selection: Selection) -> Result<Vec<String>> {
+    async fn read_targets(&self, selection: Selection) -> Result<Vec<String>> {
         Ok(self
             .offered
             .lock()
             .unwrap()
-            .as_ref()
+            .get(&selection)
             .map(|d| d.offered_mimes.clone())
             .unwrap_or_default())
     }
 
-    async fn read(&self, _selection: Selection, mime: &str) -> Result<Vec<u8>> {
+    async fn read(&self, selection: Selection, mime: &str) -> Result<Vec<u8>> {
         self.offered
             .lock()
             .unwrap()
-            .as_ref()
+            .get(&selection)
             .and_then(|d| d.payloads.iter().find(|p| p.mime == mime))
             .map(|p| p.data.clone())
             .ok_or_else(|| crate::error::Error::Backend(format!("mime not offered: {mime}")))
     }
 
-    async fn offer(&self, _selection: Selection, data: ClipboardData) -> Result<()> {
-        *self.offered.lock().unwrap() = Some(data);
+    async fn offer(&self, selection: Selection, data: ClipboardData) -> Result<()> {
+        self.offered.lock().unwrap().insert(selection, data);
+        Ok(())
+    }
+
+    async fn clear(&self, selection: Selection) -> Result<()> {
+        self.offered.lock().unwrap().remove(&selection);
         Ok(())
     }
 }
@@ -275,5 +294,64 @@ mod tests {
             .read(Selection::Clipboard, "image/png")
             .await
             .is_err());
+    }
+
+    #[tokio::test]
+    async fn selections_are_independent() {
+        let backend = MockBackend::new();
+        backend
+            .offer(
+                Selection::Clipboard,
+                ClipboardData {
+                    selection: Selection::Clipboard,
+                    payloads: vec![MimePayload::new("text/plain", "clip")],
+                    offered_mimes: vec!["text/plain".into()],
+                    source_app: None,
+                },
+            )
+            .await
+            .unwrap();
+        backend
+            .offer(
+                Selection::Primary,
+                ClipboardData {
+                    selection: Selection::Primary,
+                    payloads: vec![MimePayload::new("text/plain", "primary")],
+                    offered_mimes: vec!["text/plain".into()],
+                    source_app: None,
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            backend
+                .read(Selection::Clipboard, "text/plain")
+                .await
+                .unwrap(),
+            b"clip"
+        );
+        assert_eq!(
+            backend
+                .read(Selection::Primary, "text/plain")
+                .await
+                .unwrap(),
+            b"primary"
+        );
+
+        backend.clear(Selection::Clipboard).await.unwrap();
+        assert!(backend
+            .read_targets(Selection::Clipboard)
+            .await
+            .unwrap()
+            .is_empty());
+        // Clearing CLIPBOARD must not touch PRIMARY.
+        assert_eq!(
+            backend
+                .read(Selection::Primary, "text/plain")
+                .await
+                .unwrap(),
+            b"primary"
+        );
     }
 }

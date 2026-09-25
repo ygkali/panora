@@ -8,6 +8,9 @@ X11 ve Wayland pano protokollerini doğrudan konuşur, hiçbir ağ bağlantısı
 açmaz ve parola yöneticilerinin kopyaladığını hiç okumaz. GPL-3.0-only
 lisanslıdır.
 
+▶ [Popup'ın 45 saniyelik tanıtımı](docs/book/src/media/tour.webm) (WebM,
+İngilizce altyazılı; ayrıca [belge sitesinde](https://ygkali.github.io/panora/docs/popup.html)).
+
 <p align="center">
   <img src="docs/screenshots/popup-light-tr.png" width="300" alt="Panora popup, açık tema">
   <img src="docs/screenshots/popup-dark.png" width="300" alt="Panora popup, koyu tema">
@@ -210,10 +213,11 @@ Eşleşmeler popup'ta kalın gösterilir.
 ```sh
 panora-cli list [arama] [--kind image] [--pinned] [--limit 20] [--offset 20]
 panora-cli search <metin>
-panora-cli copy <id> [--paste] [--mime text/plain]
+panora-cli copy <id> [--paste] [--mime text/plain] [--primary]
 panora-cli preview <id> [--mime image/png] [--out foto.png]
 panora-cli pin|unpin|delete|restore <id>
-panora-cli clear | private on|off | status | toggle | reload
+panora-cli clear | private on|off | status | stats | toggle | reload
+panora-cli config get [ANAHTAR] | set <ANAHTAR> <DEĞER> | validate | edit
 panora-cli store [DOSYA] [--mime TÜR] [--app AD] [--no-copy]   # dosyadan / stdin'den metin kaydet
 panora-cli pick [--format '{id}\t{kind}\t{preview}']           # seçiciler için satır satır liste
 panora-cli --json status
@@ -281,7 +285,8 @@ Sık karşılaşılan durumlar ve daemon günlüğü için
   test edilen dağıtımlar, destek penceresi ve paketleyiciler için notlar
   (İngilizce).
 - [CHANGELOG.md](CHANGELOG.md), [CONTRIBUTING.md](CONTRIBUTING.md),
-  [SECURITY.md](SECURITY.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+  [GOVERNANCE.md](GOVERNANCE.md) (İngilizce), [SECURITY.md](SECURITY.md),
+  [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ## Lisans
 

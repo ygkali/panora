@@ -19,10 +19,16 @@ The install kit (`panora-<version>-install-kit.tar.gz`) is the `.deb` plus
 `install.sh`, `uninstall.sh` and `test-local.sh` for people who would rather
 run one script than read the README.
 
-There is no Flatpak and no Snap. Panora needs the session bus, the Secret
-Service, the X11 or Wayland clipboard protocols and — on older GNOME — a
-Shell extension; the portal story for all of that is not there yet. The
-trade-offs are recorded as `PKG-04` in `docs/ROADMAP.md`.
+There is no Flatpak and no Snap. A Flatpak build was researched, not just
+deferred: on Sway, Hyprland and other wlroots compositors, the compositor
+does not expose the Wayland clipboard protocol (`wlr-data-control` /
+`ext-data-control-v1`) to a sandboxed client at all, which is what
+`panod`'s native Wayland backend depends on, and the GNOME Shell extension
+bridge used for GNOME ≤ 47 has the same registration problem inside a
+sandbox that other clipboard managers using the same design already hit.
+A Flatpak build would work, at best, on X11 and KDE/KWin — a real step
+down from "every Wayland compositor" that is not worth making quietly.
+Full findings and sources are in `docs/ROADMAP.md` §11.5, `PKG-04`.
 
 ### Verifying a download
 

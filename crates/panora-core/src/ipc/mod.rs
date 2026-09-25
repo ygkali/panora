@@ -9,8 +9,9 @@
 //! drift between binaries built from the same tree.
 
 use crate::error::{Error, Result};
-use crate::model::{ContentKind, Entry, MimePayload};
+use crate::model::{ContentKind, Entry, MimePayload, Selection};
 use crate::storage::QueryFilter;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 #[cfg(unix)]
@@ -47,13 +48,19 @@ pub enum Request {
     Recall {
         /// Entry id.
         id: i64,
-        /// Synthesize a paste keystroke after the clipboard is set.
+        /// Synthesize a paste keystroke after the clipboard is set. Only
+        /// meaningful with the default `to: Clipboard` — there is no
+        /// keyboard shortcut for a PRIMARY paste, only middle-click.
         #[serde(default)]
         paste: bool,
         /// Offer only this format (e.g. `text/plain` to drop the HTML of a
         /// rich-text entry). `None` offers every stored format.
         #[serde(default)]
         mime: Option<String>,
+        /// Which selection to put the entry on: `Clipboard` (Ctrl+V) or
+        /// `Primary` (CAP-10: middle-click paste). Defaults to `Clipboard`.
+        #[serde(default)]
+        to: Selection,
     },
     /// Set pin state.
     Pin {
@@ -78,6 +85,9 @@ pub enum Request {
     Toggle,
     /// Return health/capability info.
     Status,
+    /// Return aggregate history statistics (CLI-06): counts by kind,
+    /// pinned/sensitive counts, total payload bytes, oldest/newest entry.
+    Stats,
     /// Return the decrypted payloads for one entry (preview or export).
     Preview {
         /// Entry id.
@@ -233,7 +243,11 @@ impl Response {
 }
 
 /// Successful response payload.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Also the schema CLI-08's `panora-cli schema` publishes for every command
+/// that replies through the daemon: whichever variant a command returns is
+/// always one member of this type's JSON Schema `oneOf`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub enum ResponseData {
     /// History entries.
     Entries(Vec<Entry>),
@@ -241,6 +255,8 @@ pub enum ResponseData {
     Count(usize),
     /// Daemon status.
     Status(StatusData),
+    /// Reply to `Stats` (CLI-06).
+    Stats(StatsData),
     /// Empty successful response.
     Empty,
     /// Payloads for a selected entry.
@@ -264,7 +280,7 @@ pub enum ResponseData {
 /// A message the daemon pushes on its own initiative, over v3 framing, after
 /// a `Subscribe` request. Not part of the `Response`/`ResponseData` pair
 /// because it is not a reply to any one request.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "event")]
 pub enum Event {
     /// `revision` changed; clients re-fetch whatever view they hold instead
@@ -277,7 +293,7 @@ pub enum Event {
 }
 
 /// Backend capability report exposed to clients.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct CapabilityData {
     /// The PRIMARY selection can be recorded.
     pub primary: bool,
@@ -298,7 +314,7 @@ pub struct CapabilityData {
 }
 
 /// Daemon status exposed to clients.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct StatusData {
     /// Backend name.
     pub backend: String,
@@ -340,8 +356,32 @@ pub struct StatusData {
     pub health: Vec<HealthItem>,
 }
 
+/// Aggregate history statistics (CLI-06). Computed server-side (SQL
+/// aggregates over the visible, non-tombstoned entries) rather than by
+/// having the client page through every entry.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct StatsData {
+    /// Visible (non-deleted) entry count.
+    pub total: i64,
+    /// Of those, how many are pinned.
+    pub pinned: i64,
+    /// Of those, how many are flagged sensitive (`crate::sensitive`).
+    pub sensitive: i64,
+    /// `(kind, count)`, one row per `ContentKind` with at least one entry,
+    /// ordered by count descending.
+    pub by_kind: Vec<(String, i64)>,
+    /// Sum of `size_bytes` across visible entries (the payload sizes
+    /// recorded at capture time, not on-disk blob size after dedup).
+    pub total_bytes: i64,
+    /// `last_seen_at` of the oldest visible entry, Unix seconds; `None`
+    /// when the history is empty.
+    pub oldest_at: Option<i64>,
+    /// `last_seen_at` of the newest visible entry.
+    pub newest_at: Option<i64>,
+}
+
 /// One health finding of the daemon.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct HealthItem {
     /// Stable identifier, one of the constants in `health`.
     pub code: String,
@@ -483,7 +523,8 @@ mod tests {
             Request::Recall {
                 id: 3,
                 paste: false,
-                mime: None
+                mime: None,
+                to: Selection::Clipboard,
             }
         ));
     }
