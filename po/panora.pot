@@ -1132,3 +1132,106 @@ msgstr ""
 msgctxt "sync_failure_invalid_address"
 msgid "That is not an address: give it as ip:port, for example 192.168.1.20:47100."
 msgstr ""
+
+#. Shown after `panora-sync:`, hence lower case.
+msgctxt "sync_cli_link_or_code"
+msgid "give an invitation link, or --code"
+msgstr ""
+
+#. After a yes/no question on the terminal. `y`, `yes`, `e` and `evet` all mean yes; anything else is no, the default (upper case).
+msgctxt "sync_cli_yes_no"
+msgid "[y/N]"
+msgstr ""
+
+msgctxt "sync_cli_not_running"
+msgid "panora-sync is not running; start it with: systemctl --user enable --now panora-sync"
+msgstr ""
+
+#. `{name}` = this device's name, `{f}` = its fingerprint.
+msgctxt "sync_cli_this_device"
+msgid "This device: {name} ({f})"
+msgstr ""
+
+#. `{addr}` = ip:port.
+msgctxt "sync_cli_listening_on"
+msgid "Listening on: {addr}"
+msgstr ""
+
+msgctxt "sync_cli_no_group"
+msgid "Not in a sync group. Start one with: panora-sync invite"
+msgstr ""
+
+#. Inserted into `sync_cli_group`.
+msgctxt "sync_cli_state_removed"
+msgid "not a member (removed, or waiting to be added again)"
+msgstr ""
+
+#. Inserted into `sync_cli_group`.
+msgctxt "sync_cli_state_waiting_key"
+msgid "member, waiting for the current key"
+msgstr ""
+
+#. Inserted into `sync_cli_group`.
+msgctxt "sync_cli_state_member"
+msgid "member"
+msgstr ""
+
+#. `{state}` = one of `sync_cli_state_*`, `{n}` = how many times the device list changed.
+msgctxt "sync_cli_group"
+msgid "Group: {state}, roster epoch {n}"
+msgstr ""
+
+msgctxt "sync_cli_run_join"
+msgid "On the other device, run:"
+msgstr ""
+
+msgctxt "sync_cli_or_scan"
+msgid "or scan this code with it:"
+msgstr ""
+
+#. `{n}` = minutes left, 10 at most.
+msgctxt "sync_cli_invite_note"
+msgid "The invitation works once, for {n} minutes. Waiting…"
+msgstr ""
+
+msgctxt "sync_cli_listening"
+msgid "Waiting for a device. On it, run: panora-sync join --code (or choose Join with a code in Panora’s preferences)"
+msgstr ""
+
+#. `{code}` = six digits, such as 042 917.
+msgctxt "sync_cli_code"
+msgid "Code: {code}"
+msgstr ""
+
+#. `{code}` = six digits; `{who}` = `sync_cli_device` or `sync_compare_named`.
+msgctxt "sync_cli_ask_code"
+msgid "Does the other screen show {code}? Pair with {who}?"
+msgstr ""
+
+#. `{who}` = `sync_cli_device` or `sync_compare_named`.
+msgctxt "sync_cli_ask"
+msgid "Pair with {who}?"
+msgstr ""
+
+msgctxt "sync_cli_key_replaced"
+msgid "The group key has been replaced."
+msgstr ""
+
+msgctxt "sync_cli_left_hint"
+msgid "Remove this device on another device too."
+msgstr ""
+
+#. `{e}` = why, in English.
+msgctxt "sync_cli_no_qr"
+msgid "(no QR code: {e})"
+msgstr ""
+
+#. Shown after `panora-sync:`, hence lower case.
+msgctxt "sync_cli_service_closed"
+msgid "the sync service closed the connection"
+msgstr ""
+
+#. `{f}` = a device fingerprint; used inside a question, hence lower case.
+msgctxt "sync_cli_device"
+msgid "device {f}"
+msgstr ""

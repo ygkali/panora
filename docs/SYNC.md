@@ -61,7 +61,9 @@ note, as an ordinary copy that Panora records like any other. It is
 single-use and expires after ten minutes, but you can delete that entry
 once the device has joined.
 
-The same, from a terminal:
+The same, from a terminal (it answers in the language set in the
+preferences, like `panora-cli`; `--help` and the manual page are in
+English):
 
 On the first device, invite the second one:
 

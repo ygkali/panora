@@ -1123,3 +1123,106 @@ msgstr "Bir sorun çıktı: {e}."
 msgctxt "sync_failure_invalid_address"
 msgid "That is not an address: give it as ip:port, for example 192.168.1.20:47100."
 msgstr "Bu bir adres değil: ip:port biçiminde verin, örneğin 192.168.1.20:47100."
+
+#. Shown after `panora-sync:`, hence lower case.
+msgctxt "sync_cli_link_or_code"
+msgid "give an invitation link, or --code"
+msgstr "bir davet bağlantısı ya da --code verin"
+
+#. After a yes/no question on the terminal. `y`, `yes`, `e` and `evet` all mean yes; anything else is no, the default (upper case).
+msgctxt "sync_cli_yes_no"
+msgid "[y/N]"
+msgstr "[e/H]"
+
+msgctxt "sync_cli_not_running"
+msgid "panora-sync is not running; start it with: systemctl --user enable --now panora-sync"
+msgstr "panora-sync çalışmıyor; başlatmak için: systemctl --user enable --now panora-sync"
+
+#. `{name}` = this device's name, `{f}` = its fingerprint.
+msgctxt "sync_cli_this_device"
+msgid "This device: {name} ({f})"
+msgstr "Bu cihaz: {name} ({f})"
+
+#. `{addr}` = ip:port.
+msgctxt "sync_cli_listening_on"
+msgid "Listening on: {addr}"
+msgstr "Dinlenen adres: {addr}"
+
+msgctxt "sync_cli_no_group"
+msgid "Not in a sync group. Start one with: panora-sync invite"
+msgstr "Bir eşitleme grubunda değil. Başlatmak için: panora-sync invite"
+
+#. Inserted into `sync_cli_group`.
+msgctxt "sync_cli_state_removed"
+msgid "not a member (removed, or waiting to be added again)"
+msgstr "üye değil (çıkarıldı ya da yeniden eklenmeyi bekliyor)"
+
+#. Inserted into `sync_cli_group`.
+msgctxt "sync_cli_state_waiting_key"
+msgid "member, waiting for the current key"
+msgstr "üye, güncel anahtarı bekliyor"
+
+#. Inserted into `sync_cli_group`.
+msgctxt "sync_cli_state_member"
+msgid "member"
+msgstr "üye"
+
+#. `{state}` = one of `sync_cli_state_*`, `{n}` = how many times the device list changed.
+msgctxt "sync_cli_group"
+msgid "Group: {state}, roster epoch {n}"
+msgstr "Grup: {state}, cihaz listesi sürümü {n}"
+
+msgctxt "sync_cli_run_join"
+msgid "On the other device, run:"
+msgstr "Diğer cihazda şunu çalıştırın:"
+
+msgctxt "sync_cli_or_scan"
+msgid "or scan this code with it:"
+msgstr "ya da bu kodu onunla taratın:"
+
+#. `{n}` = minutes left, 10 at most.
+msgctxt "sync_cli_invite_note"
+msgid "The invitation works once, for {n} minutes. Waiting…"
+msgstr "Davet tek kullanımlıktır ve {n} dakika geçerlidir. Bekleniyor…"
+
+msgctxt "sync_cli_listening"
+msgid "Waiting for a device. On it, run: panora-sync join --code (or choose Join with a code in Panora’s preferences)"
+msgstr "Bir cihaz bekleniyor. Onda şunu çalıştırın: panora-sync join --code (ya da Panora tercihlerinde Kodla katıl seçeneğini seçin)"
+
+#. `{code}` = six digits, such as 042 917.
+msgctxt "sync_cli_code"
+msgid "Code: {code}"
+msgstr "Kod: {code}"
+
+#. `{code}` = six digits; `{who}` = `sync_cli_device` or `sync_compare_named`.
+msgctxt "sync_cli_ask_code"
+msgid "Does the other screen show {code}? Pair with {who}?"
+msgstr "Diğer ekranda {code} mi görünüyor? {who} ile eşleşilsin mi?"
+
+#. `{who}` = `sync_cli_device` or `sync_compare_named`.
+msgctxt "sync_cli_ask"
+msgid "Pair with {who}?"
+msgstr "{who} ile eşleşilsin mi?"
+
+msgctxt "sync_cli_key_replaced"
+msgid "The group key has been replaced."
+msgstr "Grup anahtarı değiştirildi."
+
+msgctxt "sync_cli_left_hint"
+msgid "Remove this device on another device too."
+msgstr "Bu cihazı başka bir cihazdan da çıkarın."
+
+#. `{e}` = why, in English.
+msgctxt "sync_cli_no_qr"
+msgid "(no QR code: {e})"
+msgstr "(QR kodu yok: {e})"
+
+#. Shown after `panora-sync:`, hence lower case.
+msgctxt "sync_cli_service_closed"
+msgid "the sync service closed the connection"
+msgstr "eşitleme hizmeti bağlantıyı kapattı"
+
+#. `{f}` = a device fingerprint; used inside a question, hence lower case.
+msgctxt "sync_cli_device"
+msgid "device {f}"
+msgstr "{f} cihazı"

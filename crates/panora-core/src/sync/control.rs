@@ -16,6 +16,7 @@
 //! service without linking any of it. Results and failures are carried as
 //! kinds, not sentences: each front end words them in its own language.
 
+use crate::i18n::{fill, Strings};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -165,6 +166,28 @@ pub enum Failure {
     Verification,
     /// Anything else; the message says what.
     Other,
+}
+
+impl Failure {
+    /// The failure in the user's language. The service's English
+    /// `message` appears only for [`Failure::Other`], the kind that has no
+    /// sentence of its own.
+    pub fn describe(self, s: &Strings, message: &str) -> String {
+        match self {
+            Failure::Cancelled => s.sync_failure_cancelled.into(),
+            Failure::Rejected => s.sync_failure_rejected.into(),
+            Failure::Expired => s.sync_failure_expired.into(),
+            Failure::NotOpen => s.sync_failure_not_open.into(),
+            Failure::Unreachable => s.sync_failure_unreachable.into(),
+            Failure::Ambiguous => s.sync_failure_ambiguous.into(),
+            Failure::InvalidLink => s.sync_failure_invalid_link.into(),
+            Failure::InvalidAddress => s.sync_failure_invalid_address.into(),
+            Failure::WrongMode => s.sync_failure_wrong_mode.into(),
+            Failure::Refused => s.sync_failure_refused.into(),
+            Failure::Verification => s.sync_failure_verification.into(),
+            Failure::Other => fill(s.sync_failure_other, "e", message),
+        }
+    }
 }
 
 /// What the service reports.
@@ -352,6 +375,32 @@ mod tests {
         let text = serde_json::to_string(&error).unwrap();
         assert!(text.contains(r#""failure":"not_open""#), "{text}");
         assert_eq!(serde_json::from_str::<Event>(&text).unwrap(), error);
+    }
+
+    #[test]
+    fn every_failure_has_its_own_sentence_in_both_languages() {
+        use crate::i18n::Language;
+        let all = [
+            Failure::Cancelled,
+            Failure::Rejected,
+            Failure::Expired,
+            Failure::NotOpen,
+            Failure::Unreachable,
+            Failure::Ambiguous,
+            Failure::InvalidLink,
+            Failure::InvalidAddress,
+            Failure::WrongMode,
+            Failure::Refused,
+            Failure::Verification,
+        ];
+        for language in [Language::English, Language::Turkish] {
+            let s = language.strings();
+            let texts: std::collections::HashSet<String> =
+                all.iter().map(|f| f.describe(s, "detail")).collect();
+            assert_eq!(texts.len(), all.len());
+            assert!(texts.iter().all(|t| !t.contains("detail")));
+            assert!(Failure::Other.describe(s, "detail").contains("detail"));
+        }
     }
 
     #[test]

@@ -493,7 +493,7 @@ impl Devices {
                     }
                     Ok(Outcome::Left) => this.toast(s.sync_left),
                     Ok(_) => {}
-                    Err((failure, message)) => this.toast(&failure_text(s, failure, &message)),
+                    Err((failure, message)) => this.toast(&failure.describe(s, &message)),
                 }
                 this.shown.replace(None);
                 this.refresh();
@@ -720,7 +720,7 @@ impl Flow {
 
     fn failed(&self, failure: Failure, message: &str) {
         let s = self.devices.s;
-        let text = failure_text(s, failure, message);
+        let text = failure.describe(s, message);
         self.finish(
             "dialog-warning-symbolic",
             s.sync_failed,
@@ -924,7 +924,7 @@ fn pair(devices: &Rc<Devices>) {
             flow.note(&fill(
                 s.sync_attempt_failed,
                 "reason",
-                &failure_text(s, failure, &message),
+                &failure.describe(s, &message),
             ));
             // That code is spent: back to waiting, so the next attempt
             // does not land on an old code or a "finishing" spinner.
@@ -946,7 +946,7 @@ fn invite(devices: &Rc<Devices>) {
         Event::AttemptFailed { failure, message } => flow.note(&fill(
             s.sync_attempt_failed,
             "reason",
-            &failure_text(s, failure, &message),
+            &failure.describe(s, &message),
         )),
         _ => {}
     });
@@ -1076,25 +1076,6 @@ fn request_once(request: Request) -> Result<Outcome, (Failure, String)> {
     }
 }
 
-/// A failure in the user's language; the service's English details only
-/// for the kind that has no sentence of its own.
-fn failure_text(s: &Strings, failure: Failure, message: &str) -> String {
-    match failure {
-        Failure::Cancelled => s.sync_failure_cancelled.into(),
-        Failure::Rejected => s.sync_failure_rejected.into(),
-        Failure::Expired => s.sync_failure_expired.into(),
-        Failure::NotOpen => s.sync_failure_not_open.into(),
-        Failure::Unreachable => s.sync_failure_unreachable.into(),
-        Failure::Ambiguous => s.sync_failure_ambiguous.into(),
-        Failure::InvalidLink => s.sync_failure_invalid_link.into(),
-        Failure::InvalidAddress => s.sync_failure_invalid_address.into(),
-        Failure::WrongMode => s.sync_failure_wrong_mode.into(),
-        Failure::Refused => s.sync_failure_refused.into(),
-        Failure::Verification => s.sync_failure_verification.into(),
-        Failure::Other => fill(s.sync_failure_other, "e", message),
-    }
-}
-
 /// Local wall-clock time (`14:05`) of a Unix timestamp.
 fn clock(unix: i64) -> String {
     glib::DateTime::from_unix_local(unix)
@@ -1118,36 +1099,5 @@ fn copy_secret(widget: &impl IsA<gtk::Widget>, text: &str) {
     ]);
     if let Err(e) = widget.clipboard().set_content(Some(&provider)) {
         eprintln!("panora-gui: link not copied: {e}");
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use panora_core::i18n::Language;
-
-    #[test]
-    fn every_failure_has_its_own_sentence_in_both_languages() {
-        let all = [
-            Failure::Cancelled,
-            Failure::Rejected,
-            Failure::Expired,
-            Failure::NotOpen,
-            Failure::Unreachable,
-            Failure::Ambiguous,
-            Failure::InvalidLink,
-            Failure::InvalidAddress,
-            Failure::WrongMode,
-            Failure::Refused,
-            Failure::Verification,
-        ];
-        for language in [Language::English, Language::Turkish] {
-            let s = language.strings();
-            let texts: std::collections::HashSet<String> =
-                all.iter().map(|f| failure_text(s, *f, "detail")).collect();
-            assert_eq!(texts.len(), all.len());
-            assert!(texts.iter().all(|t| !t.contains("detail")));
-            assert!(failure_text(s, Failure::Other, "detail").contains("detail"));
-        }
     }
 }
