@@ -88,7 +88,7 @@ toml = "1"
 # --- CLI ---
 clap = { version = "4", features = ["derive", "wrap_help", "string"] }
 clap_complete = "4"
-clap_mangen = "0.2"
+clap_mangen = "0.3"
 
 # --- JSON Schema for --json output (CLI-08) ---
 schemars = "1"
