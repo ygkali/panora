@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "rust";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "searchindex-8695e607.js";
+            window.path_to_searchindex_js = "searchindex-7a06d3b5.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-6fd7c490.js"></script>
+        <script src="toc-f618b4cb.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -286,6 +286,10 @@ to <code>uninstall.sh</code>. The master key stays in the keyring; removing it m
 an old history file unreadable, which is the point.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="the-popup"><a class="header" href="#the-popup">The popup</a></h1>
+<video src="media/tour.webm" controls="" muted="" loop="" playsinline="" width="420">
+  A 45-second tour of the popup: keyboard navigation, details, search
+  filters, pinning, private mode and settings.
+</video>
 <p>Open it with <strong>Super+V</strong> on GNOME, with the launcher entry, by running
 <code>panora</code>, or with <code>panora-cli toggle</code> from any key binding. Opening it again
 closes it, and it closes by itself when you move to another window — the
@@ -417,12 +421,13 @@ is the scripting interface and the one to reach for when the popup will not
 open.</p>
 <pre><code class="language-sh">panora-cli list [QUERY] [--kind image] [--pinned] [--limit 20] [--offset 20] [--format TEMPLATE]
 panora-cli search &lt;TEXT&gt; [--format TEMPLATE]
-panora-cli copy &lt;ID&gt; [--paste] [--mime text/plain]
+panora-cli copy &lt;ID&gt; [--paste] [--mime text/plain] [--primary]
 panora-cli preview &lt;ID&gt; [--mime image/png] [--out photo.png]
 panora-cli pin &lt;ID&gt; | unpin &lt;ID&gt; | delete &lt;ID&gt; | restore &lt;ID&gt;
 panora-cli clear
 panora-cli private on|off
-panora-cli status | toggle | reload
+panora-cli status | stats | toggle | reload
+panora-cli config get [KEY] | set &lt;KEY&gt; &lt;VALUE&gt; | validate | edit
 panora-cli store [FILE] [--mime TYPE] [--app NAME] [--no-copy]
 panora-cli pick [--format '{id}\t{kind}\t{preview}']
 panora-cli watch
@@ -433,9 +438,27 @@ panora-cli export --out FILE | import &lt;FILE&gt;
 panora-cli import-legacy copyq|gpaste|clipboard-indicator
 panora-cli completions bash|zsh|fish
 panora-cli man &lt;DIR&gt;
+panora-cli schema
 </code></pre>
 <p><code>--json</code> works on every command that prints something; <code>man panora-cli</code> has
 the full text.</p>
+<h2 id="scripting-against---json"><a class="header" href="#scripting-against---json">Scripting against <code>--json</code></a></h2>
+<p>Every <code>--json</code> reply is <code>{"schema_version": 1, "data": ...}</code> rather than the
+bare value, so a script can tell which shape it is reading without guessing
+from the command name:</p>
+<pre><code class="language-sh">panora-cli status --json | jq '.data.entries'
+</code></pre>
+<p><code>schema_version</code> is <code>panora-cli</code>’s own JSON output format version (bumped
+only if an existing field’s meaning changes or disappears; a new field or
+command is not a breaking change). It is independent of <code>status</code>’s own
+<code>protocol</code> field (the daemon/client wire protocol) and of the package
+<code>version</code> — the three can move on their own schedules.</p>
+<p><code>panora-cli schema</code> prints the JSON Schema (draft 2020-12) for <code>data</code> in
+every command: a <code>commands</code> map from subcommand name to the schema its
+<code>data</code> field matches, and the underlying type schemas under <code>$defs</code>. It is
+generated with <code>schemars</code> from the same Rust types <code>--json</code> actually
+serializes, so it cannot drift from the real output the way a hand-written
+copy could.</p>
 <h2 id="exit-status"><a class="header" href="#exit-status">Exit status</a></h2>
 <div class="table-wrapper">
 <table>
@@ -484,6 +507,14 @@ panora-cli preview 42 --mime image/png --out shot.png
 </code></pre>
 <p>With <code>--mime</code> the payload is written raw and nothing else, which is what
 you want in a pipe.</p>
+<p><code>panora-cli copy &lt;ID&gt; --primary</code> puts the entry on PRIMARY instead of
+CLIPBOARD, so a middle-click pastes it; <code>--paste</code> is ignored with it, since
+there is no keyboard shortcut for a PRIMARY paste. <code>privacy. clear_clipboard_after_seconds</code> (<code>config.toml</code>, 0 = disabled) clears whichever
+selection a recall was put on that many seconds later — the way a password
+manager times out what it copied — but only if nothing else was copied in
+the meantime.</p>
+<p><code>panora-cli stats</code> prints counts by kind, how many entries are pinned or
+flagged sensitive, total payload bytes, and the oldest/newest entry’s time.</p>
 <h2 id="watching-the-daemon"><a class="header" href="#watching-the-daemon">Watching the daemon</a></h2>
 <pre><code class="language-sh">panora-cli status
 </code></pre>
@@ -498,6 +529,25 @@ after it as <code>health=&lt;code&gt; &lt;message&gt;</code>; those are the same
 shows as a banner. <code>locked</code> is the OS session lock (screensaver); <code>app_ locked</code>/<code>lock_password_set</code> are the second-layer lock, below.</p>
 <p><code>panora-cli reload</code> re-reads <code>config.toml</code> without restarting, which is what
 the settings dialog does when you press <em>save</em>.</p>
+<h3 id="reading-and-changing-configtoml-from-a-script"><a class="header" href="#reading-and-changing-configtoml-from-a-script">Reading and changing <code>config.toml</code> from a script</a></h3>
+<pre><code class="language-sh">panora-cli config get                              # the whole file
+panora-cli config get history.max_entries           # one key
+panora-cli config set privacy.sensitive_ttl_minutes 30
+panora-cli config set privacy.excluded_apps "keepassxc,bitwarden,1password"
+panora-cli config validate
+panora-cli config edit                               # opens $VISUAL/$EDITOR
+</code></pre>
+<p>Keys are the dotted path you would write in <code>config.toml</code> — see
+<a href="#configtoml-reference">config.toml reference</a> for every one of them. <code>set</code> parses the
+new value to match the existing key’s type: <code>true</code>/<code>false</code>/<code>1</code>/<code>0</code>/<code>yes</code>/<code>no</code>
+for a boolean, a plain integer, a comma-separated list for an array key
+(<code>excluded_apps</code>, <code>ignore_patterns</code>, <code>capture_kinds</code>), anything else as
+text — and refuses to write the file at all if the result would not pass
+<code>config validate</code>. <code>set</code> and a successfully re-read <code>edit</code> both tell a
+running daemon to pick up the change immediately (the same as
+<code>panora-cli reload</code>), best-effort — nothing breaks if the daemon happens not
+to be running right then, since it reads the file fresh on its own next
+start anyway.</p>
 <p>Instead of polling <code>status</code>, <code>panora-cli watch</code> blocks and prints a line
 every time <code>revision</code> changes (the first line is always the current one, so
 starting a watcher never misses a change that just happened):</p>
@@ -561,6 +611,7 @@ persist_on_wayland = "auto"
 index_full_text = true
 max_total_bytes = 536870912
 max_images = 200
+duplicate_policy = "bump"
 </code></pre>
 <div class="table-wrapper">
 <table>
@@ -576,6 +627,7 @@ max_images = 200
 <tr><td><code>index_full_text</code></td><td><code>true</code></td><td>Index up to 64 KiB of an entry’s text, not just its 500-character preview, so search finds words anywhere in it. The index is in the same 0600 file.</td></tr>
 <tr><td><code>max_total_bytes</code></td><td><code>536870912</code> (512 MiB)</td><td>Payload bytes the history may hold. Over the limit, the oldest unpinned entries go first; pinned entries count towards it but are never evicted. <code>0</code> means no limit.</td></tr>
 <tr><td><code>max_images</code></td><td><code>200</code></td><td>Image entries kept, oldest unpinned first. <code>0</code> means no limit.</td></tr>
+<tr><td><code>duplicate_policy</code></td><td><code>"bump"</code></td><td>What a re-copy of content already in the history does (CAP-08). <code>bump</code> moves it to the top with a fresh timestamp. <code>ignore</code> still dedups to the same entry — never a second row — but leaves its position and timestamp alone, for content you re-copy often and do not want hogging the top of the list.</td></tr>
 </tbody>
 </table>
 </div>
@@ -591,6 +643,7 @@ capture_kinds = []
 sensitive_policy = "mask"
 sensitive_ttl_minutes = 10
 lock_after_idle_minutes = 0
+clear_clipboard_after_seconds = 0
 </code></pre>
 <div class="table-wrapper">
 <table>
@@ -608,6 +661,7 @@ lock_after_idle_minutes = 0
 <tr><td><code>sensitive_policy</code></td><td><code>"mask"</code></td><td>What happens to text that looks like a key, a token, a card number or an IBAN. <code>mask</code> records it with a masked <em>preview</em> and no full-text index — the real content is still stored and still comes back on recall/preview/export, like any other entry; this is a display policy, not a way to make the secret itself inaccessible. <code>drop</code> never records it at all. <code>store</code> treats it like anything else, preview included.</td></tr>
 <tr><td><code>sensitive_ttl_minutes</code></td><td><code>10</code></td><td>Flagged entries are removed after this long, under <code>mask</code> and <code>store</code> alike. <code>0</code> leaves them to the normal retention rules. Pinned entries stay either way.</td></tr>
 <tr><td><code>lock_after_idle_minutes</code></td><td><code>0</code></td><td>Engage the second-layer lock (<code>panora-cli lock</code>, SEC-02) on its own after this many minutes of inactivity. <code>0</code> disables idle locking; a lock password has to be set first either way (<code>panora-cli lock set-password</code>), or this does nothing.</td></tr>
+<tr><td><code>clear_clipboard_after_seconds</code></td><td><code>0</code></td><td>Clear the live clipboard this many seconds after a recall (CAP-07), the way a password manager times out what it copied. <code>0</code> disables it. Fires only if the clipboard still holds exactly what that recall put there — copying something else in the meantime cancels it; the history entry itself is untouched either way. At most <code>3600</code> (an hour).</td></tr>
 </tbody>
 </table>
 </div>
@@ -657,6 +711,8 @@ layer_anchor = "top-right"
 </thead>
 <tbody>
 <tr><td><code>~/.config/panora/config.toml</code></td><td>this file</td></tr>
+<tr><td><code>~/.config/panora/first-run</code></td><td>marker: the welcome dialog has been shown</td></tr>
+<tr><td><code>~/.config/panora/window-size</code></td><td>the popup’s last size (<code>WIDTHxHEIGHT</code>), remembered state rather than a preference, so it is not in <code>config.toml</code></td></tr>
 <tr><td><code>~/.local/share/panora/history.db</code></td><td>the encrypted history, mode 0600 in a 0700 directory</td></tr>
 <tr><td><code>~/.local/share/panora/history.db.bak-vN</code></td><td>the copy taken before a schema migration</td></tr>
 <tr><td><code>$XDG_RUNTIME_DIR/panora.sock</code></td><td>the IPC socket, mode 0600, peer UID checked</td></tr>
@@ -664,8 +720,9 @@ layer_anchor = "top-right"
 </tbody>
 </table>
 </div>
-<p>The daemon writes nothing outside these. There is no system-wide
-configuration file and no root-owned state.</p>
+<p>The daemon writes nothing outside its own three rows above; the two
+<code>~/.config/panora/</code> marker files are written by the popup itself. There is
+no system-wide configuration file and no root-owned state.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="privacy-and-security"><a class="header" href="#privacy-and-security">Privacy and security</a></h1>
 <p>A clipboard manager sees everything you copy, including the things you
@@ -1052,10 +1109,16 @@ package (see below).</p>
 <p>The install kit (<code>panora-&lt;version&gt;-install-kit.tar.gz</code>) is the <code>.deb</code> plus
 <code>install.sh</code>, <code>uninstall.sh</code> and <code>test-local.sh</code> for people who would rather
 run one script than read the README.</p>
-<p>There is no Flatpak and no Snap. Panora needs the session bus, the Secret
-Service, the X11 or Wayland clipboard protocols and — on older GNOME — a
-Shell extension; the portal story for all of that is not there yet. The
-trade-offs are recorded as <code>PKG-04</code> in <code>docs/ROADMAP.md</code>.</p>
+<p>There is no Flatpak and no Snap. A Flatpak build was researched, not just
+deferred: on Sway, Hyprland and other wlroots compositors, the compositor
+does not expose the Wayland clipboard protocol (<code>wlr-data-control</code> /
+<code>ext-data-control-v1</code>) to a sandboxed client at all, which is what
+<code>panod</code>’s native Wayland backend depends on, and the GNOME Shell extension
+bridge used for GNOME ≤ 47 has the same registration problem inside a
+sandbox that other clipboard managers using the same design already hit.
+A Flatpak build would work, at best, on X11 and KDE/KWin — a real step
+down from “every Wayland compositor” that is not worth making quietly.
+Full findings and sources are in <code>docs/ROADMAP.md</code> §11.5, <code>PKG-04</code>.</p>
 <h3 id="verifying-a-download"><a class="header" href="#verifying-a-download">Verifying a download</a></h3>
 <pre><code class="language-sh">sha256sum -c SHA256SUMS --ignore-missing
 minisign -Vm SHA256SUMS -P &lt;the public key from the release notes&gt;
@@ -1248,6 +1311,63 @@ implications first and code style second.</li>
 </ol>
 <p>By contributing you agree that your work is released under GPL-3.0-only, the
 project licence.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="governance"><a class="header" href="#governance">Governance</a></h1>
+<p>How decisions get made, who makes them, and where they end up written down.
+This is a policy document; the mechanics of actually landing a change are in
+<a href="CONTRIBUTING.html">CONTRIBUTING.md</a>.</p>
+<h2 id="today-one-maintainer"><a class="header" href="#today-one-maintainer">Today: one maintainer</a></h2>
+<p>Panora has one maintainer, <strong>ygkali</strong> (see <a href="AUTHORS.html">AUTHORS.md</a> and
+<a href=".github/CODEOWNERS">.github/CODEOWNERS</a>), who reviews and merges every
+change and has final say on scope, design and releases. This is a plain
+fact about the project’s current size, not a permanent design: as
+contributors show sustained, trusted involvement, they are added to
+CODEOWNERS and given the same authority over the areas they own. There is
+no separate “core team” application process beyond that — it follows from
+contributing.</p>
+<h2 id="where-decisions-live"><a class="header" href="#where-decisions-live">Where decisions live</a></h2>
+<p>Three kinds of decision, three places, so nobody has to guess which one
+records a given choice:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Kind of decision</th><th>Recorded in</th><th>Example</th></tr>
+</thead>
+<tbody>
+<tr><td>Product scope and sequencing: what ships, in what order, why something was deliberately left out</td><td><a href="docs/ROADMAP.html">docs/ROADMAP.md</a>, sections 6, 7 and 11</td><td>Which release a feature belongs to; why EGO submission waited</td></tr>
+<tr><td>Architecture: a choice that is expensive to reverse once code depends on it</td><td><a href="docs/adr">docs/adr/</a> (Architecture Decision Records, Turkish)</td><td>Storage format, the IPC protocol, the crypto primitives (ADR 0001–0003)</td></tr>
+<tr><td>One-off calls needing a yes/no the maintainer is the only one positioned to make</td><td><code>docs/ROADMAP.md</code> section 7 (“Açık kararlar”)</td><td>Application id, repository layout, default language</td></tr>
+</tbody>
+</table>
+</div>
+<p>A new ADR is warranted when a change would be costly to undo later:
+swapping a storage engine, bumping the on-disk or wire protocol version,
+adding a cryptographic primitive, or taking on a dependency that other
+components come to rely on. Day-to-day implementation choices do not need
+one; <code>CHANGELOG.md</code> and commit messages cover those.</p>
+<h2 id="code-of-conduct-and-security-reports"><a class="header" href="#code-of-conduct-and-security-reports">Code of Conduct and security reports</a></h2>
+<p>Conduct is governed by <a href="CODE_OF_CONDUCT.html">CODE_OF_CONDUCT.md</a>; the
+maintainer (or, later, any CODEOWNERS member) enforces it and is the
+contact point for reports. Security reports follow
+<a href="SECURITY.html">SECURITY.md</a> instead of the normal issue tracker.</p>
+<h2 id="pull-requests-1"><a class="header" href="#pull-requests-1">Pull requests</a></h2>
+<p>One maintainer (or relevant CODEOWNERS reviewer) approval merges a change;
+see <a href="CONTRIBUTING.html">CONTRIBUTING.md</a> for what a mergeable pull request
+looks like. Privacy and security implications are reviewed before code
+style.</p>
+<h2 id="if-the-maintainer-goes-quiet"><a class="header" href="#if-the-maintainer-goes-quiet">If the maintainer goes quiet</a></h2>
+<p>Documented here because a single-maintainer bus factor is a real risk
+(<a href="docs/ROADMAP.html">docs/ROADMAP.md</a> section 8 tracks it as one), not
+because it is expected: if the maintainer is unreachable for an extended
+period (no commits, reviews or replies for several months), a contributor
+with a sustained history on the project should open a visible, pinned
+issue proposing themselves or another regular contributor as the new
+maintainer, wait a reasonable public comment period, and, once GitHub’s own
+inactive-owner support process (initiated through GitHub Support, since
+there is no in-repository mechanism for it) confirms the transfer, take
+over CODEOWNERS and repository access. There is no committee to convene
+first — the point of writing this down now is that there does not need to
+be one later.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="releasing-panora"><a class="header" href="#releasing-panora">Releasing Panora</a></h1>
 <h2 id="versioning"><a class="header" href="#versioning">Versioning</a></h2>
@@ -1660,6 +1780,123 @@ embedded NUL truncated the scan mid-quote and SQLite reported
 UTF-8) and the <code>wanted_order</code> invariants (only known MIME types kept,
 sorted by preference, deduplicated, at most one plain-text flavour,
 idempotent).</li>
+<li>Clear the system clipboard after a recall (CAP-07): <code>privacy. clear_clipboard_after_seconds</code> (0, the default, disables it). Fires only
+if the clipboard still holds exactly what that recall put there — a
+generation counter bumped on every real clipboard change, not a
+MIME-list comparison, since two different plain-text copies advertise
+the same targets and a comparison that only looked at those would clear
+the wrong one. Two real bugs turned up building this: X11’s
+<code>SetSelectionOwner</code> needs a round trip (<code>.check()</code>) before the release
+is guaranteed to have reached the server, and — caught only by a
+headless-sway run of <code>scripts/wayland-e2e.sh</code>, not by the mocked unit
+tests — a deliberate clear looks exactly like a source application
+exiting to <code>handle_event</code>, so Wayland’s clipboard-persistence feature
+was immediately re-offering the entry the clear had just removed; a
+flag set right before the clear and consumed by the very next
+<code>OwnerGone</code> event fixes it without touching persistence’s normal
+behaviour for a real exit.</li>
+<li>Recall to PRIMARY for a middle-click paste (CAP-10): <code>panora-cli copy &lt;id&gt; --primary</code>; <code>--paste</code> is ignored with it (there is no keyboard
+shortcut for a PRIMARY paste). <code>Request::Recall</code> gained a <code>to: Selection</code>
+field, defaulting to <code>Clipboard</code> so existing JSON callers are unaffected.</li>
+<li><code>history.duplicate_policy</code> (CAP-08): <code>bump</code> (default, unchanged — a
+re-copy of content already in the history moves it to the top with a
+fresh timestamp) or <code>ignore</code> (the entry still dedups to the same row,
+never a second one, but its position and timestamp are left alone).</li>
+<li>Fixed a real, pre-existing bug surfaced while building the above:
+<code>panora-gui</code>’s <code>--features fixture</code> build (used by <code>scripts/wayland-e2e. sh</code>, <code>scripts/capture-screenshots.sh</code> and <code>scripts/a11y-check.sh</code>) had
+not actually compiled since SEC-01 — <code>StatusData</code>’s <code>app_locked</code>/
+<code>lock_password_set</code> fields and nine <code>Request</code> variants added since then
+(<code>RotateKey</code>, <code>Lock</code>, <code>Unlock</code>, <code>SetLockPassword</code>, <code>Wipe</code>, <code>Export</code>,
+<code>Import</code>, <code>Hello</code>, <code>Subscribe</code>) were never reflected in the fixture,
+because nothing in the regular <code>cargo build</code>/<code>test --workspace</code> loop
+passes that feature flag; the fixture now answers each of those with an
+explicit “not supported by the GUI fixture” error instead of failing to
+compile, since the popup never sends any of them. <code>docs/ROADMAP.md</code>
+§11.4 has the fuller story of how this stayed invisible.</li>
+<li><code>panora-cli stats</code> (CLI-06): counts by kind, pinned/sensitive counts,
+total payload bytes and the oldest/newest entry’s time, computed in SQL
+server-side (<code>Database::stats</code>) rather than by paging through every
+entry. <code>--json</code> gets the same shape as every other command.</li>
+<li><code>panora-cli config get/set/validate/edit</code> (CLI-05): reads and changes
+<code>config.toml</code> directly by dotted key path (<code>history.max_entries</code>,
+<code>privacy.sensitive_policy</code>, …) without a daemon restart. <code>get</code> with no
+key prints the whole file; <code>set</code> parses the new value to match the
+existing key’s TOML type (boolean, integer, comma-separated list for an
+array) and refuses to write anything that would not pass <code>validate</code>;
+<code>edit</code> opens <code>$VISUAL</code>/<code>$EDITOR</code> and reports whether the result is still
+valid afterwards without reverting it. <code>set</code> and a valid <code>edit</code> both
+best-effort <code>reload</code> a running daemon.</li>
+<li>Every <code>--json</code> reply is now <code>{"schema_version": 1, "data": ...}</code> instead
+of the bare reply (CLI-08), and <code>panora-cli schema</code> prints the JSON
+Schema (draft 2020-12) for <code>data</code> in every command, keyed by command
+name under <code>commands</code> with the underlying type schemas in <code>$defs</code>. The
+schemas are generated with <code>schemars</code> from the same Rust types that are
+actually serialized (<code>ResponseData</code>, <code>Event</code>, <code>Config</code>, …), so the
+document cannot drift from the real output the way a hand-written copy
+could. <code>schema_version</code> is <code>panora-cli</code>’s own output format version,
+independent of the daemon’s <code>protocol</code> field and the package <code>version</code>.</li>
+<li><code>GOVERNANCE.md</code> (DOC-06): who decides what today (one maintainer, with a
+documented path to more as CODEOWNERS grows), where each kind of
+decision is recorded (<code>docs/ROADMAP.md</code> for scope, <code>docs/adr/</code> for
+architecture), and what happens to the project if the maintainer goes
+quiet for an extended period. Mirrored into the documentation site.</li>
+<li>Locale-aware plural forms and number formatting (I18N-02): the three
+catalogue strings that carry a count (<code>{n} items</code>, <code>{n} items deleted</code>,
+<code>{n} items processed.</code>) now have a matching singular form, picked by a
+new <code>panora_core::i18n::pluralize</code>, so English reads “1 item” instead of
+“1 items” (Turkish nouns do not inflect for count, so its singular and
+plural catalogue entries hold the same text on purpose). Byte counts
+(<code>panora-cli stats</code>, the popup’s storage-usage row, the details view)
+use the language’s own decimal separator, a comma rather than a period
+in Turkish. Fixed a real, if narrow, privacy-relevant bug along the way:
+the window-title exclusion list (<code>privacy.excluded_window_titles</code>)
+lowercased with Unicode’s locale-independent default, under which <code>İ</code>
+becomes <code>i</code> plus a <em>combining</em> dot above rather than a plain <code>i</code> — as a
+substring, that never matches plain <code>i</code> in the actual window title, so a
+correctly-spelled Turkish exclusion phrase with a capital <code>İ</code> could
+silently fail to match at all. Window titles and configured phrases now
+fold through a small Turkish-aware lowercase that also gets the other
+direction right (<code>I</code> folds to the dotless <code>ı</code>, not <code>i</code>).</li>
+<li>The popup remembers its size across restarts (UI-24): resize it once,
+and it opens at that size next time, in a small state file next to
+<code>config.toml</code> (window geometry is remembered state, not a preference,
+so it is not in <code>config.toml</code> and does not show up in <code>panora-cli config get</code>). Fixed a real multi-monitor bug found while building this:
+the X11 “open next to the pointer” placement clamped to the <em>combined</em>
+virtual screen across every monitor rather than the one the pointer is
+actually on, so on a multi-monitor desktop the popup could spill from
+the pointer’s monitor onto a neighbouring one; it now asks RandR which
+monitor the pointer is on and clamps to that one instead.</li>
+<li>Plain-text entries that read as source code (UI-10) show in a monospace
+font, in the card and in the details view: a new
+<code>panora_core::code::looks_like_code</code> heuristic scores indentation,
+semicolon-terminated lines, code-specific keywords and punctuation
+(<code>=&gt;</code>, <code>::</code>, <code>&amp;&amp;</code>, …), symbol density, and JSON/array-shaped text.
+Syntax highlighting stays out of scope, as the roadmap already marked
+it optional.</li>
+<li>Rows can be dragged onto other applications (UI-16): text-like entries
+(plain text, links, colours, rich text) drag as their real, full text
+rather than the card’s truncated preview, and file-list entries drag as
+real <code>file://</code> URIs a file manager understands. Image entries are not
+draggable yet – their full bytes would need fetching off the GTK
+thread first, the same way every other payload-sized request already
+does, and drag-and-drop’s synchronous <code>prepare</code> callback has no place
+for that yet.</li>
+<li>Rich-text entries get a real preview instead of always falling back to
+plain text (UI-22): a new <code>panora_core::richtext::html_to_pango</code>
+converts a small allowlist of HTML tags (bold, italic, underline,
+strikethrough, inline code, links, paragraph/line breaks, bold
+headings) to Pango markup, drops anything else while keeping its text,
+and discards <code>&lt;script&gt;</code>/<code>&lt;style&gt;</code> content outright. Malformed or
+unbalanced input (a real risk – this HTML comes from whatever
+application wrote it) always produces valid, fully-closed markup: tags
+left open are force-closed, stray closing tags are ignored. RTF-only
+rich text (no HTML payload) still falls back to plain text; full RTF
+parsing is out of scope.</li>
+<li>A 45-second feature tour (DOC-09), <code>docs/book/src/media/tour.webm</code>,
+embedded on the documentation site’s popup page and linked from the
+README. <code>scripts/record-tour.sh</code> regenerates it headlessly: the popup
+runs on its fixture data under Xvfb, xdotool drives it by keyboard and
+ffmpeg records it with a caption per step.</li>
 </ul>
 <h3 id="changed"><a class="header" href="#changed">Changed</a></h3>
 <ul>
@@ -1720,6 +1957,14 @@ were removed.</li>
 </ul>
 <h3 id="fixed"><a class="header" href="#fixed">Fixed</a></h3>
 <ul>
+<li><code>cargo doc</code> failed with <code>-D warnings</code> on current rustdoc: the module
+docs of <code>panora_core::lock</code> linked <code>LockSecret::verify</code> unqualified,
+which rustdoc resolves in the crate root because <code>pub mod lock</code> carries
+an outer doc comment too. Both links are fully qualified now.</li>
+<li>The popup’s fixture build (<code>--features fixture</code>) ignored the search
+grammar and matched the whole string as a substring, so <code>kind:link</code> or
+<code>app:firefox</code> found nothing; it now parses queries with
+<code>panora_core::search</code> and applies the same filters as the daemon.</li>
 <li>Switching <code>history.record_primary</code> in the settings needed a daemon
 restart; the capture loop now opens or drops the PRIMARY watch on reload.</li>
 <li>The GNOME bridge validates its caller: <code>Push</code>/<code>PushMany</code> are accepted only

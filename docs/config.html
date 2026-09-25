@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "rust";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "searchindex-8695e607.js";
+            window.path_to_searchindex_js = "searchindex-7a06d3b5.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-6fd7c490.js"></script>
+        <script src="toc-f618b4cb.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -199,6 +199,7 @@ persist_on_wayland = "auto"
 index_full_text = true
 max_total_bytes = 536870912
 max_images = 200
+duplicate_policy = "bump"
 </code></pre>
 <div class="table-wrapper">
 <table>
@@ -214,6 +215,7 @@ max_images = 200
 <tr><td><code>index_full_text</code></td><td><code>true</code></td><td>Index up to 64 KiB of an entry’s text, not just its 500-character preview, so search finds words anywhere in it. The index is in the same 0600 file.</td></tr>
 <tr><td><code>max_total_bytes</code></td><td><code>536870912</code> (512 MiB)</td><td>Payload bytes the history may hold. Over the limit, the oldest unpinned entries go first; pinned entries count towards it but are never evicted. <code>0</code> means no limit.</td></tr>
 <tr><td><code>max_images</code></td><td><code>200</code></td><td>Image entries kept, oldest unpinned first. <code>0</code> means no limit.</td></tr>
+<tr><td><code>duplicate_policy</code></td><td><code>"bump"</code></td><td>What a re-copy of content already in the history does (CAP-08). <code>bump</code> moves it to the top with a fresh timestamp. <code>ignore</code> still dedups to the same entry — never a second row — but leaves its position and timestamp alone, for content you re-copy often and do not want hogging the top of the list.</td></tr>
 </tbody>
 </table>
 </div>
@@ -229,6 +231,7 @@ capture_kinds = []
 sensitive_policy = "mask"
 sensitive_ttl_minutes = 10
 lock_after_idle_minutes = 0
+clear_clipboard_after_seconds = 0
 </code></pre>
 <div class="table-wrapper">
 <table>
@@ -246,6 +249,7 @@ lock_after_idle_minutes = 0
 <tr><td><code>sensitive_policy</code></td><td><code>"mask"</code></td><td>What happens to text that looks like a key, a token, a card number or an IBAN. <code>mask</code> records it with a masked <em>preview</em> and no full-text index — the real content is still stored and still comes back on recall/preview/export, like any other entry; this is a display policy, not a way to make the secret itself inaccessible. <code>drop</code> never records it at all. <code>store</code> treats it like anything else, preview included.</td></tr>
 <tr><td><code>sensitive_ttl_minutes</code></td><td><code>10</code></td><td>Flagged entries are removed after this long, under <code>mask</code> and <code>store</code> alike. <code>0</code> leaves them to the normal retention rules. Pinned entries stay either way.</td></tr>
 <tr><td><code>lock_after_idle_minutes</code></td><td><code>0</code></td><td>Engage the second-layer lock (<code>panora-cli lock</code>, SEC-02) on its own after this many minutes of inactivity. <code>0</code> disables idle locking; a lock password has to be set first either way (<code>panora-cli lock set-password</code>), or this does nothing.</td></tr>
+<tr><td><code>clear_clipboard_after_seconds</code></td><td><code>0</code></td><td>Clear the live clipboard this many seconds after a recall (CAP-07), the way a password manager times out what it copied. <code>0</code> disables it. Fires only if the clipboard still holds exactly what that recall put there — copying something else in the meantime cancels it; the history entry itself is untouched either way. At most <code>3600</code> (an hour).</td></tr>
 </tbody>
 </table>
 </div>
@@ -295,6 +299,8 @@ layer_anchor = "top-right"
 </thead>
 <tbody>
 <tr><td><code>~/.config/panora/config.toml</code></td><td>this file</td></tr>
+<tr><td><code>~/.config/panora/first-run</code></td><td>marker: the welcome dialog has been shown</td></tr>
+<tr><td><code>~/.config/panora/window-size</code></td><td>the popup’s last size (<code>WIDTHxHEIGHT</code>), remembered state rather than a preference, so it is not in <code>config.toml</code></td></tr>
 <tr><td><code>~/.local/share/panora/history.db</code></td><td>the encrypted history, mode 0600 in a 0700 directory</td></tr>
 <tr><td><code>~/.local/share/panora/history.db.bak-vN</code></td><td>the copy taken before a schema migration</td></tr>
 <tr><td><code>$XDG_RUNTIME_DIR/panora.sock</code></td><td>the IPC socket, mode 0600, peer UID checked</td></tr>
@@ -302,8 +308,9 @@ layer_anchor = "top-right"
 </tbody>
 </table>
 </div>
-<p>The daemon writes nothing outside these. There is no system-wide
-configuration file and no root-owned state.</p>
+<p>The daemon writes nothing outside its own three rows above; the two
+<code>~/.config/panora/</code> marker files are written by the popup itself. There is
+no system-wide configuration file and no root-owned state.</p>
 
                     </main>
 

@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "rust";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "searchindex-8695e607.js";
+            window.path_to_searchindex_js = "searchindex-7a06d3b5.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-6fd7c490.js"></script>
+        <script src="toc-f618b4cb.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -186,12 +186,13 @@ is the scripting interface and the one to reach for when the popup will not
 open.</p>
 <pre><code class="language-sh">panora-cli list [QUERY] [--kind image] [--pinned] [--limit 20] [--offset 20] [--format TEMPLATE]
 panora-cli search &lt;TEXT&gt; [--format TEMPLATE]
-panora-cli copy &lt;ID&gt; [--paste] [--mime text/plain]
+panora-cli copy &lt;ID&gt; [--paste] [--mime text/plain] [--primary]
 panora-cli preview &lt;ID&gt; [--mime image/png] [--out photo.png]
 panora-cli pin &lt;ID&gt; | unpin &lt;ID&gt; | delete &lt;ID&gt; | restore &lt;ID&gt;
 panora-cli clear
 panora-cli private on|off
-panora-cli status | toggle | reload
+panora-cli status | stats | toggle | reload
+panora-cli config get [KEY] | set &lt;KEY&gt; &lt;VALUE&gt; | validate | edit
 panora-cli store [FILE] [--mime TYPE] [--app NAME] [--no-copy]
 panora-cli pick [--format '{id}\t{kind}\t{preview}']
 panora-cli watch
@@ -202,9 +203,27 @@ panora-cli export --out FILE | import &lt;FILE&gt;
 panora-cli import-legacy copyq|gpaste|clipboard-indicator
 panora-cli completions bash|zsh|fish
 panora-cli man &lt;DIR&gt;
+panora-cli schema
 </code></pre>
 <p><code>--json</code> works on every command that prints something; <code>man panora-cli</code> has
 the full text.</p>
+<h2 id="scripting-against---json"><a class="header" href="#scripting-against---json">Scripting against <code>--json</code></a></h2>
+<p>Every <code>--json</code> reply is <code>{"schema_version": 1, "data": ...}</code> rather than the
+bare value, so a script can tell which shape it is reading without guessing
+from the command name:</p>
+<pre><code class="language-sh">panora-cli status --json | jq '.data.entries'
+</code></pre>
+<p><code>schema_version</code> is <code>panora-cli</code>’s own JSON output format version (bumped
+only if an existing field’s meaning changes or disappears; a new field or
+command is not a breaking change). It is independent of <code>status</code>’s own
+<code>protocol</code> field (the daemon/client wire protocol) and of the package
+<code>version</code> — the three can move on their own schedules.</p>
+<p><code>panora-cli schema</code> prints the JSON Schema (draft 2020-12) for <code>data</code> in
+every command: a <code>commands</code> map from subcommand name to the schema its
+<code>data</code> field matches, and the underlying type schemas under <code>$defs</code>. It is
+generated with <code>schemars</code> from the same Rust types <code>--json</code> actually
+serializes, so it cannot drift from the real output the way a hand-written
+copy could.</p>
 <h2 id="exit-status"><a class="header" href="#exit-status">Exit status</a></h2>
 <div class="table-wrapper">
 <table>
@@ -253,6 +272,14 @@ panora-cli preview 42 --mime image/png --out shot.png
 </code></pre>
 <p>With <code>--mime</code> the payload is written raw and nothing else, which is what
 you want in a pipe.</p>
+<p><code>panora-cli copy &lt;ID&gt; --primary</code> puts the entry on PRIMARY instead of
+CLIPBOARD, so a middle-click pastes it; <code>--paste</code> is ignored with it, since
+there is no keyboard shortcut for a PRIMARY paste. <code>privacy. clear_clipboard_after_seconds</code> (<code>config.toml</code>, 0 = disabled) clears whichever
+selection a recall was put on that many seconds later — the way a password
+manager times out what it copied — but only if nothing else was copied in
+the meantime.</p>
+<p><code>panora-cli stats</code> prints counts by kind, how many entries are pinned or
+flagged sensitive, total payload bytes, and the oldest/newest entry’s time.</p>
 <h2 id="watching-the-daemon"><a class="header" href="#watching-the-daemon">Watching the daemon</a></h2>
 <pre><code class="language-sh">panora-cli status
 </code></pre>
@@ -267,6 +294,25 @@ after it as <code>health=&lt;code&gt; &lt;message&gt;</code>; those are the same
 shows as a banner. <code>locked</code> is the OS session lock (screensaver); <code>app_ locked</code>/<code>lock_password_set</code> are the second-layer lock, below.</p>
 <p><code>panora-cli reload</code> re-reads <code>config.toml</code> without restarting, which is what
 the settings dialog does when you press <em>save</em>.</p>
+<h3 id="reading-and-changing-configtoml-from-a-script"><a class="header" href="#reading-and-changing-configtoml-from-a-script">Reading and changing <code>config.toml</code> from a script</a></h3>
+<pre><code class="language-sh">panora-cli config get                              # the whole file
+panora-cli config get history.max_entries           # one key
+panora-cli config set privacy.sensitive_ttl_minutes 30
+panora-cli config set privacy.excluded_apps "keepassxc,bitwarden,1password"
+panora-cli config validate
+panora-cli config edit                               # opens $VISUAL/$EDITOR
+</code></pre>
+<p>Keys are the dotted path you would write in <code>config.toml</code> — see
+<a href="config.html">config.toml reference</a> for every one of them. <code>set</code> parses the
+new value to match the existing key’s type: <code>true</code>/<code>false</code>/<code>1</code>/<code>0</code>/<code>yes</code>/<code>no</code>
+for a boolean, a plain integer, a comma-separated list for an array key
+(<code>excluded_apps</code>, <code>ignore_patterns</code>, <code>capture_kinds</code>), anything else as
+text — and refuses to write the file at all if the result would not pass
+<code>config validate</code>. <code>set</code> and a successfully re-read <code>edit</code> both tell a
+running daemon to pick up the change immediately (the same as
+<code>panora-cli reload</code>), best-effort — nothing breaks if the daemon happens not
+to be running right then, since it reads the file fresh on its own next
+start anyway.</p>
 <p>Instead of polling <code>status</code>, <code>panora-cli watch</code> blocks and prints a line
 every time <code>revision</code> changes (the first line is always the current one, so
 starting a watcher never misses a change that just happened):</p>

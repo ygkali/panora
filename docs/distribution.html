@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "rust";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "searchindex-8695e607.js";
+            window.path_to_searchindex_js = "searchindex-7a06d3b5.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-6fd7c490.js"></script>
+        <script src="toc-f618b4cb.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -202,10 +202,16 @@ package (see below).</p>
 <p>The install kit (<code>panora-&lt;version&gt;-install-kit.tar.gz</code>) is the <code>.deb</code> plus
 <code>install.sh</code>, <code>uninstall.sh</code> and <code>test-local.sh</code> for people who would rather
 run one script than read the README.</p>
-<p>There is no Flatpak and no Snap. Panora needs the session bus, the Secret
-Service, the X11 or Wayland clipboard protocols and — on older GNOME — a
-Shell extension; the portal story for all of that is not there yet. The
-trade-offs are recorded as <code>PKG-04</code> in <code>docs/ROADMAP.md</code>.</p>
+<p>There is no Flatpak and no Snap. A Flatpak build was researched, not just
+deferred: on Sway, Hyprland and other wlroots compositors, the compositor
+does not expose the Wayland clipboard protocol (<code>wlr-data-control</code> /
+<code>ext-data-control-v1</code>) to a sandboxed client at all, which is what
+<code>panod</code>’s native Wayland backend depends on, and the GNOME Shell extension
+bridge used for GNOME ≤ 47 has the same registration problem inside a
+sandbox that other clipboard managers using the same design already hit.
+A Flatpak build would work, at best, on X11 and KDE/KWin — a real step
+down from “every Wayland compositor” that is not worth making quietly.
+Full findings and sources are in <code>docs/ROADMAP.md</code> §11.5, <code>PKG-04</code>.</p>
 <h3 id="verifying-a-download"><a class="header" href="#verifying-a-download">Verifying a download</a></h3>
 <pre><code class="language-sh">sha256sum -c SHA256SUMS --ignore-missing
 minisign -Vm SHA256SUMS -P &lt;the public key from the release notes&gt;
