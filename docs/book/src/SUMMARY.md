@@ -11,6 +11,7 @@
 - [config.toml reference](config.md)
 - [Privacy and security](privacy.md)
 - [The public D-Bus API](dbus-api.md)
+- [Syncing between devices](sync.md)
 
 # Your desktop
 

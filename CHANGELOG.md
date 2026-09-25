@@ -452,6 +452,21 @@ real-machine verification in `docs/RELEASING.md` is done.
   signed, epoch-numbered roster is the device list; removing a device
   rotates the group key, and data sealed with an older key is refused.
   The LAN transport and the user interface follow with SYNC-04.
+- Device sync on the local network (SYNC-04), as a separate, optional
+  package, `panora-sync` (experimental, off until
+  `systemctl --user enable --now panora-sync`). Devices find each other
+  with mDNS or at configured addresses and talk QUIC; each side proves its
+  device key by signing a value tied to the TLS session. Only loopback,
+  private, link-local and IPv6 unique-local addresses are ever contacted or
+  accepted. Entries, deletions and pins travel both ways, sealed with the
+  group key; sensitive entries never leave a device, and incoming ones pass
+  the receiving device's privacy rules. `panora-sync invite` prints a link
+  and a QR code, `panora-sync pair` / `join --code` compare a six-digit
+  code, `remove` replaces the group key. See `docs/SYNC.md`.
+- `[sync]` configuration section (`enabled`, `tombstone_days`, `port`,
+  `peers`, `discovery`, `pinned_only`, `text_only`). While `sync.enabled`
+  is on, a deletion is remembered, without its payloads, for
+  `tombstone_days` so devices that were offline learn about it.
 - A 45-second feature tour (DOC-09), `docs/book/src/media/tour.webm`,
   embedded on the documentation site's popup page and linked from the
   README. `scripts/record-tour.sh` regenerates it headlessly: the popup
@@ -459,6 +474,9 @@ real-machine verification in `docs/RELEASING.md` is done.
   ffmpeg records it with a caption per step.
 
 ### Changed
+- History database schema 5: a change counter the sync feed follows, so
+  an entry that arrived from another device is passed on to a third one.
+  Older files are backed up and migrated on the first start.
 - `panod`'s device id (the `device-id` file in its data directory) is now 128
   random bits for new installs instead of a hash of the process id, the
   clock and the data path, which two machines could share. Existing ids

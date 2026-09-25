@@ -18,8 +18,20 @@ serde.workspace = true
 serde_json.workspace = true
 base64.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["io-util"] }
+tokio = { workspace = true, features = ["io-util", "rt-multi-thread", "macros", "net", "time", "sync", "signal"] }
+quinn.workspace = true
+rustls.workspace = true
+rcgen.workspace = true
+mdns-sd.workspace = true
+if-addrs = "0.15"
+oo7.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+clap.workspace = true
+clap_mangen.workspace = true
+qrcode.workspace = true
 
 [dev-dependencies]
+panod = { path = "../panod" }
 tempfile = "3"
 tokio = { workspace = true, features = ["io-util", "macros", "rt-multi-thread", "net", "time"] }

@@ -49,6 +49,14 @@ pub enum Error {
     #[error("the other device aborted pairing ({0})")]
     Aborted(AbortReason),
 
+    /// The QUIC/TLS layer failed: binding, dialling, a closed connection.
+    #[error("network error: {0}")]
+    Transport(String),
+
+    /// `panod` could not be reached or refused a request.
+    #[error("clipboard daemon: {0}")]
+    Panod(String),
+
     /// A primitive in `ring` failed (key generation, agreement). Carries no
     /// detail on purpose.
     #[error("cryptographic operation failed")]

@@ -103,3 +103,135 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 Sayılar `cargo generate-lockfile`, `cargo build --release` (temiz hedef dizini),
 `cargo deny check licenses advisories` (deponun `deny.toml`'u kopyalanarak) ve kilit dosyalarının
 workspace'in `Cargo.lock`'u ile farkından alındı.
+
+## Güncelleme (2026-09-25, SYNC-04 uygulaması)
+
+Karar uygulandı (`crates/panora-sync`, `panora-sync` ikilisi, `packaging/panora-sync.service`,
+ayrı `panora-sync` `.deb`'i). Uygulamada yukarıdaki kararın dört noktası değişti veya netleşti:
+
+1. **Cihaz kimliği sertifikaya değil TLS oturumuna bağlanıyor (karar 5'in yerine).** Her uç
+   nokta her başlangıçta kullanılıp atılan, kendinden imzalı bir sertifika sunuyor. İstemci
+   herhangi bir sertifikayı kabul ediyor, ama el sıkışma imzasını yine doğruluyor. Karşıdaki
+   cihazın kim olduğu bir adım sonra kanıtlanıyor: iki taraf da bu TLS oturumundan dışa aktarılan
+   bir değeri (RFC 5705/8446 exporter) kendi rolüyle birlikte Ed25519 cihaz kimliğiyle imzalıyor
+   (`transport::authenticate`).
+   - Araya giren biri iki ayrı TLS oturumu kurar, yani iki farklı dışa aktarım değeri görür. Bu
+     yüzden imzaları öbür oturuma taşıyamaz. Rol etiketi de bir imzanın imzalayana geri
+     yansıtılmasını önler.
+   - Böylece X.509 hiç ayrıştırılmıyor. Sertifikadan anahtar çıkaran basit bir ayrıştırıcı,
+     uzantıya gömülmüş sahte bir anahtarla kandırılabilirdi.
+   - ALPN iki protokolü ayırıyor: `panora-sync/1` ve `panora-pair/1`. Eşleştirme kendi
+     kimlik doğrulamasını yapıyor (ADR 0005).
+2. **Hangi adreslerle konuşulacağı programın içinde uygulanıyor (karar 2'deki `IPAddressAllow`
+   yerine).** systemd 255'in kullanıcı yöneticisi `IPAddressDeny=`/`IPAddressAllow=`
+   ayarlarını kullanıcı birimlerinde uygulamıyor. WSL2 Ubuntu 24.04'te `systemd-run --user -p
+   IPAddressDeny=any` altında 1.1.1.1:80'e bağlantı yine kuruldu. `RestrictAddressFamilies=`
+   ise uygulanıyor (aynı denemede `AF_UNIX` ile bağlantı reddedildi).
+   - Bu yüzden birimde yalnızca `RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK`
+     var. `AF_NETLINK`, mDNS ve davetler için ağ arayüzlerini listeliyor.
+   - Adres sınırı `transport::is_allowed_peer` ile iki yönde de her bağlantıya uygulanıyor:
+     loopback, RFC 1918, link-local ve IPv6 unique-local. Genel bir adresten gelen bağlantı el
+     sıkışmadan önce reddediliyor. mDNS'in ya da yapılandırmanın verdiği genel bir adres hiç
+     aranmıyor.
+   - `panod.service`'in `RestrictAddressFamilies=AF_UNIX` kısıtı gerçekten uygulanıyor. Bu da
+     aynı denemeyle doğrulandı.
+3. **Silme kayıtları senkron açıkken tutuluyor (SYNC-03'ün açık maddesi 1).** `sync.enabled`
+   açıkken kullanıcının sildiği bir kaydın satırı, yükleri geri alma süresinden sonra silinmiş
+   olarak, `sync.tombstone_days` gün (varsayılan 30) kalıyor. Böylece çevrimdışı kalmış bir
+   cihaz silmeyi öğreniyor, kaydı geri göndermiyor.
+   - Saklama kurallarının çıkardığı kayıtlar (`deleted_at = 0`) akışa hiç girmiyor. Bunlar bu
+     cihazın kendi temizliği; başka cihazların tekrar etmesi gereken bir silme değil.
+   - Senkron açıkken geri alma, satır dursa da 30 saniyeden sonra reddediliyor.
+4. **mDNS'te grup kimliği görünmüyor.** `_panora-sync._udp` yalnızca grup kimliğinden ve
+   saatten türetilen bir etiket duyuruyor; örnek adı da her çalıştırmada rastgele. Yabancı biri
+   hangi grubu gördüğünü öğrenemiyor, iki görüşün aynı grup olduğunu da ancak bir saat içinde
+   anlayabiliyor.
+   - `_panora-pair._udp` yalnızca bir eşleştirme penceresi açıkken duyuruluyor. Cihaz adını ve
+     kimlik anahtarından türetilen kısa bir etiketi taşıyor; davetli cihaz doğru davet edeni
+     bu etiketle buluyor.
+
+Oturum protokolü:
+- İki taraf da `Hello` ile başlar. Bu mesaj cihaz kimliğini ve tutulan bütün roster'ları taşır.
+- Bir cihaz, karşı tarafı üye olarak tanımıyorsa kendi `Hello`'sunu göndermez. Önce karşı
+  tarafın, onu üye yapan bir zincir göstermesini bekler. Beklerken karşı taraftan en fazla
+  512 KiB'lık tek bir çerçeve okunur, ardından 15 saniyelik zaman aşımı gelir.
+- Kayıtlar grup anahtarıyla mühürlenir. Şifreli metinler çerçevenin ikili ekleri olarak gider,
+  yani base64 şişmesi olmaz.
+- Her eşin imleci yalnızca `Applied` onayıyla ilerler. `Retry` imleci yerinde bırakır; alıcıda
+  anahtar yoksa ya da daemon kilitli veya kapalıysa bu yol kullanılır.
+- Karşı cihazın yaptığı durumlar ona geri gönderilmez.
+- Aynı cihazla iki oturum açılırsa her iki tarafta da düşük kimliğin açtığı oturum kalır.
+
+Bağımlılıklar kilit dosyasına 43 yeni crate ekledi (quinn, rustls, rcgen, mdns-sd ve
+bağımlılıkları). Bunlar yalnızca `panora-sync` ikilisine giriyor; `cargo deny` lisans ve danışma
+denetimleri temiz.
+
+Boyut:
+- Soyulmuş `panora-sync` ikilisi 11,3 MB, `panod` 11,7 MB. Yukarıdaki 2,7 MiB'lık ölçüm
+  yalnızca QUIC + mDNS içindi; gerçek ikiliye Secret Service/D-Bus istemcisi (oo7, zbus), tokio
+  ve CLI da giriyor.
+- `panora-sync` `.deb`'i ayrı bir paket, ana paketin boyutunu değiştirmiyor.
+
+Doğrulama:
+- Gerçek `panod` sunucularıyla süreç içi uçtan uca testler: iki ve üç cihaz; davetle ve kodla
+  eşleştirme; kayıt, silme ve sabitlemenin iki yönde gitmesi; çıkarma; yabancının hiçbir şey
+  öğrenmemesi.
+- Gerçek ikililerle duman testi: aynı makinede üç ayrı "cihaz", ayrı XDG dizinleri, ayrı Xvfb
+  ekranları ve paylaşılan gnome-keyring. Davet bağlantısı, mDNS ile bulunan kodlu eşleştirme,
+  iki yönlü senkron ve çıkarma bu testte çalıştı.
+- Birimin sandbox ayarlarıyla (`systemd-run --user`) başlatma: anahtarlık, bağlanma, mDNS ve
+  `status` çalışıyor.
+
+### İç inceleme ve sonrası (2026-09-25)
+
+Ağ katmanı, commit'ten önce ayrı bir ajan tarafından saldırgan gözüyle incelendi: 3 yüksek,
+3 orta, 5 düşük bulgu. Hepsi kapatıldı; her birinin regresyon testi var.
+
+- **Aktarılan kayıt atlanıyordu (yüksek, doğruluk).** Değişiklik akışı Lamport değerine göre
+  sıralanıyordu, ama başka bir cihazdan uygulanan satır o cihazın düşük değerini koruyor. Bu
+  yüzden üçüncü bir cihazın imleci o değeri çoktan geçtiyse satır ona hiç gitmiyordu.
+  - Düzeltme: veritabanı şeması 5. Yeni `change_seq` sütunu ve `meta` içinde tutulan, geri
+    gitmeyen bir sayaç var. Satır eklendiğinde ve `lamport`/`device_id`/`deleted`/`pinned`
+    değiştiğinde SQLite tetikleyicileriyle bir sonraki değeri alıyor.
+  - Akış ve `SyncCursor` artık bu sayaca göre ilerliyor. Lamport değerleri yalnızca LWW için
+    kullanılıyor.
+  - Eski dosyalar yedeklenip taşınıyor; mevcut satırlar id sırasıyla numaralanıyor.
+- **Roster kanıtlanmamış oturuma gidiyordu (yüksek, sızıntı).** Oturum, `Hello` doğrulanmadan
+  kaydediliyordu. Bu arada yapılan bir roster yayını, 15 saniyelik bekleme süresindeki yabancıya
+  da gidiyordu.
+  - Düzeltme: `Rosters` ve `KeyShare` komutları yalnızca `Hello`'su kabul edilmiş oturuma
+    iletiliyor.
+  - Gelen `KeyRequest`, `KeyShare` ve `Records` her seferinde üyelik denetiminden geçiyor.
+  - `Hello`'daki `device_id` roster'dakiyle eşleşmek zorunda.
+- **Kimliği doğrulanmamış bağlantılar belleği şişirebiliyordu (yüksek, DoS).** Düzeltme:
+  - Bağlantı başına tek iki yönlü akışa izin var, tek yönlü akış yok.
+  - Akış penceresi 4 MiB, bağlantı penceresi 8 MiB.
+  - Aynı anda en fazla 64 bağlantı, bir adresten 4.
+  - Akış açma ve kimlik iletisi için 10 saniye zaman aşımı.
+  - Çerçeve okuyucu, bildirilen uzunluğu baştan ayırmıyor; gelen veri kadar büyüyor.
+- **Eşleştirme penceresi tüketilebiliyordu (orta).** Düzeltme:
+  - Deneme hakkı ve pencere kilidi ancak geçerli bir `Commit` geldikten sonra kullanılıyor.
+  - Her adımın 30 saniyelik zaman aşımı var.
+  - Pencerelerin bir numarası var: kapatma yalnızca kendi penceresini kapatıyor ve süren bir
+    eşleştirmeyi, kimseyi kabul etmeden iptal ediyor.
+  - Yeni cihaz grubun bir kopyasına ekleniyor; kopya ancak karşılama mesajı gittikten sonra
+    kalıcı oluyor.
+- **`leave` kimliği yalnızca dosyada değiştiriyordu (orta).** Süreç eski kimlikle devam ediyor,
+  sonraki başlangıçta durum dosyası reddediliyordu. Düzeltme: kimlik bir kilidin arkasında
+  tutuluyor ve `leave` onu da değiştiriyor.
+- **Tek bir büyük kayıt akışı kalıcı olarak tıkıyordu (orta).** Düzeltme: `panod` 64 MiB'tan
+  büyük kayıtları akışa hiç koymuyor. Mühürlü bir sayfa böylece alıcının çerçeve sınırına
+  sığıyor.
+- **Düşük önemdekiler:**
+  - Alıcı gizli moddayken veya kilitliyken kayıtlar `Retry` ile geri gönderiliyor. Önceden
+    "yok sayıldı" onayı alıp kayboluyorlardı.
+  - Bir adresi bir kez yabancı yanıtladıysa o adres yine deneniyor.
+  - mDNS önbelleği 256 kayıtla sınırlı.
+
+**Bilinen sınır:**
+- Dinleyen cihaz, kimliği doğrulanmış her bağlantıya uzun ömürlü Ed25519 kimlik anahtarını
+  gösteriyor; kimlik kanıtının kendisi bu. Yerel ağdaki biri bu yüzden bir cihazı zaman içinde
+  tanıyabilir. Saatlik mDNS etiketi bu bağlantıyı yalnızca pasif gözlemciden saklıyor.
+- Grubun kimliği hiç değişmediği için, çıkarılmış bir cihaz grup etiketini hesaplamayı
+  sürdürebilir.
+- Anahtar gösterilmeden önce bir gizli el sıkışma eklemek relay aşamasına bırakıldı.

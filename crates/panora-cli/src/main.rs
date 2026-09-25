@@ -1118,12 +1118,7 @@ fn print_response(
             records,
             next,
             more,
-        } => println!(
-            "records={} next={}:{} more={more}",
-            records.len(),
-            next.lamport,
-            next.id
-        ),
+        } => println!("records={} next={} more={more}", records.len(), next.seq),
         ResponseData::SyncApplied {
             applied,
             ignored,

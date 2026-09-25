@@ -137,6 +137,10 @@ const SYNC_MAX_LIMIT: usize = 1000;
 /// Payload bytes one `SyncChanges` reply aims to stay under; a single
 /// entry larger than this still goes out, alone.
 const SYNC_REPLY_BYTES: usize = 32 * 1024 * 1024;
+/// Largest entry (all formats together) the feed hands out. Bigger ones
+/// stay on this device: the peer's frame limit (`panora-sync`) must hold a
+/// sealed page, and one entry that never fits would stall the feed.
+const SYNC_MAX_ENTRY_BYTES: usize = 64 * 1024 * 1024;
 /// Highest Lamport value accepted from a peer. Far beyond any real history
 /// (one change per microsecond for 285 years), and low enough that the
 /// local clock can never overflow by counting on from a hostile value.
@@ -1175,9 +1179,22 @@ impl Daemon {
                     .enforce_total_bytes(config.history.max_total_bytes)?,
             );
         }
-        // There is no sync peer to replay tombstones to yet; user deletions
-        // live just long enough for an undo, evictions go right away.
-        self.purge_tombstoned_before(now - UNDO_GRACE_SECS)?;
+        // Evictions (deleted_at = 0) go right away. A user's deletion lives
+        // long enough for an undo; with sync on (SYNC-04) its row then stays,
+        // without payloads, for `sync.tombstone_days`, so a device that was
+        // offline learns about the deletion instead of sending the entry
+        // back.
+        if config.sync.enabled {
+            for blob_ref in self.db.strip_tombstones(now - UNDO_GRACE_SECS)? {
+                if let Err(e) = self.blobs.remove(&blob_ref) {
+                    warn!(blob = %blob_ref, error = %e, "blob cleanup failed");
+                }
+            }
+            let keep = i64::from(config.sync.tombstone_days) * 86_400;
+            self.purge_tombstoned_before(now - keep)?;
+        } else {
+            self.purge_tombstoned_before(now - UNDO_GRACE_SECS)?;
+        }
         if !evicted.is_empty() {
             debug!(count = evicted.len(), "evicted entries by retention policy");
         }
@@ -1441,6 +1458,14 @@ impl Daemon {
     /// Undo a deletion while the tombstone is still within
     /// `UNDO_GRACE_SECS`; afterwards the row is gone and this is `NotFound`.
     pub async fn restore(&self, id: i64) -> Result<Entry> {
+        // With sync on, the row outlives the undo window (without its
+        // payloads); past the window it is gone as far as undo is concerned.
+        match self.db.deleted_at(id)? {
+            Some(at) if at == 0 || at < unix_now() - UNDO_GRACE_SECS => {
+                return Err(Error::NotFound(id));
+            }
+            _ => {}
+        }
         self.db.restore(id)?;
         self.stamp_local(id)?;
         self.bump();
@@ -1478,18 +1503,15 @@ impl Daemon {
         let mut records = Vec::new();
         let (mut payload_count, mut bytes) = (0usize, 0usize);
         'feed: loop {
-            let rows = self.db.changes_since((cursor.lamport, cursor.id), 64)?;
+            let rows = self.db.changes_since(cursor.seq, 64)?;
             if rows.is_empty() {
                 break;
             }
-            for entry in rows {
+            for (seq, entry) in rows {
                 if records.len() >= limit {
                     break 'feed;
                 }
-                let here = SyncCursor {
-                    lamport: entry.lamport,
-                    id: entry.id,
-                };
+                let here = SyncCursor { seq };
                 if !scope.includes(entry.kind, entry.pinned, entry.deleted) {
                     cursor = here;
                     continue;
@@ -1521,6 +1543,11 @@ impl Daemon {
                     continue;
                 }
                 let size: usize = payloads.iter().map(|p| p.data.len()).sum();
+                if size > SYNC_MAX_ENTRY_BYTES {
+                    warn!(id = entry.id, size, "entry too large to sync");
+                    cursor = here;
+                    continue;
+                }
                 if !records.is_empty()
                     && (payload_count + payloads.len() > MAX_FDS_PER_FRAME
                         || bytes + size > SYNC_REPLY_BYTES)
@@ -1544,10 +1571,7 @@ impl Daemon {
                 cursor = here;
             }
         }
-        let more = !self
-            .db
-            .changes_since((cursor.lamport, cursor.id), 1)?
-            .is_empty();
+        let more = !self.db.changes_since(cursor.seq, 1)?.is_empty();
         Ok((records, cursor, more))
     }
 

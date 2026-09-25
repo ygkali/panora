@@ -221,6 +221,51 @@ impl Default for UiConfig {
     }
 }
 
+/// Device sync (SYNC-04). The separate `panora-sync` service reads most of
+/// these; `panod` itself only looks at `enabled` and `tombstone_days`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(default)]
+pub struct SyncConfig {
+    /// Set by `panora-sync` once this device is in a group. While it is on,
+    /// deleted entries leave a small record behind for `tombstone_days`,
+    /// so other devices learn about the deletion instead of sending the
+    /// entry back.
+    pub enabled: bool,
+    /// Days a deletion is remembered for other devices. A device offline
+    /// for longer may bring a deleted entry back.
+    pub tombstone_days: u32,
+    /// UDP port `panora-sync` listens on; 0 picks a free one (mDNS still
+    /// announces it).
+    pub port: u16,
+    /// Devices to reach directly as `address:port`, for networks that
+    /// block mDNS. Only private, link-local and loopback addresses are
+    /// ever contacted.
+    pub peers: Vec<String>,
+    /// Find the other devices with mDNS (`_panora-sync._udp`).
+    pub discovery: bool,
+    /// Share only pinned entries.
+    pub pinned_only: bool,
+    /// Share only text-like entries (text, rich text, links, colours).
+    pub text_only: bool,
+}
+
+impl Default for SyncConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            tombstone_days: 30,
+            port: 47_100,
+            peers: Vec::new(),
+            discovery: true,
+            pinned_only: false,
+            text_only: false,
+        }
+    }
+}
+
+/// Most `sync.peers` entries accepted.
+pub const MAX_SYNC_PEERS: usize = 16;
+
 /// Complete user configuration.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct Config {
@@ -233,6 +278,9 @@ pub struct Config {
     /// UI preferences.
     #[serde(default)]
     pub ui: UiConfig,
+    /// Device sync (SYNC-04).
+    #[serde(default)]
+    pub sync: SyncConfig,
 }
 
 impl Config {
@@ -364,6 +412,26 @@ impl Config {
         if !matches!(self.ui.theme.as_str(), "system" | "light" | "dark") {
             return Err(Error::Config("theme must be system, light or dark".into()));
         }
+        if !(1..=365).contains(&self.sync.tombstone_days) {
+            return Err(Error::Config(
+                "sync.tombstone_days must be between 1 and 365".into(),
+            ));
+        }
+        if self.sync.peers.len() > MAX_SYNC_PEERS {
+            return Err(Error::Config(format!(
+                "at most {MAX_SYNC_PEERS} sync.peers are allowed"
+            )));
+        }
+        if let Some(bad) = self
+            .sync
+            .peers
+            .iter()
+            .find(|p| p.parse::<std::net::SocketAddr>().is_err())
+        {
+            return Err(Error::Config(format!(
+                "sync.peers: '{bad}' is not an address:port (names are not resolved)"
+            )));
+        }
         Ok(())
     }
 
@@ -450,6 +518,24 @@ mod tests {
             .map(|s| s.to_string())
             .collect();
         assert_eq!(PrivacyConfig::default().excluded_apps, expected);
+    }
+
+    #[test]
+    fn sync_section_defaults_and_limits() {
+        let cfg: Config = toml::from_str("[sync]\nenabled = true\n").unwrap();
+        cfg.validate().unwrap();
+        assert!(cfg.sync.enabled);
+        assert_eq!(cfg.sync.tombstone_days, 30);
+        assert!(cfg.sync.discovery);
+
+        let mut cfg = Config::default();
+        cfg.sync.peers = vec!["192.168.1.20:47100".into(), "[fe80::1]:47100".into()];
+        cfg.validate().unwrap();
+        cfg.sync.peers.push("laptop.local:47100".into());
+        assert!(cfg.validate().is_err());
+        let mut cfg = Config::default();
+        cfg.sync.tombstone_days = 0;
+        assert!(cfg.validate().is_err());
     }
 
     #[test]

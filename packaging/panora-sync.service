@@ -1,0 +1,63 @@
+[Unit]
+Description=Panora device sync (local network)
+Documentation=https://github.com/ygkali/panora/blob/main/docs/SYNC.md
+# Sync reads and writes the history through panod's socket.
+After=panod.service
+Wants=panod.service
+PartOf=graphical-session.target
+# The state key lives in the keyring: a keyring that cannot be unlocked makes
+# every start fail, so give up after a few tries instead of prompting in a loop.
+StartLimitIntervalSec=600
+StartLimitBurst=3
+
+[Service]
+Type=simple
+# ProtectHome below cannot create these, and ReadWritePaths needs them.
+ExecStartPre=+/usr/bin/install -d -m 0700 %h/.local/share/panora %h/.config/panora
+ExecStart=/usr/bin/panora-sync run
+Restart=on-failure
+RestartSec=5
+Environment=RUST_LOG=info
+
+# --- sandboxing (ADR 0003, ADR 0004) ---
+NoNewPrivileges=yes
+# The sync state key and decrypted records pass through this process.
+LimitCORE=0
+CapabilityBoundingSet=
+ProtectProc=invisible
+ProcSubset=pid
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectHostname=yes
+UMask=0077
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
+ProtectSystem=strict
+ProtectHome=read-only
+# The sealed sync state (and panod's device id, read only), the control and
+# panod sockets, and config.toml, where joining or leaving a group turns
+# sync.enabled on or off.
+ReadWritePaths=-%h/.local/share/panora
+ReadWritePaths=-%h/.config/panora
+ReadWritePaths=%t
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+# This is the one Panora process allowed on the network. AF_NETLINK lists the
+# network interfaces for mDNS and invitations. Which addresses it talks to is
+# enforced in the program itself (loopback, RFC 1918, link-local and IPv6
+# unique-local only, in both directions): IPAddressAllow=/IPAddressDeny= are
+# not applied to user units by systemd's user manager, so they are left out
+# rather than listed as if they did something.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
+[Install]
+WantedBy=graphical-session.target

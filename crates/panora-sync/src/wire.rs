@@ -47,7 +47,7 @@ pub async fn read_message<R: AsyncRead + Unpin>(reader: &mut R) -> Result<PairMe
 
 /// What to tell the other side when this side fails; `None` when there is
 /// nobody to tell (the stream broke) or they already know (they aborted).
-fn abort_reason(err: &Error) -> Option<AbortReason> {
+pub(crate) fn abort_reason(err: &Error) -> Option<AbortReason> {
     match err {
         Error::Io(_) | Error::Aborted(_) => None,
         Error::Cancelled => Some(AbortReason::Rejected),

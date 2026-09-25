@@ -8,9 +8,11 @@
 use crate::bytes::b64_secret_vec;
 use crate::error::{Error, Result};
 use crate::group::{validate_name, GroupState};
-use crate::identity::DeviceIdentity;
+use crate::identity::{DeviceIdentity, PublicIdentity};
 use panora_core::storage::{Cipher, MasterKey};
+use panora_core::sync::SyncCursor;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::Path;
 use zeroize::Zeroizing;
 
@@ -28,6 +30,9 @@ pub struct SyncState {
     pub device_name: String,
     /// The group, once paired or created.
     pub group: Option<GroupState>,
+    /// For each peer, how far into this device's change feed it has
+    /// confirmed receiving.
+    pub cursors: BTreeMap<PublicIdentity, SyncCursor>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -37,6 +42,8 @@ struct Stored {
     identity: Zeroizing<Vec<u8>>,
     device_name: String,
     group: Option<GroupState>,
+    #[serde(default)]
+    cursors: BTreeMap<PublicIdentity, SyncCursor>,
 }
 
 impl SyncState {
@@ -47,6 +54,7 @@ impl SyncState {
             identity: DeviceIdentity::generate()?,
             device_name: device_name.to_string(),
             group: None,
+            cursors: BTreeMap::new(),
         })
     }
 
@@ -77,6 +85,7 @@ impl SyncState {
             identity,
             device_name: stored.device_name,
             group: stored.group,
+            cursors: stored.cursors,
         }))
     }
 
@@ -88,6 +97,7 @@ impl SyncState {
             identity: Zeroizing::new(self.identity.pkcs8().to_vec()),
             device_name: self.device_name.clone(),
             group: self.group.clone(),
+            cursors: self.cursors.clone(),
         };
         let json = Zeroizing::new(serde_json::to_vec(&stored)?);
         let sealed = Cipher::new(key).seal_with_aad(STATE_AAD, &json)?;

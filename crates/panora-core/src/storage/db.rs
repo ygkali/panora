@@ -22,7 +22,7 @@ use rusqlite::{params, Connection, OptionalExtension as _};
 use std::path::Path;
 
 /// Schema version written to `meta`. Bump it together with `MIGRATIONS`.
-pub const SCHEMA_VERSION: i64 = 4;
+pub const SCHEMA_VERSION: i64 = 5;
 
 /// One schema step: SQL run inside a transaction, or Rust for what SQL alone
 /// cannot do (rebuilding the FTS table from the encrypted previews).
@@ -53,7 +53,64 @@ const MIGRATIONS: &[(i64, Migration)] = &[
         4,
         Migration::Sql("ALTER TABLE entries ADD COLUMN sensitive INTEGER NOT NULL DEFAULT 0"),
     ),
+    // 2.0 (SYNC-04): the sync feed follows a local change counter instead
+    // of Lamport values, which rows applied from other devices keep.
+    (5, Migration::Sql(CHANGE_SEQ_MIGRATION_SQL)),
 ];
+
+/// The change counter (SYNC-04): every inserted row, and every update of
+/// the columns another device cares about, takes the next number, kept in
+/// `meta` so it never runs backwards when rows are purged. The sync feed
+/// is ordered by it. Lamport values cannot serve here: a row applied from
+/// another device keeps that device's value, which may be lower than what
+/// a third device has already read, and it would never be passed on.
+const CHANGE_SEQ_TRIGGERS_SQL: &str = "
+    CREATE INDEX IF NOT EXISTS idx_entries_change_seq ON entries(change_seq);
+    CREATE TRIGGER IF NOT EXISTS entries_change_seq_insert AFTER INSERT ON entries
+    BEGIN
+        INSERT INTO meta(key, value) VALUES('change_seq', '1')
+            ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT);
+        UPDATE entries SET change_seq =
+            (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'change_seq')
+        WHERE id = NEW.id;
+    END;
+    CREATE TRIGGER IF NOT EXISTS entries_change_seq_update
+    AFTER UPDATE OF lamport, device_id, deleted, pinned ON entries
+    BEGIN
+        INSERT INTO meta(key, value) VALUES('change_seq', '1')
+            ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT);
+        UPDATE entries SET change_seq =
+            (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'change_seq')
+        WHERE id = NEW.id;
+    END;
+";
+
+/// Version 5: add the column, number the existing rows in id order, then
+/// install the triggers.
+const CHANGE_SEQ_MIGRATION_SQL: &str = "
+    ALTER TABLE entries ADD COLUMN change_seq INTEGER NOT NULL DEFAULT 0;
+    UPDATE entries SET change_seq = id;
+    INSERT OR REPLACE INTO meta(key, value)
+        VALUES('change_seq', (SELECT CAST(COALESCE(MAX(id), 0) AS TEXT) FROM entries));
+    CREATE INDEX IF NOT EXISTS idx_entries_change_seq ON entries(change_seq);
+    CREATE TRIGGER IF NOT EXISTS entries_change_seq_insert AFTER INSERT ON entries
+    BEGIN
+        INSERT INTO meta(key, value) VALUES('change_seq', '1')
+            ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT);
+        UPDATE entries SET change_seq =
+            (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'change_seq')
+        WHERE id = NEW.id;
+    END;
+    CREATE TRIGGER IF NOT EXISTS entries_change_seq_update
+    AFTER UPDATE OF lamport, device_id, deleted, pinned ON entries
+    BEGIN
+        INSERT INTO meta(key, value) VALUES('change_seq', '1')
+            ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT);
+        UPDATE entries SET change_seq =
+            (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'change_seq')
+        WHERE id = NEW.id;
+    END;
+";
 
 /// FTS5 table definition shared by `init` and the version 3 migration.
 const FTS_TABLE_SQL: &str = "CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(
@@ -521,6 +578,8 @@ impl Database {
                 deleted       INTEGER NOT NULL DEFAULT 0,
                 -- when the tombstone was set; drives the undo grace period
                 deleted_at    INTEGER NOT NULL DEFAULT 0,
+                -- local change counter the sync feed follows (SYNC-04)
+                change_seq    INTEGER NOT NULL DEFAULT 0,
                 UNIQUE(content_hash, selection)
             );
 
@@ -538,6 +597,7 @@ impl Database {
 
             ",
         )?;
+        self.conn.execute_batch(CHANGE_SEQ_TRIGGERS_SQL)?;
         // FTS index over decrypted previews and, for text entries, the text
         // beyond the preview; every write path above keeps it in step.
         self.conn.execute_batch(FTS_TABLE_SQL)?;
@@ -981,6 +1041,58 @@ impl Database {
         Ok(())
     }
 
+    /// When an entry was deleted: `Some(0)` for a retention eviction,
+    /// `None` if it is not deleted.
+    pub fn deleted_at(&self, id: i64) -> Result<Option<i64>> {
+        let (deleted, at): (i64, i64) = self
+            .conn
+            .query_row(
+                "SELECT deleted, deleted_at FROM entries WHERE id = ?1",
+                params![id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => Error::NotFound(id),
+                other => other.into(),
+            })?;
+        Ok((deleted != 0).then_some(at))
+    }
+
+    /// Drop the payloads of entries a user deleted before `before`, but
+    /// keep their rows: with sync on (SYNC-04) the tombstone is what tells
+    /// the other devices about the deletion. Returns the blob refs that no
+    /// longer have any reference.
+    pub fn strip_tombstones(&self, before: i64) -> Result<Vec<String>> {
+        let tx = self.conn.unchecked_transaction()?;
+        let refs: Vec<String> = {
+            let mut stmt = tx.prepare(
+                "SELECT DISTINCT b.blob_ref FROM entry_blobs b
+                 JOIN entries e ON e.id = b.entry_id
+                 WHERE e.deleted = 1 AND e.deleted_at > 0 AND e.deleted_at < ?1",
+            )?;
+            let rows = stmt.query_map(params![before], |row| row.get(0))?;
+            rows.collect::<std::result::Result<Vec<_>, _>>()?
+        };
+        tx.execute(
+            "DELETE FROM entry_blobs WHERE entry_id IN
+               (SELECT id FROM entries WHERE deleted = 1 AND deleted_at > 0 AND deleted_at < ?1)",
+            params![before],
+        )?;
+        let mut orphaned = Vec::new();
+        for blob_ref in refs {
+            let n: i64 = tx.query_row(
+                "SELECT COUNT(*) FROM entry_blobs WHERE blob_ref = ?1",
+                params![blob_ref],
+                |row| row.get(0),
+            )?;
+            if n == 0 {
+                orphaned.push(blob_ref);
+            }
+        }
+        tx.commit()?;
+        Ok(orphaned)
+    }
+
     /// Permanently purge entries tombstoned before `before` (unix ts).
     /// Returns the blob refs that no longer have any reference and can be
     /// removed from the blob store.
@@ -1343,23 +1455,24 @@ impl Database {
             .optional()?)
     }
 
-    /// Rows changed after `cursor`, oldest change first, tombstones
-    /// included and sensitive entries never (SYNC-03). The cursor is the
-    /// `(lamport, id)` of the last row a caller consumed: Lamport values
-    /// alone can repeat (a row applied from a peer keeps the peer's
-    /// value), so a page that ended between two equal values would
-    /// otherwise skip the second.
-    pub fn changes_since(&self, cursor: (i64, i64), limit: usize) -> Result<Vec<Entry>> {
+    /// Rows changed after the change counter value `since`, oldest change
+    /// first, with the counter value of each; tombstones included,
+    /// sensitive entries and retention evictions never (SYNC-03/04). Every
+    /// change, local or applied from another device, gets a new counter
+    /// value, so a reader that resumes from the last value it consumed
+    /// misses nothing, including what arrived from a third device.
+    pub fn changes_since(&self, since: i64, limit: usize) -> Result<Vec<(i64, Entry)>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, content_hash, preview, kind, primary_mime, size_bytes,
                     source_app, selection, created_at, last_seen_at, pinned,
-                    device_id, lamport, deleted, sensitive
+                    device_id, lamport, deleted, sensitive, change_seq
              FROM entries
-             WHERE sensitive = 0 AND (lamport, id) > (?1, ?2)
-             ORDER BY lamport, id LIMIT ?3",
+             WHERE sensitive = 0 AND change_seq > ?1
+               AND NOT (deleted = 1 AND deleted_at = 0)
+             ORDER BY change_seq LIMIT ?2",
         )?;
-        let rows = stmt.query_map(params![cursor.0, cursor.1, limit as i64], |row| {
-            self.row_to_entry(row)
+        let rows = stmt.query_map(params![since, limit as i64], |row| {
+            Ok((row.get(15)?, self.row_to_entry(row)?))
         })?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
     }
@@ -1755,30 +1868,129 @@ mod tests {
         assert_eq!(db.tick_lamport().unwrap(), 41);
     }
 
+    fn feed_ids(db: &Database, since: i64) -> Vec<i64> {
+        db.changes_since(since, 100)
+            .unwrap()
+            .iter()
+            .map(|(_, e)| e.id)
+            .collect()
+    }
+
     #[test]
-    fn changes_since_pages_by_lamport_then_id() {
+    fn changes_since_follows_the_change_counter() {
         let db = db();
         let a = insert(&db, "a", ContentKind::Text, 1);
         let b = insert(&db, "b", ContentKind::Text, 2);
         let c = insert(&db, "c", ContentKind::Text, 3);
         let secret = insert(&db, "s", ContentKind::Text, 4);
-        db.stamp(a, 5, "dev0").unwrap();
-        db.stamp(b, 5, "peer").unwrap();
-        db.stamp(c, 7, "dev0").unwrap();
-        db.stamp(secret, 8, "dev0").unwrap();
         db.mark_sensitive(secret).unwrap();
-        db.tombstone(c, 9).unwrap();
 
-        let ids = |rows: Vec<Entry>| rows.iter().map(|e| e.id).collect::<Vec<_>>();
-        let first = db.changes_since((0, 0), 1).unwrap();
-        assert_eq!(ids(first.clone()), vec![a]);
-        // Resuming from (5, a) must still see b, which shares lamport 5.
-        let rest = db
-            .changes_since((first[0].lamport, first[0].id), 10)
+        let first = db.changes_since(0, 1).unwrap();
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].1.id, a);
+        let rest = db.changes_since(first[0].0, 10).unwrap();
+        assert_eq!(
+            rest.iter().map(|(_, e)| e.id).collect::<Vec<_>>(),
+            vec![b, c]
+        );
+        let last = rest.last().unwrap().0;
+        assert!(db.changes_since(last, 10).unwrap().is_empty());
+
+        // Every later change comes after the cursor again, in the order
+        // made, tombstones included.
+        db.tombstone(c, 9).unwrap();
+        db.stamp(a, 12, "dev0").unwrap();
+        let after = db.changes_since(last, 10).unwrap();
+        assert_eq!(
+            after.iter().map(|(_, e)| e.id).collect::<Vec<_>>(),
+            vec![c, a]
+        );
+        assert!(after[0].1.deleted, "tombstones travel");
+    }
+
+    #[test]
+    fn a_row_applied_from_another_device_is_passed_on() {
+        // The bug a Lamport-ordered feed had: a row arriving from device B
+        // keeps B's (low) Lamport value, so a reader already past that
+        // value never saw it. The change counter orders by arrival here.
+        let db = db();
+        for n in 0..10 {
+            let id = insert(&db, &format!("local {n}"), ContentKind::Text, n);
+            db.stamp(id, 100 + n, "dev0").unwrap();
+        }
+        let cursor = db.changes_since(0, 100).unwrap().last().unwrap().0;
+        let from_b = insert(&db, "from B", ContentKind::Text, 50);
+        db.apply_remote_state(from_b, false, 50, 50, 3, "devB")
             .unwrap();
-        assert_eq!(ids(rest.clone()), vec![b, c]);
-        assert!(rest[1].deleted, "tombstones travel");
-        assert!(db.changes_since((7, c), 10).unwrap().is_empty());
+        assert_eq!(feed_ids(&db, cursor), vec![from_b]);
+        assert_eq!(db.get(from_b).unwrap().lamport, 3);
+    }
+
+    #[test]
+    fn the_change_counter_never_runs_backwards() {
+        let db = db();
+        let a = insert(&db, "a", ContentKind::Text, 1);
+        let b = insert(&db, "b", ContentKind::Text, 2);
+        let top = db.changes_since(0, 10).unwrap().last().unwrap().0;
+        db.tombstone(b, 5).unwrap();
+        db.purge_tombstones(10).unwrap();
+        let c = insert(&db, "c", ContentKind::Text, 3);
+        let seq_c = db
+            .changes_since(0, 10)
+            .unwrap()
+            .into_iter()
+            .find(|(_, e)| e.id == c)
+            .unwrap()
+            .0;
+        assert!(
+            seq_c > top,
+            "purging the newest row must not reuse its number"
+        );
+        assert_eq!(feed_ids(&db, top), vec![c]);
+        let _ = a;
+    }
+
+    #[test]
+    fn evictions_stay_off_the_sync_feed() {
+        let db = db();
+        let kept = insert(&db, "deleted by the user", ContentKind::Text, 1);
+        let evicted = insert(&db, "evicted by retention", ContentKind::Text, 2);
+        db.stamp(kept, 3, "dev0").unwrap();
+        db.stamp(evicted, 4, "dev0").unwrap();
+        db.tombstone(kept, 100).unwrap();
+        db.tombstone(evicted, 0).unwrap();
+        let feed = feed_ids(&db, 0);
+        // Retention is this device's own housekeeping, not a deletion
+        // other devices should repeat.
+        assert_eq!(feed, vec![kept]);
+    }
+
+    #[test]
+    fn stripping_a_tombstone_keeps_the_row_and_frees_the_blobs() {
+        let db = db();
+        let old = insert(&db, "old deletion", ContentKind::Text, 1);
+        let fresh = insert(&db, "fresh deletion", ContentKind::Text, 2);
+        let live = insert(&db, "still here", ContentKind::Text, 3);
+        db.attach_blob(old, "text/plain", "blob-old").unwrap();
+        db.attach_blob(fresh, "text/plain", "blob-fresh").unwrap();
+        db.attach_blob(live, "text/plain", "blob-shared").unwrap();
+        db.attach_blob(old, "text/html", "blob-shared").unwrap();
+        db.tombstone(old, 100).unwrap();
+        db.tombstone(fresh, 500).unwrap();
+
+        let orphaned = db.strip_tombstones(200).unwrap();
+        assert_eq!(orphaned, vec!["blob-old".to_string()]);
+        assert_eq!(db.deleted_at(old).unwrap(), Some(100));
+        assert!(db.blobs_of(old).unwrap().is_empty());
+        assert_eq!(
+            db.blobs_of(fresh).unwrap().len(),
+            1,
+            "inside the undo window"
+        );
+        assert_eq!(db.blobs_of(live).unwrap().len(), 1);
+        assert_eq!(db.deleted_at(live).unwrap(), None);
+        // The row still travels as a tombstone.
+        assert!(feed_ids(&db, 0).contains(&old));
     }
 
     #[test]
@@ -2051,6 +2263,41 @@ mod lifecycle_tests {
         assert!(open_with(&path, &MasterKey::generate()).is_err());
     }
 
+    /// What version 5 added, taken off a fresh file to make an older one.
+    const UNDO_VERSION_5: &str = "
+        DROP TRIGGER entries_change_seq_insert;
+        DROP TRIGGER entries_change_seq_update;
+        DROP INDEX idx_entries_change_seq;
+        ALTER TABLE entries DROP COLUMN change_seq;
+        DELETE FROM meta WHERE key = 'change_seq';
+    ";
+
+    #[test]
+    fn version_4_file_gains_the_change_counter() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history.db");
+        let key = MasterKey::generate();
+        {
+            let db = open_with(&path, &key).unwrap();
+            insert_one(&db, "one");
+            insert_one(&db, "two");
+            db.conn.execute_batch(UNDO_VERSION_5).unwrap();
+            db.set_schema_version(4).unwrap();
+        }
+        let db = open_with(&path, &key).unwrap();
+        assert_eq!(db.schema_version().unwrap(), SCHEMA_VERSION);
+        assert!(path.with_extension("db.bak-v4").exists());
+        // Existing rows are in the feed, in id order, and a new change
+        // comes after them.
+        let before = db.changes_since(0, 10).unwrap();
+        assert_eq!(before.len(), 2);
+        let top = before.last().unwrap().0;
+        insert_one(&db, "three");
+        let after = db.changes_since(top, 10).unwrap();
+        assert_eq!(after.len(), 1);
+        assert!(after[0].0 > top);
+    }
+
     #[test]
     fn version_1_file_gains_deleted_at_through_the_real_migration() {
         let dir = tempfile::tempdir().unwrap();
@@ -2067,6 +2314,7 @@ mod lifecycle_tests {
                      ALTER TABLE entries DROP COLUMN sensitive;",
                 )
                 .unwrap();
+            db.conn.execute_batch(UNDO_VERSION_5).unwrap();
             db.set_schema_version(1).unwrap();
         }
         let db = open_with(&path, &key).unwrap();
@@ -2395,6 +2643,7 @@ mod lifecycle_tests {
             db.conn
                 .execute_batch("ALTER TABLE entries DROP COLUMN sensitive")
                 .unwrap();
+            db.conn.execute_batch(UNDO_VERSION_5).unwrap();
             db.set_schema_version(3).unwrap();
         }
         let db = open_with(&path, &key).unwrap();
@@ -2432,6 +2681,7 @@ mod lifecycle_tests {
             db.conn
                 .execute_batch("ALTER TABLE entries DROP COLUMN sensitive")
                 .unwrap();
+            db.conn.execute_batch(UNDO_VERSION_5).unwrap();
             db.set_schema_version(2).unwrap();
         }
         let db = open_with(&path, &key).unwrap();

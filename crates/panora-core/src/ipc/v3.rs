@@ -771,7 +771,7 @@ mod tests {
 
         let mut response = Response::Success(ResponseData::SyncChanges {
             records: records.clone(),
-            next: crate::sync::SyncCursor { lamport: 3, id: 9 },
+            next: crate::sync::SyncCursor { seq: 9 },
             more: false,
         });
         let bytes = take_response_payloads(&mut response);

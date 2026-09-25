@@ -24,18 +24,34 @@
 #![warn(missing_docs)]
 
 mod bytes;
+/// The control socket of the running service.
+pub mod control;
+/// Finding the other devices with mDNS.
+pub mod discovery;
 /// Error type.
 pub mod error;
+/// Framing of the sync channel.
+pub mod frame;
 /// The roster, the group key and sealing.
 pub mod group;
 /// Device identity keys.
 pub mod identity;
 /// Invitations and pairing windows.
 pub mod invite;
+/// The Secret Service item that keeps the state key.
+pub mod keyring;
+/// The sync node: sessions, pairing, discovery.
+pub mod node;
 /// The pairing protocol state machines.
 pub mod pairing;
+/// `panod` client.
+pub mod panod;
+/// One sync session with one peer.
+mod session;
 /// Persistent, encrypted sync state.
 pub mod state;
+/// QUIC on the local network and peer authentication.
+pub mod transport;
 /// Framing and stream drivers for pairing.
 pub mod wire;
 

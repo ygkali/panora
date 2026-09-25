@@ -85,15 +85,13 @@ pub struct SyncRecord {
     pub payloads: Vec<MimePayload>,
 }
 
-/// Where a reader of the change feed left off: the `(lamport, id)` of the
-/// last row it consumed. Local ids mean a cursor is only meaningful
-/// against the daemon that handed it out.
+/// Where a reader of the change feed left off: the local change counter
+/// value of the last row it consumed (SYNC-04). Counter values are local,
+/// so a cursor is only meaningful against the daemon that handed it out.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct SyncCursor {
-    /// Lamport value of the last consumed row.
-    pub lamport: i64,
-    /// Local id of the last consumed row.
-    pub id: i64,
+    /// Change counter value of the last consumed row.
+    pub seq: i64,
 }
 
 /// Which entries a device shares (SYNC-03 selective sync). The default
