@@ -495,6 +495,14 @@ fn build_menu(ui: &Rc<Ui>, button: &gtk::MenuButton) {
             Box::new(move || settings::show(&ui)),
         );
     }
+    {
+        let ui = ui.clone();
+        add_item(
+            ui.s.menu_devices,
+            false,
+            Box::new(move || settings::show_devices(&ui)),
+        );
+    }
     popover.set_child(Some(&list));
     button.set_popover(Some(&popover));
 }
@@ -1558,6 +1566,13 @@ pub fn install_css() {
         "window { background: @window_bg_color; }
 
          .panora-search { min-height: 38px; border-radius: 12px; }
+
+         .panora-pair-code {
+             font-size: 32px;
+             font-weight: 800;
+             letter-spacing: 4px;
+             font-feature-settings: \"tnum\";
+         }
 
          .panora-chip {
              border-radius: 999px;

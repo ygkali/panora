@@ -31,5 +31,6 @@ gir = "gir"
 nin = "nin"
 lokal = "lokal"
 performans = "performans"
+grup = "grup"
 # The drop-down terminal emulator, in the terminal application list.
 tilda = "tilda"

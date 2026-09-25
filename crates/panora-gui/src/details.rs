@@ -3,7 +3,7 @@
 
 //! Full-content view for one entry: complete text, image, format list.
 
-use crate::util::{call, format_size, kind_label, spawn, unix_now};
+use crate::util::{call, format_size, kind_label, qr_picture, spawn, unix_now};
 use crate::window::{color_swatch, decode_scaled, recall, recall_as, toast, DecodedImage, Ui};
 use gtk::gdk;
 use gtk4 as gtk;
@@ -345,49 +345,16 @@ fn open_uri(ui: &Rc<Ui>, uri: &str) {
     );
 }
 
-/// Pixels per QR module and the quiet zone around the code, in modules.
-const QR_SCALE: usize = 6;
-const QR_QUIET: usize = 4;
-
 /// Show the URL as a QR code so a phone can open it: no network, no
 /// account, just the camera.
 fn show_qr(ui: &Rc<Ui>, url: &str) {
-    let Ok(code) = qrcode::QrCode::new(url.as_bytes()) else {
+    let Some(picture) = qr_picture(url, 6) else {
         toast(
             ui,
             &fill(ui.s.toast_open_failed, "e", "too long for a QR code"),
         );
         return;
     };
-    let modules = code.width();
-    let side = (modules + 2 * QR_QUIET) * QR_SCALE;
-    let mut pixels = vec![255u8; side * side * 3];
-    for (index, color) in code.to_colors().iter().enumerate() {
-        if *color != qrcode::Color::Dark {
-            continue;
-        }
-        let (mx, my) = (index % modules + QR_QUIET, index / modules + QR_QUIET);
-        for y in my * QR_SCALE..(my + 1) * QR_SCALE {
-            for x in mx * QR_SCALE..(mx + 1) * QR_SCALE {
-                let at = (y * side + x) * 3;
-                pixels[at..at + 3].copy_from_slice(&[0, 0, 0]);
-            }
-        }
-    }
-    let Ok(side_px) = i32::try_from(side) else {
-        return;
-    };
-    let texture = gdk::MemoryTexture::new(
-        side_px,
-        side_px,
-        gdk::MemoryFormat::R8g8b8,
-        &glib::Bytes::from_owned(pixels),
-        side * 3,
-    );
-    let picture = gtk::Picture::for_paintable(&texture);
-    picture.set_size_request(side_px, side_px);
-    picture.set_can_shrink(false);
-    picture.set_halign(gtk::Align::Center);
     picture.set_margin_top(12);
     let caption = gtk::Label::new(Some(url));
     caption.add_css_class("dim-label");

@@ -7,11 +7,15 @@
 use panora_core::backend::{ClipboardBackend, ClipboardEvent, EventKind};
 use panora_core::config::Config;
 use panora_core::error::{Error, Result};
+use panora_core::ipc::v3::MAX_FDS_PER_FRAME;
 use panora_core::ipc::{health, CapabilityData, HealthItem, StatusData, PROTOCOL_VERSION};
 use panora_core::model::{ClipboardData, ContentKind, Entry, MimePayload, Selection};
 use panora_core::privacy::{ContentFilters, PrivacyEngine};
 use panora_core::storage::{BlobStore, Database, QueryFilter};
-use panora_core::sync::{SyncEvent, SyncProvider};
+use panora_core::sync::{
+    lww_wins, payload_hash, SyncCursor, SyncEvent, SyncProvider, SyncRecord, SyncScope,
+    LAMPORT_CEILING, LAMPORT_OBSERVE_LIMIT,
+};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -126,6 +130,30 @@ pub const UNDO_GRACE_SECS: i64 = 30;
 /// Blob MIME under which an image entry's list thumbnail is kept. Never
 /// offered on the clipboard, never counted as a payload.
 pub const THUMBNAIL_MIME: &str = "application/x-panora-thumbnail";
+
+/// Records in one `SyncChanges` reply when the caller does not say.
+const SYNC_DEFAULT_LIMIT: usize = 100;
+/// Most records one `SyncChanges` reply may hold.
+const SYNC_MAX_LIMIT: usize = 1000;
+/// Payload bytes one `SyncChanges` reply aims to stay under; a single
+/// entry larger than this still goes out, alone.
+const SYNC_REPLY_BYTES: usize = 32 * 1024 * 1024;
+/// Largest entry (all formats together) the feed hands out: above the
+/// 40 MiB a single format may have (`max_mime_bytes`). Bigger ones stay on
+/// this device: the peer's frame limit (`panora-sync`, 64 MiB) must hold a
+/// sealed page, and one entry that never fits would stall the feed.
+const SYNC_MAX_ENTRY_BYTES: usize = 48 * 1024 * 1024;
+/// How far into the future a peer's timestamps may point, in seconds.
+/// Clocks drift a little; a later time would keep an entry at the top of
+/// the history and out of reach of `max_age_days` on every device.
+const SYNC_CLOCK_SKEW: i64 = 300;
+
+/// What became of one record handed to `Daemon::sync_apply`.
+enum Applied {
+    Yes,
+    Ignored,
+    Rejected,
+}
 /// Longest side of a thumbnail, in pixels; the popup draws them at 320×132.
 const THUMBNAIL_MAX_SIDE: u32 = 320;
 
@@ -607,7 +635,7 @@ impl Daemon {
             hasher.update(&p.data);
         }
         let content_hash = hasher.finalize().to_hex().to_string();
-        let lamport = self.db.max_lamport()? + 1;
+        let lamport = self.db.tick_lamport()?;
         // `upsert_entry` only takes one timestamp for a fresh row (used for
         // both created_at and last_seen_at); last_seen_at is what drives
         // sort order and freshness, so a restored entry keeps that one
@@ -628,6 +656,7 @@ impl Daemon {
             // place; `duplicate_policy` governs capture, not import.
             true,
         )?;
+        self.db.stamp(id, lamport, &self.device_id)?;
         if record.sensitive {
             self.db.mark_sensitive(id)?;
         } else if self.config().history.index_full_text {
@@ -1073,7 +1102,7 @@ impl Daemon {
         let content_hash = hasher.finalize().to_hex().to_string();
 
         let now = unix_now();
-        let lamport = self.db.max_lamport()? + 1;
+        let lamport = self.db.tick_lamport()?;
 
         let id = self.db.upsert_entry(
             &content_hash,
@@ -1088,6 +1117,9 @@ impl Daemon {
             lamport,
             self.config().history.duplicate_policy != "ignore",
         )?;
+        // A re-copy of an existing row keeps its old stamp in
+        // `upsert_entry`; it is a new state all the same (SYNC-03).
+        self.db.stamp(id, lamport, &self.device_id)?;
 
         if sensitive.is_some() {
             self.db.mark_sensitive(id)?;
@@ -1149,9 +1181,22 @@ impl Daemon {
                     .enforce_total_bytes(config.history.max_total_bytes)?,
             );
         }
-        // There is no sync peer to replay tombstones to yet; user deletions
-        // live just long enough for an undo, evictions go right away.
-        self.purge_tombstoned_before(now - UNDO_GRACE_SECS)?;
+        // Evictions (deleted_at = 0) go right away. A user's deletion lives
+        // long enough for an undo; with sync on (SYNC-04) its row then stays,
+        // without payloads, for `sync.tombstone_days`, so a device that was
+        // offline learns about the deletion instead of sending the entry
+        // back.
+        if config.sync.enabled {
+            for blob_ref in self.db.strip_tombstones(now - UNDO_GRACE_SECS)? {
+                if let Err(e) = self.blobs.remove(&blob_ref) {
+                    warn!(blob = %blob_ref, error = %e, "blob cleanup failed");
+                }
+            }
+            let keep = i64::from(config.sync.tombstone_days) * 86_400;
+            self.purge_tombstoned_before(now - keep)?;
+        } else {
+            self.purge_tombstoned_before(now - UNDO_GRACE_SECS)?;
+        }
         if !evicted.is_empty() {
             debug!(count = evicted.len(), "evicted entries by retention policy");
         }
@@ -1385,6 +1430,7 @@ impl Daemon {
     /// Toggle pin state and notify sync.
     pub async fn set_pinned(&self, id: i64, pinned: bool) -> Result<()> {
         self.db.set_pinned(id, pinned)?;
+        self.stamp_local(id)?;
         self.bump();
         self.sync
             .on_event(SyncEvent::PinChanged { id, pinned })
@@ -1399,6 +1445,7 @@ impl Daemon {
             return Err(Error::NotFound(id));
         }
         self.db.tombstone(id, unix_now())?;
+        self.stamp_local(id)?;
         self.collect_garbage()?;
         self.bump();
         self.sync
@@ -1413,13 +1460,236 @@ impl Daemon {
     /// Undo a deletion while the tombstone is still within
     /// `UNDO_GRACE_SECS`; afterwards the row is gone and this is `NotFound`.
     pub async fn restore(&self, id: i64) -> Result<Entry> {
+        // With sync on, the row outlives the undo window (without its
+        // payloads); past the window it is gone as far as undo is concerned.
+        match self.db.deleted_at(id)? {
+            Some(at) if at == 0 || at < unix_now() - UNDO_GRACE_SECS => {
+                return Err(Error::NotFound(id));
+            }
+            _ => {}
+        }
         self.db.restore(id)?;
+        self.stamp_local(id)?;
         self.bump();
         let entry = self.db.get(id)?;
         self.sync
             .on_event(SyncEvent::EntryUpserted(entry.clone()))
             .await;
         Ok(entry)
+    }
+
+    /// Stamp a row with the next local Lamport value, making its current
+    /// state this device's newest change (SYNC-03).
+    fn stamp_local(&self, id: i64) -> Result<()> {
+        let lamport = self.db.tick_lamport()?;
+        self.db.stamp(id, lamport, &self.device_id)
+    }
+
+    /// The change feed for a sync peer (SYNC-03): rows changed after
+    /// `since`, oldest first, as records carrying their payloads. A reply
+    /// stops at `limit` records and at what one v3 frame can carry (at most
+    /// `MAX_FDS_PER_FRAME` payloads, `SYNC_REPLY_BYTES` of payload data,
+    /// though a single larger entry still goes out on its own). Returns the
+    /// records, the cursor to resume from, and whether more rows follow.
+    pub fn sync_changes(
+        &self,
+        since: SyncCursor,
+        limit: usize,
+        scope: SyncScope,
+    ) -> Result<(Vec<SyncRecord>, SyncCursor, bool)> {
+        let limit = match limit {
+            0 => SYNC_DEFAULT_LIMIT,
+            n => n.min(SYNC_MAX_LIMIT),
+        };
+        let mut cursor = since;
+        let mut records = Vec::new();
+        let (mut payload_count, mut bytes) = (0usize, 0usize);
+        'feed: loop {
+            let rows = self.db.changes_since(cursor.seq, 64)?;
+            if rows.is_empty() {
+                break;
+            }
+            for (seq, entry) in rows {
+                if records.len() >= limit {
+                    break 'feed;
+                }
+                let here = SyncCursor { seq };
+                if !scope.includes(entry.kind, entry.pinned, entry.deleted) {
+                    cursor = here;
+                    continue;
+                }
+                let payloads = if entry.deleted {
+                    Vec::new()
+                } else {
+                    self.load_payloads(entry.id)?
+                };
+                // The receiver checks the hash against the payloads as sent.
+                // Captures and imports store formats in the order they were
+                // hashed in; a multi-format `panora-cli store` in another
+                // order cannot be verified, so it stays on this device.
+                if !entry.deleted && payload_hash(&payloads) != entry.content_hash {
+                    debug!(
+                        id = entry.id,
+                        "payload order does not match the hash; not synced"
+                    );
+                    cursor = here;
+                    continue;
+                }
+                if payloads.len() > MAX_FDS_PER_FRAME {
+                    warn!(
+                        id = entry.id,
+                        formats = payloads.len(),
+                        "too many formats to sync"
+                    );
+                    cursor = here;
+                    continue;
+                }
+                let size: usize = payloads.iter().map(|p| p.data.len()).sum();
+                if size > SYNC_MAX_ENTRY_BYTES {
+                    warn!(id = entry.id, size, "entry too large to sync");
+                    cursor = here;
+                    continue;
+                }
+                if !records.is_empty()
+                    && (payload_count + payloads.len() > MAX_FDS_PER_FRAME
+                        || bytes + size > SYNC_REPLY_BYTES)
+                {
+                    break 'feed;
+                }
+                payload_count += payloads.len();
+                bytes += size;
+                records.push(SyncRecord {
+                    content_hash: entry.content_hash,
+                    selection: entry.selection,
+                    source_app: entry.source_app,
+                    created_at: entry.created_at,
+                    last_seen_at: entry.last_seen_at,
+                    pinned: entry.pinned,
+                    deleted: entry.deleted,
+                    device_id: entry.device_id,
+                    lamport: entry.lamport,
+                    payloads,
+                });
+                cursor = here;
+            }
+        }
+        let more = !self.db.changes_since(cursor.seq, 1)?.is_empty();
+        Ok((records, cursor, more))
+    }
+
+    /// Apply records from another device (SYNC-03), each one on its own by
+    /// last-writer-wins. Returns how many were applied, ignored (lost to
+    /// the local state, nothing to act on, or refused by the privacy gate
+    /// or size limit the way a capture would be) and rejected (malformed).
+    pub async fn sync_apply(&self, records: Vec<SyncRecord>) -> Result<(usize, usize, usize)> {
+        let (mut applied, mut ignored, mut rejected) = (0, 0, 0);
+        for record in records {
+            match self.apply_record(record).await? {
+                Applied::Yes => applied += 1,
+                Applied::Ignored => ignored += 1,
+                Applied::Rejected => rejected += 1,
+            }
+        }
+        if applied > 0 {
+            self.bump();
+        }
+        Ok((applied, ignored, rejected))
+    }
+
+    async fn apply_record(&self, mut record: SyncRecord) -> Result<Applied> {
+        // Times come from the other device's clock: keep them within reason.
+        let latest = unix_now() + SYNC_CLOCK_SKEW;
+        record.created_at = record.created_at.clamp(0, latest);
+        record.last_seen_at = record.last_seen_at.clamp(record.created_at, latest);
+        let remote = (record.lamport, record.device_id.as_str());
+        if record.device_id.is_empty() || !(1..LAMPORT_CEILING).contains(&record.lamport) {
+            return Ok(Applied::Rejected);
+        }
+        if !record.deleted
+            && (record.payloads.is_empty() || payload_hash(&record.payloads) != record.content_hash)
+        {
+            return Ok(Applied::Rejected);
+        }
+        if record.lamport < LAMPORT_OBSERVE_LIMIT {
+            self.db.observe_lamport(record.lamport)?;
+        }
+        let local = self.db.find(&record.content_hash, record.selection)?;
+        if let Some(local) = &local {
+            if !lww_wins(remote, (local.lamport, local.device_id.as_str())) {
+                return Ok(Applied::Ignored);
+            }
+        }
+
+        if record.deleted {
+            let Some(local) = local else {
+                // Nothing here to delete.
+                return Ok(Applied::Ignored);
+            };
+            if !local.deleted {
+                self.db.tombstone(local.id, unix_now())?;
+                self.collect_garbage()?;
+            }
+            self.db.stamp(local.id, record.lamport, &record.device_id)?;
+            self.sync
+                .on_event(SyncEvent::EntryDeleted {
+                    id: local.id,
+                    content_hash: local.content_hash,
+                })
+                .await;
+            return Ok(Applied::Yes);
+        }
+
+        if let Some(local) = local.as_ref().filter(|l| !l.deleted) {
+            // Same content already here: take over pin state and times.
+            self.db.apply_remote_state(
+                local.id,
+                record.pinned,
+                record.created_at,
+                record.last_seen_at,
+                record.lamport,
+                &record.device_id,
+            )?;
+            return Ok(Applied::Yes);
+        }
+
+        // New here, or deleted here earlier than the remote state: record it
+        // through the same path and checks as a copy made on this machine.
+        // That includes `record_primary`: a device that records highlighted
+        // text must not fill the history of one that does not.
+        if record.selection == Selection::Primary && !self.config().history.record_primary {
+            return Ok(Applied::Ignored);
+        }
+        let limit = self.config().history.max_mime_bytes;
+        if record.payloads.iter().any(|p| p.data.len() > limit) {
+            return Ok(Applied::Ignored);
+        }
+        let data = ClipboardData {
+            selection: record.selection,
+            offered_mimes: record.payloads.iter().map(|p| p.mime.clone()).collect(),
+            payloads: record.payloads,
+            source_app: record.source_app,
+        };
+        let verdict = self
+            .privacy
+            .read()
+            .map(|p| p.evaluate(&data))
+            .unwrap_or(panora_core::privacy::Verdict::RejectPrivateMode);
+        if !verdict.is_allowed() || !self.content_allowed(&data) {
+            debug!(?verdict, "synced entry refused by privacy policy");
+            return Ok(Applied::Ignored);
+        }
+        let entry = self.store(data).await?;
+        self.db
+            .set_times(entry.id, record.created_at, record.last_seen_at)?;
+        self.db.apply_remote_state(
+            entry.id,
+            record.pinned,
+            record.created_at,
+            record.last_seen_at,
+            record.lamport,
+            &record.device_id,
+        )?;
+        Ok(Applied::Yes)
     }
 
     /// Record content a client handed over (`panora-cli store`) as if it
@@ -1689,6 +1959,10 @@ mod tests {
     use panora_core::sync::NoopSync;
 
     fn test_daemon(dir: &tempfile::TempDir) -> (Daemon, Arc<MockBackend>) {
+        test_daemon_as(dir, "test-device")
+    }
+
+    fn test_daemon_as(dir: &tempfile::TempDir, device: &str) -> (Daemon, Arc<MockBackend>) {
         let backend = Arc::new(MockBackend::new());
         let cipher = Cipher::new(&MasterKey::generate());
         let db = Database::open(dir.path().join("history.db"), cipher).unwrap();
@@ -1706,9 +1980,313 @@ mod tests {
             blobs,
             config,
             Arc::new(NoopSync),
-            "test-device".into(),
+            device.into(),
         );
         (daemon, backend)
+    }
+
+    // --- SYNC-03: the change feed and last-writer-wins apply ---
+
+    async fn put_text(daemon: &Daemon, text: &str) -> Entry {
+        daemon
+            .store_external(
+                ClipboardData {
+                    selection: Selection::Clipboard,
+                    payloads: vec![MimePayload::new("text/plain", text.as_bytes())],
+                    offered_mimes: vec!["text/plain".into()],
+                    source_app: Some("editor".into()),
+                },
+                false,
+            )
+            .await
+            .unwrap()
+    }
+
+    fn feed(daemon: &Daemon) -> Vec<SyncRecord> {
+        daemon
+            .sync_changes(SyncCursor::default(), 0, SyncScope::default())
+            .unwrap()
+            .0
+    }
+
+    /// Everything `from` changed goes to `to`, the way a sync client would.
+    async fn push(from: &Daemon, to: &Daemon) -> (usize, usize, usize) {
+        to.sync_apply(feed(from)).await.unwrap()
+    }
+
+    fn visible(daemon: &Daemon) -> Vec<(String, bool)> {
+        let mut rows: Vec<(String, bool)> = daemon
+            .query(&QueryFilter::recent(100))
+            .unwrap()
+            .into_iter()
+            .map(|e| (e.preview, e.pinned))
+            .collect();
+        rows.sort();
+        rows
+    }
+
+    #[tokio::test]
+    async fn synced_entries_keep_their_origin_and_payloads() {
+        let (dir_a, dir_b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let (a, _) = test_daemon_as(&dir_a, "aaaa");
+        let (b, _) = test_daemon_as(&dir_b, "bbbb");
+        let original = put_text(&a, "from laptop").await;
+
+        assert_eq!(push(&a, &b).await, (1, 0, 0));
+        let copy =
+            b.db.find(&original.content_hash, Selection::Clipboard)
+                .unwrap()
+                .unwrap();
+        assert_eq!(copy.preview, "from laptop");
+        assert_eq!(copy.device_id, "aaaa");
+        assert_eq!(copy.lamport, original.lamport);
+        assert_eq!(copy.last_seen_at, original.last_seen_at);
+        assert_eq!(
+            b.load_payloads(copy.id).unwrap(),
+            vec![MimePayload::new("text/plain", "from laptop")]
+        );
+        // Applying the same records again changes nothing.
+        assert_eq!(push(&a, &b).await, (0, 1, 0));
+        // The receiver's clock moved past what it saw.
+        let local = put_text(&b, "on desktop").await;
+        assert!(local.lamport > original.lamport);
+    }
+
+    #[tokio::test]
+    async fn pins_and_deletes_converge_by_last_writer() {
+        let (dir_a, dir_b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let (a, _) = test_daemon_as(&dir_a, "aaaa");
+        let (b, _) = test_daemon_as(&dir_b, "bbbb");
+        let entry = put_text(&a, "shared note").await;
+        put_text(&a, "doomed").await;
+        push(&a, &b).await;
+
+        // A pins one entry, B deletes the other; each learns the other's change.
+        a.set_pinned(entry.id, true).await.unwrap();
+        let doomed_on_b = b
+            .query(&QueryFilter::recent(10))
+            .unwrap()
+            .into_iter()
+            .find(|e| e.preview == "doomed")
+            .unwrap();
+        b.delete(doomed_on_b.id).await.unwrap();
+        push(&a, &b).await;
+        push(&b, &a).await;
+        assert_eq!(visible(&a), vec![("shared note".to_string(), true)]);
+        assert_eq!(visible(&a), visible(&b));
+
+        // A stale state (an older unpinned version) never undoes a newer one.
+        let stale = feed(&a)
+            .into_iter()
+            .find(|r| r.content_hash == entry.content_hash)
+            .map(|r| SyncRecord {
+                pinned: false,
+                lamport: 1,
+                ..r
+            })
+            .unwrap();
+        assert_eq!(b.sync_apply(vec![stale]).await.unwrap(), (0, 1, 0));
+        assert_eq!(visible(&b), vec![("shared note".to_string(), true)]);
+    }
+
+    #[tokio::test]
+    async fn malformed_or_hostile_records_are_rejected() {
+        let (dir_a, dir_b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let (a, _) = test_daemon_as(&dir_a, "aaaa");
+        let (b, _) = test_daemon_as(&dir_b, "bbbb");
+        put_text(&a, "genuine").await;
+        let good = feed(&a).remove(0);
+
+        let forged = SyncRecord {
+            payloads: vec![MimePayload::new("text/plain", "forged")],
+            ..good.clone()
+        };
+        let empty = SyncRecord {
+            payloads: Vec::new(),
+            ..good.clone()
+        };
+        let runaway = SyncRecord {
+            lamport: i64::MAX,
+            ..good.clone()
+        };
+        let anonymous = SyncRecord {
+            device_id: String::new(),
+            ..good.clone()
+        };
+        assert_eq!(
+            b.sync_apply(vec![forged, empty, runaway, anonymous])
+                .await
+                .unwrap(),
+            (0, 0, 4)
+        );
+        assert!(visible(&b).is_empty());
+        assert_eq!(
+            b.db.tick_lamport().unwrap(),
+            1,
+            "rejected records do not move the clock"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_huge_lamport_value_cannot_stop_this_device_from_syncing() {
+        let (dir_a, dir_b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let (a, _) = test_daemon_as(&dir_a, "aaaa");
+        let (b, _) = test_daemon_as(&dir_b, "bbbb");
+        put_text(&a, "genuine").await;
+        let good = feed(&a).remove(0);
+        let poison = |lamport| SyncRecord {
+            lamport,
+            deleted: true,
+            content_hash: "not here".into(),
+            ..good.clone()
+        };
+        // The upper half is taken but does not move the clock.
+        assert_eq!(
+            b.sync_apply(vec![poison(LAMPORT_CEILING - 1)])
+                .await
+                .unwrap(),
+            (0, 1, 0)
+        );
+        assert!(put_text(&b, "unmoved").await.lamport < 10);
+        // Just under the observe limit: the clock follows...
+        b.sync_apply(vec![poison(LAMPORT_OBSERVE_LIMIT - 1)])
+            .await
+            .unwrap();
+        let next = put_text(&b, "after").await;
+        assert_eq!(next.lamport, LAMPORT_OBSERVE_LIMIT);
+        // ...and what B writes next still reaches the other devices.
+        let (applied, _, rejected) = push(&b, &a).await;
+        assert_eq!(rejected, 0);
+        assert!(applied >= 1);
+        assert!(visible(&a).iter().any(|(text, _)| text == "after"));
+
+        // A state from the upper half applied to a row B has does not
+        // drag B's clock up through that row either.
+        let genuine = feed(&a)
+            .into_iter()
+            .find(|r| r.content_hash == good.content_hash)
+            .unwrap();
+        let upper = SyncRecord {
+            lamport: LAMPORT_CEILING - 2,
+            pinned: true,
+            ..genuine
+        };
+        assert_eq!(b.sync_apply(vec![upper]).await.unwrap().0, 1);
+        let later = put_text(&b, "later").await;
+        assert!(
+            later.lamport > LAMPORT_OBSERVE_LIMIT && later.lamport < LAMPORT_OBSERVE_LIMIT + 10
+        );
+    }
+
+    #[tokio::test]
+    async fn remote_times_are_kept_within_reason() {
+        let (dir_a, dir_b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let (a, _) = test_daemon_as(&dir_a, "aaaa");
+        let (b, _) = test_daemon_as(&dir_b, "bbbb");
+        put_text(&a, "from the future").await;
+        let mut record = feed(&a).remove(0);
+        record.created_at = -5;
+        record.last_seen_at = unix_now() + 10 * 365 * 86_400;
+        assert_eq!(b.sync_apply(vec![record.clone()]).await.unwrap(), (1, 0, 0));
+        let stored =
+            b.db.find(&record.content_hash, Selection::Clipboard)
+                .unwrap()
+                .unwrap();
+        assert_eq!(stored.created_at, 0);
+        assert!(stored.last_seen_at <= unix_now() + SYNC_CLOCK_SKEW);
+        // A later state of the same entry is clamped as well.
+        record.lamport += 1;
+        assert_eq!(b.sync_apply(vec![record.clone()]).await.unwrap(), (1, 0, 0));
+        let stored =
+            b.db.find(&record.content_hash, Selection::Clipboard)
+                .unwrap()
+                .unwrap();
+        assert!(stored.last_seen_at <= unix_now() + SYNC_CLOCK_SKEW);
+    }
+
+    #[tokio::test]
+    async fn highlighted_text_is_not_synced_to_a_device_that_does_not_record_it() {
+        let (dir_a, dir_b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let (a, _) = test_daemon_as(&dir_a, "aaaa");
+        let (b, _) = test_daemon_as(&dir_b, "bbbb");
+        put_text(&a, "selected with the mouse").await;
+        let record = SyncRecord {
+            selection: Selection::Primary,
+            ..feed(&a).remove(0)
+        };
+        assert!(!b.config().history.record_primary);
+        assert_eq!(b.sync_apply(vec![record]).await.unwrap(), (0, 1, 0));
+        assert!(visible(&b).is_empty());
+    }
+
+    #[tokio::test]
+    async fn synced_entries_pass_the_privacy_gate() {
+        let (dir_a, dir_b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let (a, _) = test_daemon_as(&dir_a, "aaaa");
+        let (b, _) = test_daemon_as(&dir_b, "bbbb");
+        put_text(&a, "from a password manager").await;
+        let mut record = feed(&a).remove(0);
+        record.source_app = Some("KeePassXC".into());
+        assert_eq!(b.sync_apply(vec![record]).await.unwrap(), (0, 1, 0));
+
+        b.set_private_mode(true);
+        put_text(&a, "while private").await;
+        let (applied, ignored, _) = push(&a, &b).await;
+        assert_eq!((applied, ignored), (0, 2));
+        assert!(visible(&b).is_empty());
+    }
+
+    #[tokio::test]
+    async fn sensitive_entries_never_leave_and_scope_narrows_the_feed() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, _) = test_daemon_as(&dir, "aaaa");
+        put_text(&a, "AKIAIOSFODNN7EXAMPLE").await;
+        let pinned = put_text(&a, "keep me").await;
+        a.set_pinned(pinned.id, true).await.unwrap();
+        put_text(&a, "loose").await;
+
+        let texts = |records: Vec<SyncRecord>| -> Vec<String> {
+            records
+                .iter()
+                .map(|r| String::from_utf8_lossy(&r.payloads[0].data).into_owned())
+                .collect()
+        };
+        let all = texts(feed(&a));
+        assert_eq!(all.len(), 2, "{all:?}");
+        assert!(!all.iter().any(|t| t.starts_with("AKIA")));
+        let (only_pinned, _, _) = a
+            .sync_changes(
+                SyncCursor::default(),
+                0,
+                SyncScope {
+                    pinned_only: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(texts(only_pinned), vec!["keep me".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn the_feed_pages_without_losing_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, _) = test_daemon_as(&dir, "aaaa");
+        for i in 0..5 {
+            put_text(&a, &format!("row {i}")).await;
+        }
+        let mut cursor = SyncCursor::default();
+        let mut seen = Vec::new();
+        loop {
+            let (records, next, more) = a.sync_changes(cursor, 2, SyncScope::default()).unwrap();
+            assert!(records.len() <= 2);
+            seen.extend(records.into_iter().map(|r| r.lamport));
+            cursor = next;
+            if !more {
+                break;
+            }
+        }
+        assert_eq!(seen.len(), 5);
+        assert!(seen.windows(2).all(|w| w[0] < w[1]));
     }
 
     fn text_event() -> ClipboardEvent {

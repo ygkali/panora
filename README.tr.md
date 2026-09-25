@@ -5,8 +5,10 @@
 **Panora**, Linux masaüstleri için Windows Win+V tarzı bir popup'a sahip,
 şifreli pano geçmişi yöneticisidir. Rust ve GTK4/libadwaita ile yazılmıştır,
 X11 ve Wayland pano protokollerini doğrudan konuşur, hiçbir ağ bağlantısı
-açmaz ve parola yöneticilerinin kopyaladığını hiç okumaz. GPL-3.0-only
-lisanslıdır.
+açmaz ve parola yöneticilerinin kopyaladığını hiç okumaz. Geçmişi kendi
+cihazlarınız arasında yerel ağda senkronlamak isteğe bağlı, ayrı bir
+pakettir: `panora-sync` (deneysel; bkz. [docs/SYNC.md](docs/SYNC.md)).
+GPL-3.0-only lisanslıdır.
 
 ▶ [Popup'ın 45 saniyelik tanıtımı](docs/book/src/media/tour.webm) (WebM,
 İngilizce altyazılı; ayrıca [belge sitesinde](https://ygkali.github.io/panora/docs/popup.html)).

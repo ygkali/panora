@@ -106,6 +106,32 @@ layer_anchor = "top-right"
 | `position` | `"pointer"` | `pointer` or `center`. Applies on X11 and, through the Shell extension, on GNOME. Other Wayland compositors decide for themselves. |
 | `layer_anchor` | `"top-right"` | Which corner the popup is anchored to on wlroots compositors when `gtk4-layer-shell` is available: `top-right`, `top-left`, `bottom-right`, `bottom-left`, `center`. |
 
+## `[sync]`
+
+Only used with the separate `panora-sync` package; see
+[Syncing between devices](sync.md).
+
+```toml
+[sync]
+enabled = false
+tombstone_days = 30
+port = 47100
+peers = []
+discovery = true
+pinned_only = false
+text_only = false
+```
+
+| Key | Default | What it does |
+|---|---|---|
+| `enabled` | `false` | Set by `panora-sync` when this device joins a group. While on, a deletion leaves a small record behind (no payloads) for `tombstone_days`, so devices that were offline learn about it. |
+| `tombstone_days` | `30` | 1–365. A device offline for longer may bring a deleted entry back. |
+| `port` | `47100` | UDP port `panora-sync` listens on; `0` picks a free one. |
+| `peers` | `[]` | Other devices as `ip:port` (at most 16), for networks that block mDNS. Host names are not resolved. |
+| `discovery` | `true` | Find the other devices with mDNS. |
+| `pinned_only` | `false` | Share only pinned entries. |
+| `text_only` | `false` | Share only text, rich text, links and colours. |
+
 ## Where everything lives
 
 | Path | What |

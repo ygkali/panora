@@ -755,3 +755,474 @@ msgstr "{n} kayıt işlendi."
 msgctxt "cli_count_one"
 msgid "{n} item processed."
 msgstr "{n} kayıt işlendi."
+
+#. Title of the first preferences page.
+msgctxt "settings_general"
+msgid "General"
+msgstr "Genel"
+
+msgctxt "menu_devices"
+msgid "Devices"
+msgstr "Cihazlar"
+
+#. Title of the preferences page about sync and pairing.
+msgctxt "sync_page"
+msgid "Devices"
+msgstr "Cihazlar"
+
+msgctxt "sync_title"
+msgid "Sync"
+msgstr "Eşitleme"
+
+msgctxt "sync_title_sub"
+msgid "Experimental. Keeps the clipboard history of your own devices on the same local network in step, end-to-end encrypted."
+msgstr "Deneysel. Aynı yerel ağdaki kendi cihazlarınızın pano geçmişini uçtan uca şifreli olarak eşitler."
+
+msgctxt "sync_service"
+msgid "Sync service"
+msgstr "Eşitleme hizmeti"
+
+msgctxt "sync_service_sub"
+msgid "Runs in the background and starts with the session"
+msgstr "Arka planda çalışır, oturumla birlikte başlar"
+
+msgctxt "sync_missing"
+msgid "Sync is not installed"
+msgstr "Eşitleme kurulu değil"
+
+msgctxt "sync_missing_sub"
+msgid "Install the separate panora-sync package to sync with your other devices."
+msgstr "Diğer cihazlarınızla eşitlemek için ayrı panora-sync paketini kurun."
+
+msgctxt "sync_this_device"
+msgid "This device"
+msgstr "Bu cihaz"
+
+#. `{f}` = a device fingerprint such as 3f2a-91c0-7b44-e1d8-0a5c.
+msgctxt "sync_fingerprint"
+msgid "Fingerprint {f}"
+msgstr "Parmak izi {f}"
+
+msgctxt "sync_notice_removed"
+msgid "This device was removed from its group. Join a group again, or leave it."
+msgstr "Bu cihaz grubundan çıkarıldı. Yeniden bir gruba katılın ya da gruptan ayrılın."
+
+msgctxt "sync_notice_key"
+msgid "Waiting for the current group key from another device of the group."
+msgstr "Grubun başka bir cihazından güncel grup anahtarı bekleniyor."
+
+msgctxt "sync_devices"
+msgid "Devices in the group"
+msgstr "Gruptaki cihazlar"
+
+msgctxt "sync_no_devices"
+msgid "No other devices yet"
+msgstr "Henüz başka cihaz yok"
+
+msgctxt "sync_no_devices_sub"
+msgid "Add one below"
+msgstr "Aşağıdan bir cihaz ekleyin"
+
+msgctxt "sync_connected"
+msgid "Connected"
+msgstr "Bağlı"
+
+msgctxt "sync_not_connected"
+msgid "Not connected"
+msgstr "Bağlı değil"
+
+msgctxt "sync_remove"
+msgid "Remove"
+msgstr "Çıkar"
+
+#. `{name}` = the device name its owner chose. Read by screen readers.
+msgctxt "sync_remove_named"
+msgid "Remove {name} from the group"
+msgstr "{name} cihazını gruptan çıkar"
+
+#. `{name}` = a device name.
+msgctxt "sync_remove_title"
+msgid "Remove {name}?"
+msgstr "{name} çıkarılsın mı?"
+
+msgctxt "sync_remove_body"
+msgid "The group key is replaced, so it receives nothing new from now on. What it already has stays on it."
+msgstr "Grup anahtarı değiştirilir; cihaz bundan sonra yeni bir şey alamaz. Önceden aldıkları üzerinde kalır."
+
+msgctxt "sync_add"
+msgid "Add a device"
+msgstr "Cihaz ekle"
+
+msgctxt "sync_pair_code"
+msgid "Pair with a code"
+msgstr "Kodla eşleştir"
+
+msgctxt "sync_pair_code_sub"
+msgid "Compare a six-digit code on both screens"
+msgstr "İki ekranda altı haneli bir kodu karşılaştırın"
+
+msgctxt "sync_invite_link"
+msgid "Invitation link"
+msgstr "Davet bağlantısı"
+
+msgctxt "sync_invite_link_sub"
+msgid "A one-time link and QR code for the other device"
+msgstr "Diğer cihaz için tek kullanımlık bağlantı ve QR kodu"
+
+msgctxt "sync_join"
+msgid "Join a group"
+msgstr "Bir gruba katıl"
+
+msgctxt "sync_join_code"
+msgid "Join with a code"
+msgstr "Kodla katıl"
+
+msgctxt "sync_join_code_sub"
+msgid "While a device in the group shows Pair with a code"
+msgstr "Gruptaki bir cihazda Kodla eşleştir açıkken"
+
+msgctxt "sync_join_link"
+msgid "Join with an invitation link"
+msgstr "Davet bağlantısıyla katıl"
+
+msgctxt "sync_join_link_sub"
+msgid "Paste the link another device made"
+msgstr "Başka bir cihazın oluşturduğu bağlantıyı yapıştırın"
+
+msgctxt "sync_leave"
+msgid "Leave the group"
+msgstr "Gruptan ayrıl"
+
+msgctxt "sync_leave_title"
+msgid "Leave the group on this device?"
+msgstr "Bu cihaz gruptan ayrılsın mı?"
+
+msgctxt "sync_leave_body"
+msgid "This device stops syncing and gets a new identity. Its history stays here. Remove it on another device too."
+msgstr "Bu cihaz eşitlemeyi bırakır ve yeni bir kimlik alır. Geçmişi burada kalır. Onu başka bir cihazdan da çıkarın."
+
+msgctxt "sync_cancel"
+msgid "Cancel"
+msgstr "Vazgeç"
+
+#. `{e}` = the error systemctl reported.
+msgctxt "sync_service_failed"
+msgid "The sync service could not be changed: {e}"
+msgstr "Eşitleme hizmeti değiştirilemedi: {e}"
+
+msgctxt "sync_service_slow"
+msgid "The sync service has not answered yet; it may still be starting."
+msgstr "Eşitleme hizmeti henüz yanıt vermedi; hâlâ başlıyor olabilir."
+
+#. `{name}` = a device name.
+msgctxt "sync_removed"
+msgid "{name} was removed from the group"
+msgstr "{name} gruptan çıkarıldı"
+
+msgctxt "sync_left"
+msgid "This device left the group"
+msgstr "Bu cihaz gruptan ayrıldı"
+
+#. Inserted into `sync_failure_other`, hence lower case.
+msgctxt "sync_service_gone"
+msgid "the sync service stopped answering"
+msgstr "eşitleme hizmeti yanıt vermeyi bıraktı"
+
+#. `{name}` = a device name.
+msgctxt "sync_device_joined"
+msgid "{name} joined the group"
+msgstr "{name} gruba katıldı"
+
+msgctxt "sync_device_joined_body"
+msgid "From now on its entries arrive here, and yours there."
+msgstr "Bundan sonra onun kayıtları buraya, sizinkiler oraya gelir."
+
+msgctxt "sync_joined"
+msgid "Joined the group"
+msgstr "Gruba katıldınız"
+
+msgctxt "sync_joined_body"
+msgid "Syncing starts now; the history of the other devices arrives in a moment."
+msgstr "Eşitleme şimdi başlıyor; diğer cihazların geçmişi birazdan gelir."
+
+msgctxt "sync_done"
+msgid "Done"
+msgstr "Tamam"
+
+msgctxt "sync_failed"
+msgid "Pairing did not work"
+msgstr "Eşleştirme başarısız oldu"
+
+msgctxt "sync_close"
+msgid "Back to the devices"
+msgstr "Cihazlara dön"
+
+msgctxt "sync_invite_qr"
+msgid "QR code of the invitation link"
+msgstr "Davet bağlantısının QR kodu"
+
+msgctxt "sync_copy_link"
+msgid "Copy link"
+msgstr "Bağlantıyı kopyala"
+
+msgctxt "sync_link_copied"
+msgid "Link copied; it is kept out of the clipboard history"
+msgstr "Bağlantı kopyalandı; pano geçmişine kaydedilmez"
+
+msgctxt "sync_waiting_device"
+msgid "Waiting for the other device…"
+msgstr "Diğer cihaz bekleniyor…"
+
+msgctxt "sync_invite_title"
+msgid "Open this link on the other device"
+msgstr "Bu bağlantıyı diğer cihazda açın"
+
+#. `{time}` = a local time such as 14:05.
+msgctxt "sync_invite_body"
+msgid "Scan the code, or copy the link and paste it there under Preferences › Devices › Join with an invitation link. It works once, until {time}."
+msgstr "Kodu taratın ya da bağlantıyı kopyalayıp orada Tercihler › Cihazlar › Davet bağlantısıyla katıl bölümüne yapıştırın. Tek kullanımlıktır ve {time} saatine kadar geçerlidir."
+
+msgctxt "sync_waiting_confirm"
+msgid "Waiting for the other device to confirm…"
+msgstr "Diğer cihazın onayı bekleniyor…"
+
+msgctxt "sync_code_title"
+msgid "Compare this code"
+msgstr "Bu kodu karşılaştırın"
+
+msgctxt "sync_code_body"
+msgid "The other device shows a code too. If it is the same, confirm it there."
+msgstr "Diğer cihaz da bir kod gösteriyor. Aynıysa orada onaylayın."
+
+msgctxt "sync_compare_title"
+msgid "Do the codes match?"
+msgstr "Kodlar aynı mı?"
+
+#. `{f}` = a device fingerprint.
+msgctxt "sync_compare_device"
+msgid "Device {f}"
+msgstr "Cihaz {f}"
+
+#. `{name}` = a device name, `{f}` = its fingerprint.
+msgctxt "sync_compare_named"
+msgid "{name}, fingerprint {f}"
+msgstr "{name}, parmak izi {f}"
+
+msgctxt "sync_compare_body"
+msgid "Pair only if the other screen shows exactly this code."
+msgstr "Yalnızca diğer ekranda tam olarak bu kod görünüyorsa eşleştirin."
+
+msgctxt "sync_codes_differ"
+msgid "They differ"
+msgstr "Farklı"
+
+msgctxt "sync_codes_match"
+msgid "Same, pair"
+msgstr "Aynı, eşleştir"
+
+msgctxt "sync_finishing"
+msgid "Finishing…"
+msgstr "Tamamlanıyor…"
+
+msgctxt "sync_preparing"
+msgid "Preparing…"
+msgstr "Hazırlanıyor…"
+
+msgctxt "sync_listening_title"
+msgid "On the other device, choose Join with a code"
+msgstr "Diğer cihazda Kodla katıl seçeneğini seçin"
+
+#. `{time}` = a local time such as 14:05.
+msgctxt "sync_listening_body"
+msgid "It is under Preferences › Devices there. This device waits until {time}."
+msgstr "Orada Tercihler › Cihazlar altındadır. Bu cihaz {time} saatine kadar bekler."
+
+#. `{reason}` = one of the `sync_failure_*` sentences.
+msgctxt "sync_attempt_failed"
+msgid "An attempt failed: {reason} Still waiting."
+msgstr "Bir deneme başarısız oldu: {reason} Beklemeye devam ediliyor."
+
+msgctxt "sync_address"
+msgid "Address of the other device (optional)"
+msgstr "Diğer cihazın adresi (isteğe bağlı)"
+
+msgctxt "sync_search"
+msgid "Find the device"
+msgstr "Cihazı bul"
+
+msgctxt "sync_searching"
+msgid "Looking for the device…"
+msgstr "Cihaz aranıyor…"
+
+msgctxt "sync_join_code_body"
+msgid "First choose Pair with a code on a device that is already in the group. It is found on this network by itself; enter its address (ip:port) only if it is not."
+msgstr "Önce gruptaki bir cihazda Kodla eşleştir seçeneğini seçin. Cihaz bu ağda kendiliğinden bulunur; bulunamazsa adresini (ip:port) girin."
+
+msgctxt "sync_link_entry"
+msgid "Invitation link"
+msgstr "Davet bağlantısı"
+
+msgctxt "sync_join_link_body"
+msgid "On a device in the group, choose Invitation link, then paste the link here."
+msgstr "Gruptaki bir cihazda Davet bağlantısı seçeneğini seçin, ardından bağlantıyı buraya yapıştırın."
+
+msgctxt "sync_join_button"
+msgid "Join"
+msgstr "Katıl"
+
+#. `{f}` = a device fingerprint.
+msgctxt "sync_joining"
+msgid "Joining the group of device {f}…"
+msgstr "{f} cihazının grubuna katılınıyor…"
+
+msgctxt "sync_failure_cancelled"
+msgid "Pairing was cancelled on this device."
+msgstr "Eşleştirme bu cihazda iptal edildi."
+
+msgctxt "sync_failure_rejected"
+msgid "The other device said no, or the codes did not match."
+msgstr "Diğer cihaz reddetti ya da kodlar eşleşmedi."
+
+msgctxt "sync_failure_expired"
+msgid "Time ran out. Start again."
+msgstr "Süre doldu. Yeniden başlayın."
+
+msgctxt "sync_failure_not_open"
+msgid "Pairing is not open on the other device."
+msgstr "Diğer cihazda eşleştirme açık değil."
+
+msgctxt "sync_failure_unreachable"
+msgid "The other device could not be found or reached on this network."
+msgstr "Diğer cihaz bu ağda bulunamadı ya da ona ulaşılamadı."
+
+msgctxt "sync_failure_ambiguous"
+msgid "Several devices are waiting for a code. Enter the address of the one you mean."
+msgstr "Birden çok cihaz kod bekliyor. Kastettiğiniz cihazın adresini girin."
+
+msgctxt "sync_failure_invalid_link"
+msgid "This is not a valid Panora invitation link."
+msgstr "Bu geçerli bir Panora davet bağlantısı değil."
+
+msgctxt "sync_failure_wrong_mode"
+msgid "One device shows an invitation and the other waits for a code. Use the same way on both."
+msgstr "Bir cihaz davet gösteriyor, diğeri kod bekliyor. İkisinde de aynı yolu kullanın."
+
+msgctxt "sync_failure_refused"
+msgid "The group cannot take this device: it is already in it, or the group is full."
+msgstr "Grup bu cihazı alamıyor: cihaz zaten grupta ya da grup dolu."
+
+msgctxt "sync_failure_verification"
+msgid "Verification failed: the other device is not the one it claims to be. Nothing was shared."
+msgstr "Doğrulama başarısız: diğer cihaz iddia ettiği cihaz değil. Hiçbir şey paylaşılmadı."
+
+#. `{e}` = details from the sync service, in English.
+msgctxt "sync_failure_other"
+msgid "Something went wrong: {e}."
+msgstr "Bir sorun çıktı: {e}."
+
+msgctxt "sync_failure_invalid_address"
+msgid "That is not an address: give it as ip:port, for example 192.168.1.20:47100."
+msgstr "Bu bir adres değil: ip:port biçiminde verin, örneğin 192.168.1.20:47100."
+
+#. Shown after `panora-sync:`, hence lower case.
+msgctxt "sync_cli_link_or_code"
+msgid "give an invitation link, or --code"
+msgstr "bir davet bağlantısı ya da --code verin"
+
+#. After a yes/no question on the terminal. `y`, `yes`, `e` and `evet` all mean yes; anything else is no, the default (upper case).
+msgctxt "sync_cli_yes_no"
+msgid "[y/N]"
+msgstr "[e/H]"
+
+msgctxt "sync_cli_not_running"
+msgid "panora-sync is not running; start it with: systemctl --user enable --now panora-sync"
+msgstr "panora-sync çalışmıyor; başlatmak için: systemctl --user enable --now panora-sync"
+
+#. `{name}` = this device's name, `{f}` = its fingerprint.
+msgctxt "sync_cli_this_device"
+msgid "This device: {name} ({f})"
+msgstr "Bu cihaz: {name} ({f})"
+
+#. `{addr}` = ip:port.
+msgctxt "sync_cli_listening_on"
+msgid "Listening on: {addr}"
+msgstr "Dinlenen adres: {addr}"
+
+msgctxt "sync_cli_no_group"
+msgid "Not in a sync group. Start one with: panora-sync invite"
+msgstr "Bir eşitleme grubunda değil. Başlatmak için: panora-sync invite"
+
+#. Inserted into `sync_cli_group`.
+msgctxt "sync_cli_state_removed"
+msgid "not a member (removed, or waiting to be added again)"
+msgstr "üye değil (çıkarıldı ya da yeniden eklenmeyi bekliyor)"
+
+#. Inserted into `sync_cli_group`.
+msgctxt "sync_cli_state_waiting_key"
+msgid "member, waiting for the current key"
+msgstr "üye, güncel anahtarı bekliyor"
+
+#. Inserted into `sync_cli_group`.
+msgctxt "sync_cli_state_member"
+msgid "member"
+msgstr "üye"
+
+#. `{state}` = one of `sync_cli_state_*`, `{n}` = how many times the device list changed.
+msgctxt "sync_cli_group"
+msgid "Group: {state}, roster epoch {n}"
+msgstr "Grup: {state}, cihaz listesi sürümü {n}"
+
+msgctxt "sync_cli_run_join"
+msgid "On the other device, run:"
+msgstr "Diğer cihazda şunu çalıştırın:"
+
+msgctxt "sync_cli_or_scan"
+msgid "or scan this code with it:"
+msgstr "ya da bu kodu onunla taratın:"
+
+#. `{n}` = minutes left, 10 at most.
+msgctxt "sync_cli_invite_note"
+msgid "The invitation works once, for {n} minutes. Waiting…"
+msgstr "Davet tek kullanımlıktır ve {n} dakika geçerlidir. Bekleniyor…"
+
+msgctxt "sync_cli_listening"
+msgid "Waiting for a device. On it, run: panora-sync join --code (or choose Join with a code in Panora’s preferences)"
+msgstr "Bir cihaz bekleniyor. Onda şunu çalıştırın: panora-sync join --code (ya da Panora tercihlerinde Kodla katıl seçeneğini seçin)"
+
+#. `{code}` = six digits, such as 042 917.
+msgctxt "sync_cli_code"
+msgid "Code: {code}"
+msgstr "Kod: {code}"
+
+#. `{code}` = six digits; `{who}` = `sync_cli_device` or `sync_compare_named`.
+msgctxt "sync_cli_ask_code"
+msgid "Does the other screen show {code}? Pair with {who}?"
+msgstr "Diğer ekranda {code} mi görünüyor? {who} ile eşleşilsin mi?"
+
+#. `{who}` = `sync_cli_device` or `sync_compare_named`.
+msgctxt "sync_cli_ask"
+msgid "Pair with {who}?"
+msgstr "{who} ile eşleşilsin mi?"
+
+msgctxt "sync_cli_key_replaced"
+msgid "The group key has been replaced."
+msgstr "Grup anahtarı değiştirildi."
+
+msgctxt "sync_cli_left_hint"
+msgid "Remove this device on another device too."
+msgstr "Bu cihazı başka bir cihazdan da çıkarın."
+
+#. `{e}` = why, in English.
+msgctxt "sync_cli_no_qr"
+msgid "(no QR code: {e})"
+msgstr "(QR kodu yok: {e})"
+
+#. Shown after `panora-sync:`, hence lower case.
+msgctxt "sync_cli_service_closed"
+msgid "the sync service closed the connection"
+msgstr "eşitleme hizmeti bağlantıyı kapattı"
+
+#. `{f}` = a device fingerprint; used inside a question, hence lower case.
+msgctxt "sync_cli_device"
+msgid "device {f}"
+msgstr "{f} cihazı"

@@ -434,6 +434,62 @@ real-machine verification in `docs/RELEASING.md` is done.
   left open are force-closed, stray closing tags are ignored. RTF-only
   rich text (no HTML payload) still falls back to plain text; full RTF
   parsing is out of scope.
+- Groundwork for sync (SYNC-03), still with no network code: two IPC
+  requests, `SyncChanges` (a paged feed of entries changed since a
+  cursor, with their payloads, tombstones included and sensitive entries
+  never) and `SyncApply` (applies another device's records by
+  last-writer-wins on `(lamport, device_id)`, verifies every record's
+  content hash, and puts entries new to this device through the same
+  privacy gate as a local copy). Selective sync by `pinned_only` /
+  `text_only`. Pinning, deleting, restoring and re-copying now stamp the
+  entry with a fresh Lamport value, and the clock is kept in the database
+  so it never runs backwards when an old tombstone is purged.
+- Device pairing and the group key for sync (SYNC-02, ADR 0005), as a new
+  library crate, `panora-sync`, that opens no sockets and is not in the
+  package yet: the `panora-pair/1` protocol pairs a device either from the
+  inviter's QR code / link (which pins the inviter's key and carries a
+  one-time secret) or by both users confirming the same six-digit code; a
+  signed, epoch-numbered roster is the device list; removing a device
+  rotates the group key, and data sealed with an older key is refused.
+  The LAN transport and the user interface follow with SYNC-04.
+- Device sync on the local network (SYNC-04), as a separate, optional
+  package, `panora-sync` (experimental, off until
+  `systemctl --user enable --now panora-sync`). Devices find each other
+  with mDNS or at configured addresses and talk QUIC; each side proves its
+  device key by signing a value tied to the TLS session. Only loopback,
+  private, link-local and IPv6 unique-local addresses are ever contacted or
+  accepted. Entries, deletions and pins travel both ways, sealed with the
+  group key; sensitive entries never leave a device, and incoming ones pass
+  the receiving device's privacy rules. `panora-sync invite` prints a link
+  and a QR code, `panora-sync pair` / `join --code` compare a six-digit
+  code, `remove` replaces the group key. See `docs/SYNC.md`.
+- A **Devices** page in the preferences (and the popup menu) for sync:
+  the service switch, this device, the devices of the group with their
+  connection state and a remove button, pairing with a code, an
+  invitation link with a QR code, joining either way, and leaving. It
+  talks to the separate service over its control socket, so the main
+  package still has no network code; without the package the page says
+  so. The copied invitation link carries the password-manager hint and
+  stays out of the history.
+- `panora-sync` speaks Turkish too: what its commands print follows
+  `ui.language` (or the locale), and pairing questions accept `e`/`evet`
+  as well as `y`/`yes`. `--help` and the manual page stay in English.
+- Sync hardening before the merge: a peer's Lamport value can no longer
+  push this device's clock to where the others refuse its changes; remote
+  timestamps are kept within a few minutes of now; highlighted text only
+  reaches devices that record it; an invitation window cannot be used up
+  by devices that do not hold the link; the group id is no longer sent
+  before a device is admitted; mDNS keeps only this group's announcements;
+  refused connections get no answer; frames are limited to 64 MiB and the
+  unit to 768 MiB of memory.
+- `panora-sync`: closing a pairing request's connection now cancels a
+  join too; a no on the joining device reaches the inviting one as a
+  rejection; device names may not contain invisible format or
+  line-separator characters.
+- `[sync]` configuration section (`enabled`, `tombstone_days`, `port`,
+  `peers`, `discovery`, `pinned_only`, `text_only`). While `sync.enabled`
+  is on, a deletion is remembered, without its payloads, for
+  `tombstone_days` so devices that were offline learn about it.
 - A 45-second feature tour (DOC-09), `docs/book/src/media/tour.webm`,
   embedded on the documentation site's popup page and linked from the
   README. `scripts/record-tour.sh` regenerates it headlessly: the popup
@@ -441,6 +497,13 @@ real-machine verification in `docs/RELEASING.md` is done.
   ffmpeg records it with a caption per step.
 
 ### Changed
+- History database schema 5: a change counter the sync feed follows, so
+  an entry that arrived from another device is passed on to a third one.
+  Older files are backed up and migrated on the first start.
+- `panod`'s device id (the `device-id` file in its data directory) is now 128
+  random bits for new installs instead of a hash of the process id, the
+  clock and the data path, which two machines could share. Existing ids
+  are kept.
 - The popup no longer waits on the daemon: history pages, previews, image
   thumbnails and the details view are fetched and decoded on a worker
   thread and land on the GTK loop when ready, so typing and scrolling stay

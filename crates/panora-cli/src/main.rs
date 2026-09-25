@@ -1112,6 +1112,18 @@ fn print_response(
         // v3 client for a large archive) and never call this; kept for
         // exhaustiveness.
         ResponseData::Archive(bytes) => println!("{} bytes", bytes.len()),
+        // No CLI command sends the SYNC-03 requests yet; a sync transport
+        // talks to the daemon directly. Kept for exhaustiveness.
+        ResponseData::SyncChanges {
+            records,
+            next,
+            more,
+        } => println!("records={} next={} more={more}", records.len(), next.seq),
+        ResponseData::SyncApplied {
+            applied,
+            ignored,
+            rejected,
+        } => println!("applied={applied} ignored={ignored} rejected={rejected}"),
     }
     Ok(())
 }

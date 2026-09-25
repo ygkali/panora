@@ -7,7 +7,9 @@
 **Panora** is an encrypted clipboard history for Linux desktops with a
 Windows Win+V style popup. It is written in Rust with GTK4/libadwaita, speaks
 the X11 and Wayland clipboard protocols natively, never opens a network
-connection, and never reads what a password manager copied.
+connection, and never reads what a password manager copied. Syncing the
+history between your own devices on the local network is an optional,
+separate package, `panora-sync` (experimental; see [docs/SYNC.md](docs/SYNC.md)).
 
 *Türkçe: [README.tr.md](README.tr.md).*
 

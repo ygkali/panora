@@ -520,6 +520,40 @@ pub async fn handle_request(request: Request, daemon: &Daemon) -> Response {
         Request::Subscribe => Err(panora_core::error::Error::Ipc(
             "Subscribe requires the v3 protocol".into(),
         )),
+        // SYNC-03. Both hand history across, so both wait for the lock like
+        // Export does; refusing (rather than answering "nothing") also
+        // keeps a sync client from moving its cursor past what it missed.
+        Request::SyncChanges {
+            since,
+            limit,
+            scope,
+        } => {
+            if daemon.is_app_locked() {
+                Err(locked_error())
+            } else {
+                daemon
+                    .sync_changes(since, limit, scope)
+                    .map(|(records, next, more)| ResponseData::SyncChanges {
+                        records,
+                        next,
+                        more,
+                    })
+            }
+        }
+        Request::SyncApply { records } => {
+            if daemon.is_app_locked() {
+                Err(locked_error())
+            } else {
+                daemon
+                    .sync_apply(records)
+                    .await
+                    .map(|(applied, ignored, rejected)| ResponseData::SyncApplied {
+                        applied,
+                        ignored,
+                        rejected,
+                    })
+            }
+        }
     };
     match result {
         Ok(data) => Response::Success(data),
@@ -682,18 +716,12 @@ fn load_or_create_device_id() -> anyhow::Result<String> {
             return Ok(value);
         }
     }
-    let id = blake3::hash(
-        format!(
-            "{}:{}:{}",
-            std::process::id(),
-            crate::daemon::unix_now(),
-            data_dir().display()
-        )
-        .as_bytes(),
-    )
-    .to_hex()
-    .to_string()[..32]
-        .to_string();
+    // 128 random bits. Sync (SYNC-02) refuses two devices with the same id
+    // in one group, so the id must not follow from anything two machines
+    // can share, as the process id, clock and data path used to.
+    let mut raw = [0u8; 16];
+    rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut raw);
+    let id = panora_core::storage::crypto::hex_encode(&raw);
     std::fs::create_dir_all(data_dir())?;
     std::fs::write(&path, &id)?;
     set_file_permissions(&path)?;

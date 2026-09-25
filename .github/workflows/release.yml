@@ -45,8 +45,10 @@ jobs:
           grep -q "^## \[$version\]" CHANGELOG.md || { echo "CHANGELOG.md has no [$version] section"; exit 1; }
       - name: Build .deb
         run: ./packaging/build-deb.sh
+      - name: Build the panora-sync .deb
+        run: ./packaging/build-sync-deb.sh
       - name: lintian
-        run: lintian --fail-on error,warning --tag-display-limit 0 dist/panora_*.deb
+        run: lintian --fail-on error,warning --tag-display-limit 0 dist/panora_*.deb dist/panora-sync_*.deb
       - name: Install kit (amd64 only)
         if: matrix.arch == 'amd64'
         run: PANORA_DEB="$(ls dist/panora_*.deb)" ./packaging/make-kit.sh dist
@@ -55,6 +57,7 @@ jobs:
           name: panora-${{ matrix.arch }}
           path: |
             dist/panora_*.deb
+            dist/panora-sync_*.deb
             dist/panora-*-install-kit.tar.gz
           if-no-files-found: error
 
@@ -92,7 +95,7 @@ jobs:
       - name: Checksums
         run: |
           cd artifacts
-          sha256sum panora_*.deb panora-*-install-kit.tar.gz > SHA256SUMS
+          sha256sum panora_*.deb panora-sync_*.deb panora-*-install-kit.tar.gz > SHA256SUMS
           cat SHA256SUMS
       - name: Sign checksums (when a minisign key is configured)
         if: env.MINISIGN_CONFIGURED == 'true'
