@@ -5,6 +5,7 @@ members = [
     "crates/panod",
     "crates/panora-gui",
     "crates/panora-cli",
+    "crates/panora-sync",
 ]
 
 [workspace.package]
@@ -35,6 +36,9 @@ chacha20poly1305 = "0.10"
 argon2 = "0.5"
 tar = "0.4"
 rand = "0.8"
+# Ed25519 device identity and X25519 pairing (SYNC-02); the same `ring`
+# rustls will use for the QUIC transport (ADR 0004), so no second crypto stack.
+ring = "0.17"
 zeroize = { version = "1", features = ["derive"] }
 
 # --- benchmarks (STO-06) ---

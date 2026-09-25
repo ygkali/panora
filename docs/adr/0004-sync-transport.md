@@ -80,7 +80,7 @@ Kayda değer iki gözlem daha:
 - **Olumsuz:** Aynı ağda olmayan cihazlar (ör. evdeki masaüstü ile iş yerindeki dizüstü) ilk
   sürümde senkronlanmaz. mDNS bazı kurumsal/misafir ağlarında engellidir; elle `host:port`
   girişi yedek yol olarak gerekecek.
-- **Açık iş:** Yeni IPC isteği (SYNC-03), eşleştirme akışı ve anahtar türetimi (SYNC-02),
+- **Açık iş:** Yeni IPC isteği (SYNC-03), eşleştirme akışı ve anahtar türetimi (SYNC-02 — ADR 0005),
   `panora-sync` birimi ve paketi, SYNC-06 bağımsız güvenlik incelemesi.
 
 ## Yeniden üretim

@@ -444,6 +444,14 @@ real-machine verification in `docs/RELEASING.md` is done.
   `text_only`. Pinning, deleting, restoring and re-copying now stamp the
   entry with a fresh Lamport value, and the clock is kept in the database
   so it never runs backwards when an old tombstone is purged.
+- Device pairing and the group key for sync (SYNC-02, ADR 0005), as a new
+  library crate, `panora-sync`, that opens no sockets and is not in the
+  package yet: the `panora-pair/1` protocol pairs a device either from the
+  inviter's QR code / link (which pins the inviter's key and carries a
+  one-time secret) or by both users confirming the same six-digit code; a
+  signed, epoch-numbered roster is the device list; removing a device
+  rotates the group key, and data sealed with an older key is refused.
+  The LAN transport and the user interface follow with SYNC-04.
 - A 45-second feature tour (DOC-09), `docs/book/src/media/tour.webm`,
   embedded on the documentation site's popup page and linked from the
   README. `scripts/record-tour.sh` regenerates it headlessly: the popup
@@ -451,6 +459,10 @@ real-machine verification in `docs/RELEASING.md` is done.
   ffmpeg records it with a caption per step.
 
 ### Changed
+- `panod`'s device id (the `device-id` file in its data directory) is now 128
+  random bits for new installs instead of a hash of the process id, the
+  clock and the data path, which two machines could share. Existing ids
+  are kept.
 - The popup no longer waits on the daemon: history pages, previews, image
   thumbnails and the details view are fetched and decoded on a worker
   thread and land on the GTK loop when ready, so typing and scrolling stay

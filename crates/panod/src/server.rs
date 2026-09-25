@@ -716,18 +716,12 @@ fn load_or_create_device_id() -> anyhow::Result<String> {
             return Ok(value);
         }
     }
-    let id = blake3::hash(
-        format!(
-            "{}:{}:{}",
-            std::process::id(),
-            crate::daemon::unix_now(),
-            data_dir().display()
-        )
-        .as_bytes(),
-    )
-    .to_hex()
-    .to_string()[..32]
-        .to_string();
+    // 128 random bits. Sync (SYNC-02) refuses two devices with the same id
+    // in one group, so the id must not follow from anything two machines
+    // can share, as the process id, clock and data path used to.
+    let mut raw = [0u8; 16];
+    rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut raw);
+    let id = panora_core::storage::crypto::hex_encode(&raw);
     std::fs::create_dir_all(data_dir())?;
     std::fs::write(&path, &id)?;
     set_file_permissions(&path)?;

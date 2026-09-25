@@ -488,7 +488,7 @@ Bu maddeler yol haritasındaki ilgili işlere bağlanmıştır; P0 olanlar yayı
 | ID | Başlık | P | Efor |
 |---|---|---|---|
 | SYNC-01 | ~~Fizibilite spike'ı: `iroh` boyut/bağımlılık etkisi, ayrı `panora-sync` ikilisi/paketi, feature flag~~ **Bitti (2026-09-23): ADR 0004 — önce LAN, quinn + mdns-sd, ayrı `panora-sync` süreci; iroh ertelendi** | P3 | M |
-| SYNC-02 | Eşleştirme (QR + kısa doğrulama kodu), cihaz listesi, grup anahtarı | P3 | XL |
+| SYNC-02 | ~~Eşleştirme (QR + kısa doğrulama kodu), cihaz listesi, grup anahtarı~~ **Bitti (2026-09-25): ADR 0005 — `crates/panora-sync`, `panora-pair/1` (davet bağlantısı/QR veya 6 haneli kod), imzalı roster zinciri, çıkarmada anahtar yenileme; ağ ve arayüz SYNC-04'te (§11.9)** | P3 | XL |
 | SYNC-03 | Seçici senkron (yalnızca sabitliler / yalnızca metin), Lamport/LWW çakışma kuralları (şema hazır) — **çekirdek bitti 2026-09-23 (§11.8)**, ağ katmanı SYNC-04'te | P3 | L |
 | SYNC-04 | Önce LAN-only mod (mDNS + QUIC), sonra relay | P3 | L |
 | SYNC-05 | Android companion (Quick Settings tile, manuel gönderim) | P3 | XL |
@@ -761,3 +761,25 @@ PR #17 (1.7.x) CI'da tamamen yeşil ve birleştirilmeye hazır; birleştirme kul
 Sıradaki: SYNC-02 (eşleştirme, grup anahtarı) ve SYNC-04 (`panora-sync` süreci, LAN taşıması) — ikisi de
 kriptografik/ağ tasarımı içeriyor; SYNC-06'daki bağımsız inceleme şartı yüzünden varsayılan kapalı
 ve ayrı pakette kalacaklar.
+
+### 11.9 2.0 "Senkron" — SYNC-02 eşleştirme ve grup anahtarı (branch `2.0-sync-spike`, 2026-09-25)
+
+Karar ve tehdit modeli: `docs/adr/0005-pairing-and-group-key.md`. Kod yeni bir kütüphane crate'inde,
+`crates/panora-sync`; soket açmıyor, `panod` ona bağımlı değil, `.deb`'e girmiyor (ikili yok).
+
+| Madde | Durum |
+|---|---|
+| Eşleştirme (QR + kısa doğrulama kodu) | **Bitti.** `panora-pair/1`: G/Ç'siz `Joiner`/`Inviter` durum makineleri + herhangi bir bayt akışında çalışan `wire::run_joiner`/`run_inviter`. İki mod: **davet** (`panora-pair:1?id=…&s=…&exp=…&addr=…` — QR'ın içeriği; davet edenin kimlik anahtarını sabitler, 256 bit tek kullanımlık sır anahtarlara karışır, 10 dk) ve **kod** (kamerasız masaüstü: iki ekranda aynı 6 hane, katılanın geçici anahtarına önceden bağlanmasıyla araya girenin şansı deneme başına 10⁻⁶; pencere 5 dk ve yarıda bırakılanlar dahil 3 oturum, çünkü katılan rolündeki saldırgan davet edenin kodunu Offer'dan sonra görüp oturumu bırakabilir; `Inviter` pencereyi oturum boyunca ödünç alır, tek oturum; başarı pencereyi kapatır, davet tek kullanımlık). Mod transkriptte, düşürülemez. X25519 + Ed25519 `ring` ile, türetmeler BLAKE3, mühür `panora_core` XChaCha20-Poly1305 zarfı. |
+| Cihaz listesi | **Bitti (model).** Her değişiklik bir önceki roster'ın üyesince imzalanmış yeni bir roster (epoch, önceki hash, üyeler: kimlik/device_id/ad/eklenme). 16 cihaz sınırı, ad doğrulaması (denetim ve yön değiştirme karakterleri reddedilir), `GroupState::devices()` ad + parmak izi + "bu cihaz". Arayüz/CLI yüzeyi `panora-sync` süreciyle SYNC-04'te. |
+| Grup anahtarı | **Bitti.** 32 bayt; roster yalnızca anahtarlı denetim değerini taşır; çıkarma yeni anahtar dönemini zorunlu kılar; anahtar yalnızca kimliği doğrulanmış kanaldan (karşılama mesajı, SYNC-04'te sabitlenmiş TLS) ve yalnızca güncel üyeye verilir; açarken yalnızca güncel anahtar kabul edilir (çıkarılan cihaz eski anahtarla enjekte edemez). `seal_record`/`open_record` `SyncRecord`'u mühürler. |
+| Eşzamanlı değişiklik | **Bitti.** Tek tek roster'lar değil dallar karşılaştırılır (`apply_chain`): diğer dalın imzalayanını çıkaran kazanır; iki dal birbirinin imzalayanını çıkarıyorsa cihaz elindekini korur (gördüğü çıkarmayı geri almaz; önce görülene göre bölünme olabilir, ADR 0005 §5); diğerinin hâlâ listelediği bir cihazı çıkaran dal, kimseyi çıkarmayana karşı kazanır; yoksa ebeveyn + ilk imzalayandan türeyen, öğütülemeyen bir değer. Yeni cihaz tutulan 8 roster'ın hepsini alır; geçmişten eski çatal açık hata, geride kalan eşin eşleşen zinciri "değişmedi". Kaybeden, dalın son hâline göre süzülmüş kendi eklemelerini ve kim yapmış olursa olsun bütün çıkarmaları `reapply` ile hemen yeniden uygular. Epoch 2³²−1 ile sınırlı. |
+| İç inceleme | Commit'ten önce ayrı bir ajanla saldırgan gözüyle incelendi; 1 kritik (çıkarılan cihazın eski bir ebeveyn üzerine imzaladığı çatalla geri dönmesi), 1 yüksek (yarıda bırakılan oturumlarla kod öğütme, pencere sayacının hiç tüketilmemesi), 2 orta, 3 düşük bulgu; hepsi kapatıldı ve her biri için regresyon testi var. Düzeltmelerin ikinci incelemesi yedisini de doğruladı, 3 yeni bulgu çıkardı: 1 yüksek (çıkarılan cihazın çevrimdışı dürüst bir cihazın ilgisiz değişikliği üzerinden geri dönmesi), 2 düşük (onay anında pencere süresinin denetlenememesi, geride kalan eşin zincirinin reddi); üçü de kapatıldı ve kavram kanıtları regresyon testi oldu. SYNC-06'daki bağımsız incelemenin yerini tutmaz. |
+| Kalıcı durum | **Bitti.** `SyncState`: kimlik + ad + grup tek dosyada, mühürlü, `0600`, atomik; yüklerken her roster yeniden doğrulanır. Anahtarın Secret Service'ten alınması SYNC-04 sürecinde. |
+| Yan düzeltme | `panod`'un `device-id`'si artık 128 bit rastgele (önceden pid + saat + veri yolu hash'i; iki makinede çakışabilirdi, eşleştirme de artık çakışan id'yi reddediyor). |
+| Testler | 50 birim + 4 uçtan uca (gerçek TCP soketleri, üç cihaz: davetle katılım, kodla katılım, kod reddi, yanlış mod, çıkarma ve anahtar yenileme). Saldırı testleri: kod modunda araya giren iki ayrı kod görür; davet sırrı olmadan `Join` açılamaz; sızmış sırla bile `Welcome` taklit edilemez; bozuk commitment; düşük dereceli X25519 anahtarı; sahte/yetkisiz/boşluklu roster; çıkarılan cihazın sonraki roster'ı imzalayamaması; çıkarılma yarışı; eski ebeveyn üzerinden geri dönme (40 deneme); çıkarmayı kaçıran cihazın sahibin dalına geçmesi; yarıda bırakılan oturumlar; tek kullanımlık davet; süresi dolan pencere; epoch taşması; eski anahtarla mühürlenmiş veri. |
+| Bağımlılık | `ring` 0.17 (+ `untrusted`), Linux'ta yalnızca 2 yeni crate; quinn/rustls zaten `ring` getirecekti. SPAKE2 alınmadı (gerekçe ADR 0005 §7). |
+
+Açık kalanlar: SYNC-04 (`panora-sync` süreci/birimi/paketi, mDNS, dinleyici + zaman aşımı, sabitlenmiş
+TLS, roster/anahtar yayını, SYNC-03'ün açık üç maddesi), eşleştirme arayüzü (QR penceresi, kod onayı,
+cihaz listesi), SYNC-05 Android, SYNC-06 bağımsız inceleme. Bilinçli sınırlar (kayıt başına imza yok,
+yeniden adlandırma/kendi kendine ayrılma yok, ele geçirilmiş üyenin "çıkarma savaşı") ADR 0005'te.

@@ -15,6 +15,6 @@
 | [security-research-notes.md](security-research-notes.md) | Açık kaynak pano yöneticileri ve standartlar üzerine araştırma notları (tarihsel) |
 | [security-integration-report.md](security-integration-report.md) | 1.0 güvenlik standardı entegrasyon raporu (tarihsel) |
 | [benchmark.md](benchmark.md) | Performans hedefleri ve ölçüm planı |
-| [adr/](adr/) | Mimari karar kayıtları (teknoloji yığını, senkron mimarisi, güvenlik modeli) |
+| [adr/](adr/) | Mimari karar kayıtları (teknoloji yığını, senkron mimarisi, güvenlik modeli, senkron taşıması, eşleştirme ve grup anahtarı) |
 
 Kurulum ve kullanım için depo kökündeki `README.md`; sürüm notları için `CHANGELOG.md`.
