@@ -11,6 +11,7 @@
 #![forbid(unsafe_code)]
 
 mod details;
+mod devices;
 #[cfg(feature = "fixture")]
 mod fixture;
 mod placement;

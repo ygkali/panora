@@ -83,7 +83,12 @@ pub enum PairEvent {
     /// The device was admitted; the window is closed.
     Joined(JoinRequest),
     /// An attempt failed; the window may still be open.
-    Failed(String),
+    Failed {
+        /// Why, for the front end.
+        failure: panora_core::sync::control::Failure,
+        /// Details, in English.
+        message: String,
+    },
 }
 
 struct PairingSlot {
@@ -97,39 +102,9 @@ struct PeerLink {
     id: u64,
 }
 
-/// A row of [`Node::status`]'s device list.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct DeviceRow {
-    /// Device name.
-    pub name: String,
-    /// Identity fingerprint.
-    pub fingerprint: String,
-    /// This device.
-    pub this_device: bool,
-    /// A session with it is up.
-    pub connected: bool,
-}
-
-/// What `panora-sync status` shows.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct Status {
-    /// This device's name.
-    pub device_name: String,
-    /// This device's identity fingerprint.
-    pub fingerprint: String,
-    /// Where the node listens.
-    pub listen: String,
-    /// Whether a group exists at all.
-    pub in_group: bool,
-    /// Whether this device is a member of it right now.
-    pub member: bool,
-    /// Whether this device holds the current group key.
-    pub has_key: bool,
-    /// Roster epoch.
-    pub epoch: u64,
-    /// The device list.
-    pub devices: Vec<DeviceRow>,
-}
+/// What [`Node::status`] reports; shared with the GUI through the control
+/// protocol.
+pub use panora_core::sync::control::{DeviceRow, Status};
 
 /// State shared by every task of a node.
 pub(crate) struct Shared {
@@ -156,7 +131,7 @@ pub(crate) struct Shared {
     shutdown: watch::Sender<bool>,
 }
 
-fn now() -> i64 {
+pub(crate) fn now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
@@ -679,11 +654,11 @@ impl Node {
             }
         }
         if targets.is_empty() {
-            return Err(Error::Invitation(
+            return Err(Error::NotFound(
                 "the inviting device could not be found on this network",
             ));
         }
-        let mut last = Error::Invitation("the inviting device could not be reached");
+        let mut last = Error::NotFound("the inviting device could not be reached");
         for addr in targets {
             match self
                 .join_at(addr, Some(invitation.clone()), |_, _| async { true })
@@ -716,12 +691,12 @@ impl Node {
                 match found.as_slice() {
                     [one] => one.addr,
                     [] => {
-                        return Err(Error::Invitation(
+                        return Err(Error::NotFound(
                             "no device on this network is waiting for a code; give its address",
                         ))
                     }
                     _ => {
-                        return Err(Error::Invitation(
+                        return Err(Error::Ambiguous(
                             "several devices are waiting for a code; give the address of one",
                         ))
                     }
@@ -765,12 +740,26 @@ impl Node {
             invitation,
             now(),
         )?;
-        let group = tokio::time::timeout(
+        let joined = tokio::time::timeout(
             PAIRING_TIMEOUT,
             wire::run_joiner(&mut stream, joiner, commit, confirm),
         )
         .await
-        .map_err(|_| Error::Protocol("pairing took too long"))??;
+        .map_err(|_| Error::Protocol("pairing took too long"))
+        .and_then(|result| result);
+        let group = match joined {
+            Ok(group) => group,
+            Err(e) => {
+                // `run_joiner` may have written an abort (the user said
+                // no). Let it reach the inviter, which then shows "rejected"
+                // rather than a lost connection: finish the stream and wait,
+                // briefly, for the inviter to hang up.
+                let (mut recv, mut send) = stream.into_inner();
+                let _ = send.finish();
+                let _ = tokio::time::timeout(Duration::from_secs(2), recv.read_to_end(1024)).await;
+                return Err(e);
+            }
+        };
         conn.close(0u32.into(), b"paired");
         {
             let mut state = shared.lock();
@@ -793,17 +782,27 @@ impl Node {
             let mut state = self.shared.lock();
             let group = state.group.as_mut().ok_or(Error::Roster("no group"))?;
             let wanted = device.trim();
-            let matches: Vec<Member> = group
-                .current()
-                .members
+            let members = &group.current().members;
+            // A full fingerprint (what the GUI sends) means that device,
+            // even if another one has named itself after it.
+            let exact: Vec<Member> = members
                 .iter()
-                .filter(|m| {
-                    m.name == wanted
-                        || (wanted.len() >= 4
-                            && m.identity.fingerprint().starts_with(&wanted.to_lowercase()))
-                })
+                .filter(|m| m.identity.fingerprint() == wanted.to_lowercase())
                 .cloned()
                 .collect();
+            let matches: Vec<Member> = if exact.is_empty() {
+                members
+                    .iter()
+                    .filter(|m| {
+                        m.name == wanted
+                            || (wanted.len() >= 4
+                                && m.identity.fingerprint().starts_with(&wanted.to_lowercase()))
+                    })
+                    .cloned()
+                    .collect()
+            } else {
+                exact
+            };
             let member = match matches.as_slice() {
                 [one] => one.clone(),
                 [] => return Err(Error::Device("no device in the group matches that")),
@@ -979,7 +978,10 @@ impl Shared {
                 let _ = events.send(PairEvent::Joined(request.clone()));
             }
             Err(e) => {
-                let _ = events.send(PairEvent::Failed(e.to_string()));
+                let _ = events.send(PairEvent::Failed {
+                    failure: e.failure(),
+                    message: e.to_string(),
+                });
             }
         }
         if finished {

@@ -3,6 +3,9 @@
 
 //! Network-free synchronization extension point.
 
+/// The control protocol of the `panora-sync` service.
+pub mod control;
+
 use crate::error::Result;
 use crate::model::{ContentKind, Entry, MimePayload, Selection};
 use async_trait::async_trait;

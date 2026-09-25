@@ -35,12 +35,24 @@ const CAPTURE_KINDS: [(&str, ContentKind); 6] = [
 
 /// Open the preferences dialog.
 pub fn show(ui: &Rc<Ui>) {
+    open(ui, false);
+}
+
+/// Open the preferences dialog on its Devices page.
+pub fn show_devices(ui: &Rc<Ui>) {
+    open(ui, true);
+}
+
+fn open(ui: &Rc<Ui>, devices_first: bool) {
     let s = ui.s;
     let config = ui.app.config.borrow().clone();
     let dialog = adw::PreferencesDialog::builder()
         .title(s.settings_title)
         .build();
-    let page = adw::PreferencesPage::new();
+    let page = adw::PreferencesPage::builder()
+        .title(s.settings_general)
+        .icon_name("preferences-system-symbolic")
+        .build();
 
     // --- history -----------------------------------------------------
     let history = adw::PreferencesGroup::builder()
@@ -386,6 +398,11 @@ pub fn show(ui: &Rc<Ui>) {
     }
 
     dialog.add(&page);
+    let devices = crate::devices::page(s, &dialog);
+    dialog.add(&devices);
+    if devices_first {
+        dialog.set_visible_page(&devices);
+    }
 
     // Save on close: every row above is live state, so there is no separate
     // "apply" step to forget.
@@ -418,9 +435,17 @@ pub fn show(ui: &Rc<Ui>) {
     dialog.present(Some(&ui.window));
 }
 
-fn save(ui: &Rc<Ui>, next: Config) {
-    let current = ui.app.config.borrow().clone();
+fn save(ui: &Rc<Ui>, mut next: Config) {
+    let mut current = ui.app.config.borrow().clone();
+    // `[sync]` belongs to panora-sync, which turns `enabled` on and off as
+    // this device joins or leaves a group -- possibly from this very
+    // dialog. Keep what is on disk rather than the copy read at startup.
+    if let Ok(on_disk) = Config::load() {
+        next.sync = on_disk.sync;
+    }
+    current.sync = next.sync.clone();
     if same_config(&current, &next) {
+        *ui.app.config.borrow_mut() = current;
         return;
     }
     match next.save() {

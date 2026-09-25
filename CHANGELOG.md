@@ -463,6 +463,18 @@ real-machine verification in `docs/RELEASING.md` is done.
   the receiving device's privacy rules. `panora-sync invite` prints a link
   and a QR code, `panora-sync pair` / `join --code` compare a six-digit
   code, `remove` replaces the group key. See `docs/SYNC.md`.
+- A **Devices** page in the preferences (and the popup menu) for sync:
+  the service switch, this device, the devices of the group with their
+  connection state and a remove button, pairing with a code, an
+  invitation link with a QR code, joining either way, and leaving. It
+  talks to the separate service over its control socket, so the main
+  package still has no network code; without the package the page says
+  so. The copied invitation link carries the password-manager hint and
+  stays out of the history.
+- `panora-sync`: closing a pairing request's connection now cancels a
+  join too; a no on the joining device reaches the inviting one as a
+  rejection; device names may not contain invisible format or
+  line-separator characters.
 - `[sync]` configuration section (`enabled`, `tombstone_days`, `port`,
   `peers`, `discovery`, `pinned_only`, `text_only`). While `sync.enabled`
   is on, a deletion is remembered, without its payloads, for

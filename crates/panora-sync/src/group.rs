@@ -82,13 +82,44 @@ pub fn validate_name(name: &str) -> Result<()> {
     if name.chars().count() > MAX_NAME_CHARS {
         return Err(Error::Device("device name is longer than 64 characters"));
     }
-    let bidi = |c: char| matches!(c, '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}');
-    if name.chars().any(|c| c.is_control() || bidi(c)) {
+    if name.chars().any(|c| c.is_control() || is_format(c)) {
         return Err(Error::Device(
-            "device name contains control or direction-override characters",
+            "device name contains control, format or line-separator characters",
         ));
     }
     Ok(())
+}
+
+/// Characters that change how the text around them is shown without
+/// being visible themselves (Unicode general categories Cf, Zl and Zp):
+/// direction overrides, zero-width spaces and joiners, soft hyphens, line
+/// and paragraph separators, tags. A name holding one could pass for
+/// another device's, or add a fake line to a pairing prompt.
+fn is_format(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00AD}'
+            | '\u{0600}'..='\u{0605}'
+            | '\u{061C}'
+            | '\u{06DD}'
+            | '\u{070F}'
+            | '\u{0890}'..='\u{0891}'
+            | '\u{08E2}'
+            | '\u{180E}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{2028}'..='\u{202E}'
+            | '\u{2060}'..='\u{2064}'
+            | '\u{2066}'..='\u{206F}'
+            | '\u{FEFF}'
+            | '\u{FFF9}'..='\u{FFFB}'
+            | '\u{110BD}'
+            | '\u{110CD}'
+            | '\u{13430}'..='\u{1343F}'
+            | '\u{1BCA0}'..='\u{1BCA3}'
+            | '\u{1D173}'..='\u{1D17A}'
+            | '\u{E0001}'
+            | '\u{E0020}'..='\u{E007F}'
+    )
 }
 
 /// One device in the roster.
@@ -1620,6 +1651,22 @@ mod tests {
         assert!(validate_name(" padded").is_err());
         assert!(validate_name("line\nbreak").is_err());
         assert!(validate_name("evil\u{202E}pot.exe").is_err());
+        // Invisible or line-breaking characters that could fake another
+        // device's name or a line of a pairing prompt.
+        for sneaky in [
+            "\u{2028}",
+            "\u{2029}",
+            "\u{200B}",
+            "\u{2060}",
+            "\u{FEFF}",
+            "\u{00AD}",
+            "\u{E0041}",
+        ] {
+            assert!(
+                validate_name(&format!("lap{sneaky}top")).is_err(),
+                "{sneaky:?}"
+            );
+        }
         assert!(validate_name(&"x".repeat(65)).is_err());
         assert!(validate_device_id("0123abcd").is_ok());
         assert!(validate_device_id("").is_err());

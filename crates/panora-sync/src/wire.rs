@@ -52,7 +52,7 @@ pub(crate) fn abort_reason(err: &Error) -> Option<AbortReason> {
         Error::Io(_) | Error::Aborted(_) => None,
         Error::Cancelled => Some(AbortReason::Rejected),
         Error::ModeMismatch => Some(AbortReason::WrongMode),
-        Error::Invitation(_) => Some(AbortReason::Closed),
+        Error::Invitation(_) | Error::Expired(_) => Some(AbortReason::Closed),
         Error::Device(_) => Some(AbortReason::Refused),
         _ => Some(AbortReason::Failed),
     }

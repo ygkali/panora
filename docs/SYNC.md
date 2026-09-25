@@ -37,6 +37,32 @@ sudo apt install ./panora-sync_*.deb
 systemctl --user enable --now panora-sync
 ```
 
+### In Panora
+
+Everything below is also in the popup: menu › **Devices** (or
+Preferences › Devices). The page shows whether the service runs, with a
+switch to start it, this device's name and fingerprint, and the devices
+of its group, connected or not, each with a button to remove it.
+
+- On a device already in the group (or on the first one), **Pair with a
+  code** waits for the other device and shows six digits; **Invitation
+  link** shows a link to copy and a QR code. The copied link is marked
+  as a secret, so Panora keeps it out of the history.
+- On the new device, **Join with a code** finds the waiting device on the
+  network (or takes its address) and shows the same six digits; **Join
+  with an invitation link** takes the pasted link.
+- Compare the codes and choose **Same, pair** on both screens only if they
+  match. Going back, or closing the preferences, cancels what is in
+  progress.
+
+The hint on the copied link only helps on the device that copied it. On
+the device you paste it into, it usually arrives through a messenger or a
+note, as an ordinary copy that Panora records like any other. It is
+single-use and expires after ten minutes, but you can delete that entry
+once the device has joined.
+
+The same, from a terminal:
+
 On the first device, invite the second one:
 
 ```bash

@@ -356,7 +356,7 @@ impl<'a> Joiner<'a> {
         validate_name(name)?;
         if let Some(inv) = &invitation {
             if inv.is_expired(now) {
-                return Err(Error::Invitation("the invitation has expired"));
+                return Err(Error::Expired("the invitation has expired"));
             }
             if inv.inviter == identity.public() {
                 return Err(Error::Invitation("this invitation was made on this device"));

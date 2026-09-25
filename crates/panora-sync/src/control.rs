@@ -1,120 +1,27 @@
 // Copyright (C) 2026 Panora contributors
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! The control socket of `panora-sync run`: how the command line (and
-//! later the GUI) asks the running service to pair, list or remove
-//! devices. JSON lines over a 0600 Unix socket in the user's runtime
-//! directory; connections from another user are refused.
-//!
-//! A client sends one request, then reads events until `done` or
-//! `error`. Pairing questions arrive as `ask`, answered with an `answer`
-//! request on the same connection.
+//! The control socket of `panora-sync run`: how the command line and the
+//! GUI ask the running service to pair, list or remove devices. The
+//! messages are in [`panora_core::sync::control`]; this is the service
+//! side and an async client. JSON lines over a 0600 Unix socket in the
+//! user's runtime directory; connections from another user are refused.
 
 use crate::error::{Error, Result};
 use crate::invite::Invitation;
-use crate::node::{Node, PairEvent, Status};
-use serde::{Deserialize, Serialize};
+use crate::node::{Node, PairEvent};
+use crate::pairing::JoinRequest;
+pub use panora_core::sync::control::{
+    socket_path, DeviceRow, Event, Failure, Outcome, Request, Status, MAX_LINE,
+};
+use serde::Serialize;
 use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tracing::{debug, warn};
-
-/// Longest control line accepted.
-const MAX_LINE: u64 = 64 * 1024;
-
-/// Where the service listens.
-pub fn socket_path() -> PathBuf {
-    std::env::var_os("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(panora_core::config::data_dir)
-        .join("panora-sync.sock")
-}
-
-/// What a client asks.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "cmd", rename_all = "snake_case")]
-pub enum Request {
-    /// This device, its group, its connections.
-    Status,
-    /// Invite a device; replies with the link.
-    Invite,
-    /// Accept one device by comparing a code.
-    Pair,
-    /// Join with an invitation link.
-    Join {
-        /// The link.
-        link: String,
-    },
-    /// Join by comparing a code, with the device at `address` or the only
-    /// one mDNS finds.
-    JoinCode {
-        /// `ip:port`, if known.
-        address: Option<String>,
-    },
-    /// Remove a device (name, or at least four characters of its
-    /// fingerprint).
-    Remove {
-        /// Which one.
-        device: String,
-    },
-    /// Leave the group on this device.
-    Leave,
-    /// The user's answer to the last `ask`.
-    Answer {
-        /// Yes or no.
-        accept: bool,
-    },
-}
-
-/// What the service reports.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "event", rename_all = "snake_case")]
-pub enum Event {
-    /// Reply to `status`.
-    Status {
-        /// The report.
-        status: Status,
-    },
-    /// The invitation link to show (as text and QR code).
-    Link {
-        /// `panora-pair:1?...`
-        link: String,
-        /// Unix time it stops working.
-        expires_at: i64,
-    },
-    /// Progress worth showing.
-    Waiting {
-        /// What is happening.
-        message: String,
-    },
-    /// The code to show, on the inviting device.
-    Code {
-        /// `042 917`
-        code: String,
-    },
-    /// A question for the user; answer with `answer`.
-    Ask {
-        /// The code to compare, if any.
-        code: Option<String>,
-        /// The other device's name, if known.
-        name: String,
-        /// The other device's fingerprint.
-        fingerprint: String,
-    },
-    /// Finished.
-    Done {
-        /// What happened.
-        message: String,
-    },
-    /// Failed.
-    Error {
-        /// Why.
-        message: String,
-    },
-}
 
 /// Read one line of at most `MAX_LINE` bytes; `None` at end of stream.
 async fn read_line<R: AsyncBufRead + Unpin>(reader: &mut R) -> Result<Option<String>> {
@@ -184,23 +91,27 @@ async fn handle(node: Node, stream: UnixStream) -> Result<()> {
         .ok_or(Error::Protocol("no request"))?;
     let request: Request = serde_json::from_str(&first)?;
 
-    // Later lines are answers to questions.
+    // Later lines are answers to questions; the end of the stream means
+    // the client went away (Ctrl+C, the GUI's Back button), which cancels.
     let (answers_tx, mut answers) = mpsc::unbounded_channel();
+    let (gone_tx, mut gone) = watch::channel(false);
     tokio::spawn(async move {
         while let Ok(Some(line)) = read_line(&mut reader).await {
             if let Ok(Request::Answer { accept }) = serde_json::from_str(&line) {
                 if answers_tx.send(accept).is_err() {
-                    return;
+                    break;
                 }
             }
         }
+        let _ = gone_tx.send(true);
     });
 
-    let result = run(&node, request, &mut write, &mut answers).await;
+    let result = run(&node, request, &mut write, &mut answers, &mut gone).await;
     let last = match result {
-        Ok(Some(message)) => Event::Done { message },
+        Ok(Some(outcome)) => Event::Done { outcome },
         Ok(None) => return Ok(()),
         Err(e) => Event::Error {
+            failure: e.failure(),
             message: e.to_string(),
         },
     };
@@ -212,7 +123,8 @@ async fn run<W: AsyncWriteExt + Unpin>(
     request: Request,
     out: &mut W,
     answers: &mut mpsc::UnboundedReceiver<bool>,
-) -> Result<Option<String>> {
+    gone: &mut watch::Receiver<bool>,
+) -> Result<Option<Outcome>> {
     match request {
         Request::Status => {
             write_json(
@@ -238,21 +150,23 @@ async fn run<W: AsyncWriteExt + Unpin>(
                 crate::invite::INVITATION_TTL_SECS as u64,
             ));
             tokio::pin!(expiry);
+            // Every way out of this loop reaches `close_window`: a failed
+            // write breaks with an error rather than returning early.
             let result = loop {
                 tokio::select! {
+                    biased;
+                    _ = client_gone(gone) => break Err(Error::Cancelled),
+                    _ = &mut expiry => break Err(Error::Expired("the invitation expired")),
                     event = events.recv() => match event {
-                        Some(PairEvent::Joined(request)) => {
-                            break Ok(Some(format!("{} joined the group", request.name)));
-                        }
-                        Some(PairEvent::Failed(message)) => {
-                            write_json(out, &Event::Waiting { message: format!("an attempt failed: {message}") }).await?;
+                        Some(PairEvent::Joined(request)) => break Ok(Some(joined(&request))),
+                        Some(PairEvent::Failed { failure, message }) => {
+                            if let Err(e) = write_json(out, &Event::AttemptFailed { failure, message }).await {
+                                break Err(e);
+                            }
                         }
                         Some(_) => {}
-                        None => break Err(Error::Invitation("the pairing window closed")),
+                        None => break Err(Error::Expired("the pairing window closed")),
                     },
-                    _ = &mut expiry => break Err(Error::Invitation("the invitation expired")),
-                    // The client went away (Ctrl+C): stop inviting.
-                    None = answers.recv() => break Err(Error::Cancelled),
                 }
             };
             if result.is_err() {
@@ -264,8 +178,8 @@ async fn run<W: AsyncWriteExt + Unpin>(
             let (mut events, epoch) = node.open_code_window().await?;
             write_json(
                 out,
-                &Event::Waiting {
-                    message: "waiting for a device; on it, run: panora-sync join --code".into(),
+                &Event::Listening {
+                    expires_at: crate::node::now() + crate::invite::CODE_WINDOW_SECS,
                 },
             )
             .await?;
@@ -274,29 +188,37 @@ async fn run<W: AsyncWriteExt + Unpin>(
             tokio::pin!(expiry);
             let result = loop {
                 tokio::select! {
+                    biased;
+                    _ = client_gone(gone) => break Err(Error::Cancelled),
+                    _ = &mut expiry => break Err(Error::Expired("nobody paired in time")),
                     event = events.recv() => match event {
                         Some(PairEvent::Code(code)) => {
-                            write_json(out, &Event::Code { code: code.to_string() }).await?;
+                            if let Err(e) = write_json(out, &Event::Code { code: code.to_string() }).await {
+                                break Err(e);
+                            }
                         }
                         Some(PairEvent::Request { code, request, reply }) => {
-                            write_json(out, &Event::Ask {
+                            let ask = Event::Ask {
                                 code: code.map(|c| c.to_string()),
                                 name: request.name.clone(),
                                 fingerprint: request.identity.fingerprint(),
-                            }).await?;
+                            };
+                            if let Err(e) = write_json(out, &ask).await {
+                                let _ = reply.send(false);
+                                break Err(e);
+                            }
+                            // No answer (the client went away) is a no.
                             let accept = answers.recv().await.unwrap_or(false);
                             let _ = reply.send(accept);
                         }
-                        Some(PairEvent::Joined(request)) => {
-                            break Ok(Some(format!("{} joined the group", request.name)));
+                        Some(PairEvent::Joined(request)) => break Ok(Some(joined(&request))),
+                        Some(PairEvent::Failed { failure, message }) => {
+                            if let Err(e) = write_json(out, &Event::AttemptFailed { failure, message }).await {
+                                break Err(e);
+                            }
                         }
-                        Some(PairEvent::Failed(message)) => {
-                            write_json(out, &Event::Waiting { message: format!("an attempt failed: {message}") }).await?;
-                        }
-                        None => break Err(Error::Invitation("the pairing window closed")),
+                        None => break Err(Error::Expired("the pairing window closed")),
                     },
-                    _ = &mut expiry => break Err(Error::Invitation("nobody paired in time")),
-                    None = answers.recv() => break Err(Error::Cancelled),
                 }
             };
             if result.is_err() {
@@ -308,22 +230,22 @@ async fn run<W: AsyncWriteExt + Unpin>(
             let invitation = Invitation::parse(&link)?;
             write_json(
                 out,
-                &Event::Waiting {
-                    message: format!(
-                        "joining the group of device {}",
-                        invitation.inviter.fingerprint()
-                    ),
+                &Event::Joining {
+                    fingerprint: invitation.inviter.fingerprint(),
                 },
             )
             .await?;
-            node.join(invitation).await?;
-            Ok(Some("joined the group; syncing starts now".into()))
+            tokio::select! {
+                biased;
+                _ = client_gone(gone) => Err(Error::Cancelled),
+                result = node.join(invitation) => result.map(|()| Some(Outcome::JoinedGroup)),
+            }
         }
         Request::JoinCode { address } => {
             let address = address
                 .map(|a| {
                     a.parse::<SocketAddr>()
-                        .map_err(|_| Error::Invitation("the address must be ip:port"))
+                        .map_err(|_| Error::Address("the address must be ip:port"))
                 })
                 .transpose()?;
             let (asks, mut to_client) = mpsc::unbounded_channel();
@@ -338,9 +260,11 @@ async fn run<W: AsyncWriteExt + Unpin>(
             tokio::pin!(joining);
             loop {
                 tokio::select! {
+                    biased;
+                    _ = client_gone(gone) => return Err(Error::Cancelled),
                     result = &mut joining => {
                         result?;
-                        return Ok(Some("joined the group; syncing starts now".into()));
+                        return Ok(Some(Outcome::JoinedGroup));
                     }
                     Some(event) = to_client.recv() => write_json(out, &event).await?,
                 }
@@ -348,19 +272,28 @@ async fn run<W: AsyncWriteExt + Unpin>(
         }
         Request::Remove { device } => {
             let member = node.remove(&device)?;
-            Ok(Some(format!(
-                "removed {} ({}); the group key has been replaced",
-                member.name,
-                member.identity.fingerprint()
-            )))
+            Ok(Some(Outcome::Removed {
+                name: member.name,
+                fingerprint: member.identity.fingerprint(),
+            }))
         }
         Request::Leave => {
             node.leave()?;
-            Ok(Some(
-                "left the group on this device; remove it from another device too".into(),
-            ))
+            Ok(Some(Outcome::Left))
         }
         Request::Answer { .. } => Err(Error::Protocol("nothing to answer")),
+    }
+}
+
+/// Resolves once the client has closed its side of the connection.
+async fn client_gone(gone: &mut watch::Receiver<bool>) {
+    let _ = gone.wait_for(|gone| *gone).await;
+}
+
+fn joined(request: &JoinRequest) -> Outcome {
+    Outcome::DeviceJoined {
+        name: request.name.clone(),
+        fingerprint: request.identity.fingerprint(),
     }
 }
 

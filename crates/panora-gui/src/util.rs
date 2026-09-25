@@ -5,6 +5,7 @@
 
 use gtk4 as gtk;
 use libadwaita as adw;
+use libadwaita::prelude::*;
 use panora_core::error::Result;
 use panora_core::i18n::{fill, Strings};
 use panora_core::ipc::{Request, ResponseData};
@@ -49,6 +50,43 @@ where
     D: FnOnce(Result<ResponseData>) + 'static,
 {
     spawn(move || call(&request), done);
+}
+
+/// The quiet zone around a QR code, in modules.
+const QR_QUIET: usize = 4;
+
+/// `text` as a black-on-white QR code, `scale` pixels per module; `None`
+/// when it is too long for one.
+pub fn qr_picture(text: &str, scale: usize) -> Option<gtk::Picture> {
+    let code = qrcode::QrCode::new(text.as_bytes()).ok()?;
+    let modules = code.width();
+    let side = (modules + 2 * QR_QUIET) * scale;
+    let mut pixels = vec![255u8; side * side * 3];
+    for (index, color) in code.to_colors().iter().enumerate() {
+        if *color != qrcode::Color::Dark {
+            continue;
+        }
+        let (mx, my) = (index % modules + QR_QUIET, index / modules + QR_QUIET);
+        for y in my * scale..(my + 1) * scale {
+            for x in mx * scale..(mx + 1) * scale {
+                let at = (y * side + x) * 3;
+                pixels[at..at + 3].copy_from_slice(&[0, 0, 0]);
+            }
+        }
+    }
+    let side_px = i32::try_from(side).ok()?;
+    let texture = gtk::gdk::MemoryTexture::new(
+        side_px,
+        side_px,
+        gtk::gdk::MemoryFormat::R8g8b8,
+        &glib::Bytes::from_owned(pixels),
+        side * 3,
+    );
+    let picture = gtk::Picture::for_paintable(&texture);
+    picture.set_size_request(side_px, side_px);
+    picture.set_can_shrink(false);
+    picture.set_halign(gtk::Align::Center);
+    Some(picture)
 }
 
 /// Current Unix time in seconds.

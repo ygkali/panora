@@ -11,7 +11,7 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use panora_core::config::{self, Config};
 use panora_core::sync::SyncScope;
-use panora_sync::control::{self, Client, Event, Request};
+use panora_sync::control::{self, Client, Event, Outcome, Request};
 use panora_sync::group::validate_name;
 use panora_sync::node::{Node, NodeConfig};
 use panora_sync::{keyring, SyncState};
@@ -270,7 +270,7 @@ async fn status() -> Result<(), Failure> {
             }
             Ok(())
         }
-        Some(Event::Error { message }) => Err(message.into()),
+        Some(Event::Error { message, .. }) => Err(message.into()),
         other => Err(format!("unexpected reply: {other:?}").into()),
     }
 }
@@ -299,7 +299,13 @@ async fn follow(mut client: Client) -> Result<(), Failure> {
                 print_qr(&link);
                 println!("The invitation works once, for 10 minutes. Waiting...");
             }
-            Event::Waiting { message } => println!("{message}"),
+            Event::Listening { .. } => {
+                println!("Waiting for a device; on it, run: panora-sync join --code");
+            }
+            Event::Joining { fingerprint } => {
+                println!("Joining the group of device {fingerprint}...");
+            }
+            Event::AttemptFailed { message, .. } => println!("An attempt failed: {message}"),
             Event::Code { code } => println!("\nCode: {code}\n"),
             Event::Ask {
                 code,
@@ -320,15 +326,26 @@ async fn follow(mut client: Client) -> Result<(), Failure> {
                 let accept = ask(&question).await;
                 client.send(&Request::Answer { accept }).await?;
             }
-            Event::Done { message } => {
-                println!("{message}");
+            Event::Done { outcome } => {
+                println!("{}", outcome_text(&outcome));
                 return Ok(());
             }
-            Event::Error { message } => return Err(message.into()),
+            Event::Error { message, .. } => return Err(message.into()),
             Event::Status { .. } => {}
         }
     }
     Err("the sync service closed the connection".into())
+}
+
+fn outcome_text(outcome: &Outcome) -> String {
+    match outcome {
+        Outcome::DeviceJoined { name, .. } => format!("{name} joined the group"),
+        Outcome::JoinedGroup => "Joined the group; syncing starts now".into(),
+        Outcome::Removed { name, fingerprint } => {
+            format!("Removed {name} ({fingerprint}); the group key has been replaced")
+        }
+        Outcome::Left => "Left the group on this device; remove it from another device too".into(),
+    }
 }
 
 async fn talk(request: Request) -> Result<(), Failure> {

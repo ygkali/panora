@@ -764,3 +764,371 @@ msgstr ""
 msgctxt "cli_count_one"
 msgid "{n} item processed."
 msgstr ""
+
+#. Title of the first preferences page.
+msgctxt "settings_general"
+msgid "General"
+msgstr ""
+
+msgctxt "menu_devices"
+msgid "Devices"
+msgstr ""
+
+#. Title of the preferences page about sync and pairing.
+msgctxt "sync_page"
+msgid "Devices"
+msgstr ""
+
+msgctxt "sync_title"
+msgid "Sync"
+msgstr ""
+
+msgctxt "sync_title_sub"
+msgid "Experimental. Keeps the clipboard history of your own devices on the same local network in step, end-to-end encrypted."
+msgstr ""
+
+msgctxt "sync_service"
+msgid "Sync service"
+msgstr ""
+
+msgctxt "sync_service_sub"
+msgid "Runs in the background and starts with the session"
+msgstr ""
+
+msgctxt "sync_missing"
+msgid "Sync is not installed"
+msgstr ""
+
+msgctxt "sync_missing_sub"
+msgid "Install the separate panora-sync package to sync with your other devices."
+msgstr ""
+
+msgctxt "sync_this_device"
+msgid "This device"
+msgstr ""
+
+#. `{f}` = a device fingerprint such as 3f2a-91c0-7b44-e1d8-0a5c.
+msgctxt "sync_fingerprint"
+msgid "Fingerprint {f}"
+msgstr ""
+
+msgctxt "sync_notice_removed"
+msgid "This device was removed from its group. Join a group again, or leave it."
+msgstr ""
+
+msgctxt "sync_notice_key"
+msgid "Waiting for the current group key from another device of the group."
+msgstr ""
+
+msgctxt "sync_devices"
+msgid "Devices in the group"
+msgstr ""
+
+msgctxt "sync_no_devices"
+msgid "No other devices yet"
+msgstr ""
+
+msgctxt "sync_no_devices_sub"
+msgid "Add one below"
+msgstr ""
+
+msgctxt "sync_connected"
+msgid "Connected"
+msgstr ""
+
+msgctxt "sync_not_connected"
+msgid "Not connected"
+msgstr ""
+
+msgctxt "sync_remove"
+msgid "Remove"
+msgstr ""
+
+#. `{name}` = the device name its owner chose. Read by screen readers.
+msgctxt "sync_remove_named"
+msgid "Remove {name} from the group"
+msgstr ""
+
+#. `{name}` = a device name.
+msgctxt "sync_remove_title"
+msgid "Remove {name}?"
+msgstr ""
+
+msgctxt "sync_remove_body"
+msgid "The group key is replaced, so it receives nothing new from now on. What it already has stays on it."
+msgstr ""
+
+msgctxt "sync_add"
+msgid "Add a device"
+msgstr ""
+
+msgctxt "sync_pair_code"
+msgid "Pair with a code"
+msgstr ""
+
+msgctxt "sync_pair_code_sub"
+msgid "Compare a six-digit code on both screens"
+msgstr ""
+
+msgctxt "sync_invite_link"
+msgid "Invitation link"
+msgstr ""
+
+msgctxt "sync_invite_link_sub"
+msgid "A one-time link and QR code for the other device"
+msgstr ""
+
+msgctxt "sync_join"
+msgid "Join a group"
+msgstr ""
+
+msgctxt "sync_join_code"
+msgid "Join with a code"
+msgstr ""
+
+msgctxt "sync_join_code_sub"
+msgid "While a device in the group shows Pair with a code"
+msgstr ""
+
+msgctxt "sync_join_link"
+msgid "Join with an invitation link"
+msgstr ""
+
+msgctxt "sync_join_link_sub"
+msgid "Paste the link another device made"
+msgstr ""
+
+msgctxt "sync_leave"
+msgid "Leave the group"
+msgstr ""
+
+msgctxt "sync_leave_title"
+msgid "Leave the group on this device?"
+msgstr ""
+
+msgctxt "sync_leave_body"
+msgid "This device stops syncing and gets a new identity. Its history stays here. Remove it on another device too."
+msgstr ""
+
+msgctxt "sync_cancel"
+msgid "Cancel"
+msgstr ""
+
+#. `{e}` = the error systemctl reported.
+msgctxt "sync_service_failed"
+msgid "The sync service could not be changed: {e}"
+msgstr ""
+
+msgctxt "sync_service_slow"
+msgid "The sync service has not answered yet; it may still be starting."
+msgstr ""
+
+#. `{name}` = a device name.
+msgctxt "sync_removed"
+msgid "{name} was removed from the group"
+msgstr ""
+
+msgctxt "sync_left"
+msgid "This device left the group"
+msgstr ""
+
+#. Inserted into `sync_failure_other`, hence lower case.
+msgctxt "sync_service_gone"
+msgid "the sync service stopped answering"
+msgstr ""
+
+#. `{name}` = a device name.
+msgctxt "sync_device_joined"
+msgid "{name} joined the group"
+msgstr ""
+
+msgctxt "sync_device_joined_body"
+msgid "From now on its entries arrive here, and yours there."
+msgstr ""
+
+msgctxt "sync_joined"
+msgid "Joined the group"
+msgstr ""
+
+msgctxt "sync_joined_body"
+msgid "Syncing starts now; the history of the other devices arrives in a moment."
+msgstr ""
+
+msgctxt "sync_done"
+msgid "Done"
+msgstr ""
+
+msgctxt "sync_failed"
+msgid "Pairing did not work"
+msgstr ""
+
+msgctxt "sync_close"
+msgid "Back to the devices"
+msgstr ""
+
+msgctxt "sync_invite_qr"
+msgid "QR code of the invitation link"
+msgstr ""
+
+msgctxt "sync_copy_link"
+msgid "Copy link"
+msgstr ""
+
+msgctxt "sync_link_copied"
+msgid "Link copied; it is kept out of the clipboard history"
+msgstr ""
+
+msgctxt "sync_waiting_device"
+msgid "Waiting for the other device…"
+msgstr ""
+
+msgctxt "sync_invite_title"
+msgid "Open this link on the other device"
+msgstr ""
+
+#. `{time}` = a local time such as 14:05.
+msgctxt "sync_invite_body"
+msgid "Scan the code, or copy the link and paste it there under Preferences › Devices › Join with an invitation link. It works once, until {time}."
+msgstr ""
+
+msgctxt "sync_waiting_confirm"
+msgid "Waiting for the other device to confirm…"
+msgstr ""
+
+msgctxt "sync_code_title"
+msgid "Compare this code"
+msgstr ""
+
+msgctxt "sync_code_body"
+msgid "The other device shows a code too. If it is the same, confirm it there."
+msgstr ""
+
+msgctxt "sync_compare_title"
+msgid "Do the codes match?"
+msgstr ""
+
+#. `{f}` = a device fingerprint.
+msgctxt "sync_compare_device"
+msgid "Device {f}"
+msgstr ""
+
+#. `{name}` = a device name, `{f}` = its fingerprint.
+msgctxt "sync_compare_named"
+msgid "{name}, fingerprint {f}"
+msgstr ""
+
+msgctxt "sync_compare_body"
+msgid "Pair only if the other screen shows exactly this code."
+msgstr ""
+
+msgctxt "sync_codes_differ"
+msgid "They differ"
+msgstr ""
+
+msgctxt "sync_codes_match"
+msgid "Same, pair"
+msgstr ""
+
+msgctxt "sync_finishing"
+msgid "Finishing…"
+msgstr ""
+
+msgctxt "sync_preparing"
+msgid "Preparing…"
+msgstr ""
+
+msgctxt "sync_listening_title"
+msgid "On the other device, choose Join with a code"
+msgstr ""
+
+#. `{time}` = a local time such as 14:05.
+msgctxt "sync_listening_body"
+msgid "It is under Preferences › Devices there. This device waits until {time}."
+msgstr ""
+
+#. `{reason}` = one of the `sync_failure_*` sentences.
+msgctxt "sync_attempt_failed"
+msgid "An attempt failed: {reason} Still waiting."
+msgstr ""
+
+msgctxt "sync_address"
+msgid "Address of the other device (optional)"
+msgstr ""
+
+msgctxt "sync_search"
+msgid "Find the device"
+msgstr ""
+
+msgctxt "sync_searching"
+msgid "Looking for the device…"
+msgstr ""
+
+msgctxt "sync_join_code_body"
+msgid "First choose Pair with a code on a device that is already in the group. It is found on this network by itself; enter its address (ip:port) only if it is not."
+msgstr ""
+
+msgctxt "sync_link_entry"
+msgid "Invitation link"
+msgstr ""
+
+msgctxt "sync_join_link_body"
+msgid "On a device in the group, choose Invitation link, then paste the link here."
+msgstr ""
+
+msgctxt "sync_join_button"
+msgid "Join"
+msgstr ""
+
+#. `{f}` = a device fingerprint.
+msgctxt "sync_joining"
+msgid "Joining the group of device {f}…"
+msgstr ""
+
+msgctxt "sync_failure_cancelled"
+msgid "Pairing was cancelled on this device."
+msgstr ""
+
+msgctxt "sync_failure_rejected"
+msgid "The other device said no, or the codes did not match."
+msgstr ""
+
+msgctxt "sync_failure_expired"
+msgid "Time ran out. Start again."
+msgstr ""
+
+msgctxt "sync_failure_not_open"
+msgid "Pairing is not open on the other device."
+msgstr ""
+
+msgctxt "sync_failure_unreachable"
+msgid "The other device could not be found or reached on this network."
+msgstr ""
+
+msgctxt "sync_failure_ambiguous"
+msgid "Several devices are waiting for a code. Enter the address of the one you mean."
+msgstr ""
+
+msgctxt "sync_failure_invalid_link"
+msgid "This is not a valid Panora invitation link."
+msgstr ""
+
+msgctxt "sync_failure_wrong_mode"
+msgid "One device shows an invitation and the other waits for a code. Use the same way on both."
+msgstr ""
+
+msgctxt "sync_failure_refused"
+msgid "The group cannot take this device: it is already in it, or the group is full."
+msgstr ""
+
+msgctxt "sync_failure_verification"
+msgid "Verification failed: the other device is not the one it claims to be. Nothing was shared."
+msgstr ""
+
+#. `{e}` = details from the sync service, in English.
+msgctxt "sync_failure_other"
+msgid "Something went wrong: {e}."
+msgstr ""
+
+msgctxt "sync_failure_invalid_address"
+msgid "That is not an address: give it as ip:port, for example 192.168.1.20:47100."
+msgstr ""

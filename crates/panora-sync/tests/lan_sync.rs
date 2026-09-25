@@ -243,7 +243,9 @@ async fn a_third_device_joins_by_code_and_catches_up() {
                             let _ = reply.send(true);
                         }
                         PairEvent::Joined(_) => return shown,
-                        PairEvent::Failed(e) => panic!("pairing failed on B: {e}"),
+                        PairEvent::Failed { message, .. } => {
+                            panic!("pairing failed on B: {message}")
+                        }
                     }
                 }
                 shown
@@ -417,6 +419,80 @@ async fn nothing_is_lost_while_the_receiver_is_in_private_mode() {
             .await;
             a.node.shutdown();
             b.node.shutdown();
+        })
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn closing_the_control_connection_withdraws_an_invitation() {
+    // What the GUI's Back button does: the link it showed must stop
+    // working at once, not ten minutes later.
+    use panora_sync::control::{self, Client, Event, Failure, Request};
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let a = device("desktop", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").await;
+            let b = device("laptop", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb").await;
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("control.sock");
+            let (serving, at) = (a.node.clone(), path.clone());
+            tokio::spawn(async move {
+                let _ = control::serve(serving, &at).await;
+            });
+            eventually("the control socket", || path.exists()).await;
+
+            let mut client = Client::connect(&path).await.unwrap();
+            client.send(&Request::Invite).await.unwrap();
+            let link = match client.next().await.unwrap() {
+                Some(Event::Link { link, .. }) => link,
+                other => panic!("expected a link, got {other:?}"),
+            };
+            drop(client);
+            tokio::time::sleep(Duration::from_millis(500)).await;
+
+            let mut invitation = panora_sync::Invitation::parse(&link).unwrap();
+            invitation.addrs = vec![a.node.local_addr()];
+            let joined = b.node.join(invitation).await;
+            assert_eq!(
+                joined.as_ref().map_err(|e| e.failure()),
+                Err(Failure::NotOpen),
+                "{joined:?}"
+            );
+            assert_eq!(a.node.status().devices.len(), 1);
+            a.node.shutdown();
+            b.node.shutdown();
+        })
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_no_on_the_joining_device_reaches_the_inviter_as_a_rejection() {
+    use panora_sync::control::Failure;
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let a = device("desktop", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").await;
+            let c = device("netbook", "cccccccccccccccccccccccccccccccc").await;
+            let (mut events, _) = a.node.open_code_window().await.unwrap();
+            let refused = c
+                .node
+                .join_by_code(Some(a.node.local_addr()), |_, _| async { false })
+                .await;
+            assert_eq!(refused.map_err(|e| e.failure()), Err(Failure::Cancelled));
+            let failure = tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    match events.recv().await {
+                        Some(PairEvent::Failed { failure, .. }) => return failure,
+                        Some(_) => {}
+                        None => panic!("the window closed"),
+                    }
+                }
+            })
+            .await
+            .unwrap();
+            assert_eq!(failure, Failure::Rejected);
+            a.node.shutdown();
+            c.node.shutdown();
         })
         .await;
 }

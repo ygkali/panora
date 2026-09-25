@@ -4,6 +4,7 @@
 //! Error type for the sync crate.
 
 use crate::pairing::AbortReason;
+use panora_core::sync::control::Failure;
 use thiserror::Error;
 
 /// Result alias for the crate.
@@ -27,6 +28,22 @@ pub enum Error {
     /// An invitation link could not be parsed, or has expired.
     #[error("invalid invitation: {0}")]
     Invitation(&'static str),
+
+    /// An invitation or a pairing window ran out.
+    #[error("expired: {0}")]
+    Expired(&'static str),
+
+    /// No device to pair with could be found or reached.
+    #[error("not found: {0}")]
+    NotFound(&'static str),
+
+    /// An address the user gave is not `ip:port`.
+    #[error("invalid address: {0}")]
+    Address(&'static str),
+
+    /// Several devices could be meant; the user has to say which.
+    #[error("ambiguous: {0}")]
+    Ambiguous(&'static str),
 
     /// A device roster or group key was rejected.
     #[error("roster rejected: {0}")]
@@ -73,4 +90,54 @@ pub enum Error {
     /// Sealing or opening with `panora_core`'s AEAD failed.
     #[error(transparent)]
     Core(#[from] panora_core::Error),
+}
+
+impl Error {
+    /// The kind of failure a front end words for the user.
+    pub fn failure(&self) -> Failure {
+        match self {
+            Error::Cancelled => Failure::Cancelled,
+            Error::Aborted(AbortReason::Rejected) => Failure::Rejected,
+            Error::Aborted(AbortReason::Closed) => Failure::NotOpen,
+            Error::Aborted(AbortReason::WrongMode) | Error::ModeMismatch => Failure::WrongMode,
+            Error::Aborted(AbortReason::Refused) => Failure::Refused,
+            // A local check failed. The other side's `Failed` covers
+            // timeouts and I/O too, so it is not reported as an attack.
+            Error::Auth(_) => Failure::Verification,
+            Error::Address(_) => Failure::InvalidAddress,
+            Error::Expired(_) => Failure::Expired,
+            Error::NotFound(_) | Error::Transport(_) => Failure::Unreachable,
+            Error::Ambiguous(_) => Failure::Ambiguous,
+            Error::Invitation(_) => Failure::InvalidLink,
+            _ => Failure::Other,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failures_are_classified_for_the_front_ends() {
+        assert_eq!(Error::Cancelled.failure(), Failure::Cancelled);
+        assert_eq!(
+            Error::Aborted(AbortReason::Rejected).failure(),
+            Failure::Rejected
+        );
+        assert_eq!(
+            Error::Aborted(AbortReason::Closed).failure(),
+            Failure::NotOpen
+        );
+        assert_eq!(Error::Expired("x").failure(), Failure::Expired);
+        assert_eq!(Error::Invitation("x").failure(), Failure::InvalidLink);
+        assert_eq!(Error::Auth("x").failure(), Failure::Verification);
+        assert_eq!(
+            Error::Aborted(AbortReason::Failed).failure(),
+            Failure::Other
+        );
+        assert_eq!(Error::Device("x").failure(), Failure::Other);
+        assert_eq!(Error::Address("x").failure(), Failure::InvalidAddress);
+        assert_eq!(Error::Roster("x").failure(), Failure::Other);
+    }
 }
