@@ -94,11 +94,11 @@ impl Cipher {
     pub fn seal_with_aad(&self, aad: &[u8], plaintext: &[u8]) -> Result<Vec<u8>> {
         let mut nonce_bytes = [0u8; NONCE_LEN];
         rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
-        let nonce = XNonce::from_slice(&nonce_bytes);
+        let nonce = XNonce::from(nonce_bytes);
         let ciphertext = self
             .aead
             .encrypt(
-                nonce,
+                &nonce,
                 chacha20poly1305::aead::Payload {
                     msg: plaintext,
                     aad,
@@ -131,11 +131,11 @@ impl Cipher {
                 return Err(Error::Crypto);
             }
             let (nonce_bytes, ciphertext) = sealed[ENVELOPE_HEADER_LEN..].split_at(NONCE_LEN);
-            let nonce = XNonce::from_slice(nonce_bytes);
+            let nonce = XNonce::try_from(nonce_bytes).map_err(|_| Error::Crypto)?;
             return self
                 .aead
                 .decrypt(
-                    nonce,
+                    &nonce,
                     chacha20poly1305::aead::Payload {
                         msg: ciphertext,
                         aad,
@@ -147,8 +147,8 @@ impl Cipher {
             return Err(Error::Crypto);
         }
         let (nonce_bytes, ciphertext) = sealed.split_at(NONCE_LEN);
-        let nonce = XNonce::from_slice(nonce_bytes);
-        self.aead.decrypt(nonce, ciphertext).map_err(Error::from)
+        let nonce = XNonce::try_from(nonce_bytes).map_err(|_| Error::Crypto)?;
+        self.aead.decrypt(&nonce, ciphertext).map_err(Error::from)
     }
 
     /// Encrypt a UTF-8 string, returning hex-encoded versioned ciphertext.
@@ -222,6 +222,35 @@ pub fn content_hash(data: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ciphertexts_written_by_earlier_releases_still_open() {
+        // Known answers produced with chacha20poly1305 0.10 (key 07.., nonce
+        // 09..), the version every existing history was written with. A
+        // dependency update must never change what opens.
+        let cipher = Cipher::new(&MasterKey::from_bytes([7; KEY_LEN]));
+        let nonce = [9u8; NONCE_LEN];
+        let mut envelope = ENVELOPE_MAGIC.to_vec();
+        envelope.push(ENVELOPE_VERSION);
+        envelope.extend_from_slice(&nonce);
+        envelope.extend_from_slice(
+            &hex_decode("ce138ce50ecb59099a7d7f52481269985d96c5eeaeb8cd107f76333925853310f102a2")
+                .unwrap(),
+        );
+        assert_eq!(
+            cipher.open_with_aad(b"ctx", &envelope).unwrap(),
+            b"panora known answer"
+        );
+        let mut legacy = nonce.to_vec();
+        legacy.extend_from_slice(
+            &hex_decode("d21785eb1fd355429a7d285d0917754889ba09d8c7ca5f32a3bec46228d1").unwrap(),
+        );
+        assert_eq!(cipher.open(&legacy).unwrap(), b"legacy, no aad");
+        // And the other way round: a tampered tag is refused.
+        let last = envelope.len() - 1;
+        envelope[last] ^= 1;
+        assert!(cipher.open_with_aad(b"ctx", &envelope).is_err());
+    }
 
     #[test]
     fn seal_open_roundtrip() {
