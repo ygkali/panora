@@ -33,7 +33,7 @@ blake3 = "1"
 
 # --- crypto ---
 chacha20poly1305 = "0.11"
-argon2 = "0.5"
+argon2 = "0.6"
 tar = "0.4"
 rand = "0.8"
 # Ed25519 device identity and X25519 pairing (SYNC-02); the same `ring`
