@@ -21,7 +21,9 @@ use crate::group::GroupId;
 use crate::identity::PublicIdentity;
 use crate::transport::is_allowed_peer;
 use mdns_sd::{ServiceDaemon, ServiceEvent, ServiceInfo};
-use rand::RngCore;
+use rand::rand_core::UnwrapErr;
+use rand::rngs::SysRng;
+use rand::Rng;
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
@@ -185,7 +187,7 @@ impl Discovery {
             })
             .map_err(mdns_err)?;
         let mut instance = [0u8; 6];
-        rand::rngs::OsRng.fill_bytes(&mut instance);
+        UnwrapErr(SysRng).fill_bytes(&mut instance);
         Ok(Self {
             daemon,
             port,

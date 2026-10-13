@@ -720,7 +720,10 @@ fn load_or_create_device_id() -> anyhow::Result<String> {
     // in one group, so the id must not follow from anything two machines
     // can share, as the process id, clock and data path used to.
     let mut raw = [0u8; 16];
-    rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut raw);
+    rand::Rng::fill_bytes(
+        &mut rand::rand_core::UnwrapErr(rand::rngs::SysRng),
+        &mut raw,
+    );
     let id = panora_core::storage::crypto::hex_encode(&raw);
     std::fs::create_dir_all(data_dir())?;
     std::fs::write(&path, &id)?;

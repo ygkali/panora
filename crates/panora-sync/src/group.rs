@@ -30,7 +30,9 @@ use crate::error::{Error, Result};
 use crate::identity::{DeviceIdentity, PublicIdentity, SIGNATURE_LEN};
 use panora_core::storage::{Cipher, MasterKey};
 use panora_core::sync::SyncRecord;
-use rand::RngCore;
+use rand::rand_core::UnwrapErr;
+use rand::rngs::SysRng;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -413,7 +415,7 @@ pub struct GroupKey {
 impl GroupKey {
     fn generate(epoch: u64) -> Self {
         let mut key = [0u8; GROUP_KEY_LEN];
-        rand::rngs::OsRng.fill_bytes(&mut key);
+        UnwrapErr(SysRng).fill_bytes(&mut key);
         Self { epoch, key }
     }
 
@@ -555,7 +557,7 @@ impl GroupState {
         validate_device_id(device_id)?;
         validate_name(name)?;
         let mut group_id = [0u8; GROUP_ID_LEN];
-        rand::rngs::OsRng.fill_bytes(&mut group_id);
+        UnwrapErr(SysRng).fill_bytes(&mut group_id);
         let key = GroupKey::generate(0);
         let roster = Roster {
             group_id,

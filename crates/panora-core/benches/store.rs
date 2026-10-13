@@ -6,9 +6,10 @@
 //! makes on every real capture. `docs/benchmark.md` records the measured
 //! numbers this produces.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use panora_core::model::{ContentKind, Selection};
 use panora_core::storage::{BlobStore, Cipher, Database, MasterKey};
+use std::hint::black_box;
 
 /// A representative short clipboard text, matching `docs/benchmark.md`'s
 /// "1 KiB" target.

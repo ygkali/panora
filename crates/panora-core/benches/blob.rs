@@ -7,8 +7,9 @@
 //! preview. `docs/benchmark.md` records the measured numbers this
 //! produces.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use panora_core::storage::{BlobStore, Cipher, MasterKey};
+use std::hint::black_box;
 
 /// Representative of a small captured image, larger than v3's inline
 /// threshold (STO-08) so it also stands in for what would travel as a

@@ -33,9 +33,9 @@ blake3 = "1"
 
 # --- crypto ---
 chacha20poly1305 = "0.11"
-argon2 = "0.5"
+argon2 = "0.6"
 tar = "0.4"
-rand = "0.8"
+rand = "0.10"
 # Ed25519 device identity and X25519 pairing (SYNC-02); the same `ring`
 # rustls will use for the QUIC transport (ADR 0004), so no second crypto stack.
 ring = "0.17"
@@ -47,7 +47,7 @@ mdns-sd = "0.21"
 zeroize = { version = "1", features = ["derive"] }
 
 # --- benchmarks (STO-06) ---
-criterion = "0.5"
+criterion = "0.8"
 
 # --- property-based tests (QA-07) ---
 proptest = "1"

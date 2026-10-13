@@ -13,7 +13,9 @@
 use crate::error::{Error, Result};
 use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
-use rand::RngCore;
+use rand::rand_core::UnwrapErr;
+use rand::rngs::SysRng;
+use rand::Rng;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Magic prefix for the versioned Panora ciphertext envelope.
@@ -39,7 +41,7 @@ impl MasterKey {
     /// Generate a fresh random key (first run or explicit rotation).
     pub fn generate() -> Self {
         let mut bytes = [0u8; KEY_LEN];
-        rand::rngs::OsRng.fill_bytes(&mut bytes);
+        UnwrapErr(SysRng).fill_bytes(&mut bytes);
         Self { bytes }
     }
 
@@ -93,7 +95,7 @@ impl Cipher {
     /// Encrypt plaintext and bind it to a non-secret storage context.
     pub fn seal_with_aad(&self, aad: &[u8], plaintext: &[u8]) -> Result<Vec<u8>> {
         let mut nonce_bytes = [0u8; NONCE_LEN];
-        rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
+        UnwrapErr(SysRng).fill_bytes(&mut nonce_bytes);
         let nonce = XNonce::from(nonce_bytes);
         let ciphertext = self
             .aead

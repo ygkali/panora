@@ -21,7 +21,9 @@ use crate::error::{Error, Result};
 use crate::lock::derive_key;
 use crate::model::MimePayload;
 use crate::storage::crypto::{content_hash, Cipher, MasterKey};
-use rand::RngCore;
+use rand::rand_core::UnwrapErr;
+use rand::rngs::SysRng;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::Read;
@@ -97,7 +99,7 @@ pub fn build_archive(
         .map_err(|e| Error::Storage(format!("building the backup archive: {e}")))?;
 
     let mut salt = [0u8; SALT_LEN];
-    rand::rngs::OsRng.fill_bytes(&mut salt);
+    UnwrapErr(SysRng).fill_bytes(&mut salt);
     let cipher = Cipher::new(&MasterKey::from_bytes(derive_key(passphrase, &salt)?));
     let sealed = cipher.seal(&tar_bytes)?;
 
