@@ -39,12 +39,18 @@
 use crate::error::{Error, Result};
 use crate::storage::crypto::{hex_decode, hex_encode};
 use crate::storage::{Cipher, MasterKey};
-use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
+use argon2::password_hash::{PasswordHasher, PasswordVerifier};
 use argon2::Argon2;
-use rand::RngCore;
+use rand::rand_core::UnwrapErr;
+use rand::rngs::SysRng;
+use rand::Rng;
 
 /// Length of the independent salt used for KEK derivation.
 const KEK_SALT_LEN: usize = 16;
+
+/// Length of the verifier's salt: the PHC recommendation, and what
+/// `SaltString::generate` produced before argon2 0.6.
+const VERIFIER_SALT_LEN: usize = 16;
 
 /// Derive a 32-byte key from a passphrase and a salt via Argon2id — the
 /// primitive `LockSecret::derive_kek` uses for its KEK, exposed standalone
@@ -76,13 +82,14 @@ impl LockSecret {
     /// `derive_kek` will use. Call once when the user sets or changes the
     /// password.
     pub fn new(password: &str) -> Result<Self> {
-        let verifier_salt = SaltString::generate(&mut rand::rngs::OsRng);
+        let mut verifier_salt = [0u8; VERIFIER_SALT_LEN];
+        UnwrapErr(SysRng).fill_bytes(&mut verifier_salt);
         let verifier = Argon2::default()
-            .hash_password(password.as_bytes(), &verifier_salt)
+            .hash_password_with_salt(password.as_bytes(), &verifier_salt)
             .map_err(|_| Error::Crypto)?
             .to_string();
         let mut kek_salt = [0u8; KEK_SALT_LEN];
-        rand::rngs::OsRng.fill_bytes(&mut kek_salt);
+        UnwrapErr(SysRng).fill_bytes(&mut kek_salt);
         Ok(Self {
             verifier,
             kek_salt: hex_encode(&kek_salt),
@@ -91,11 +98,9 @@ impl LockSecret {
 
     /// Check a candidate password against the stored verifier.
     pub fn verify(&self, password: &str) -> bool {
-        let Ok(hash) = PasswordHash::new(&self.verifier) else {
-            return false;
-        };
+        // A malformed stored string fails the same way a wrong password does.
         Argon2::default()
-            .verify_password(password.as_bytes(), &hash)
+            .verify_password(password.as_bytes(), self.verifier.as_str())
             .is_ok()
     }
 
@@ -136,6 +141,39 @@ mod tests {
         let secret = LockSecret::new("correct horse battery staple").unwrap();
         assert!(secret.verify("correct horse battery staple"));
         assert!(!secret.verify("wrong password"));
+    }
+
+    /// Values computed with argon2 0.5.3, the version that wrote every lock
+    /// verifier and export archive before the 0.6 upgrade: both must keep
+    /// opening, so the defaults and the PHC encoding must not have moved.
+    #[test]
+    fn values_written_by_argon2_0_5_still_check_out() {
+        let salt: Vec<u8> = (1u8..=16).collect();
+        assert_eq!(
+            hex_encode(&derive_key("panora-kat", &salt).unwrap()),
+            "7f47ab76e5d8ad2195aac5583d37b4338186e659fb425bd72e8362e1f7556652"
+        );
+        let old = LockSecret {
+            verifier: "$argon2id$v=19$m=19456,t=2,p=1$AQIDBAUGBwgJCgsMDQ4PEA$f0erduXYrSGVqsVYPTe0M4GG5ln7QlvXLoNi4fdVZlI".to_owned(),
+            kek_salt: hex_encode(&salt),
+        };
+        assert!(old.verify("panora-kat"));
+        assert!(!old.verify("panora-kat2"));
+        assert!(!LockSecret {
+            verifier: "not a phc string".to_owned(),
+            ..old
+        }
+        .verify("panora-kat"));
+    }
+
+    #[test]
+    fn new_verifiers_keep_the_old_shape() {
+        let secret = LockSecret::new("pw").unwrap();
+        assert!(secret
+            .verifier
+            .starts_with("$argon2id$v=19$m=19456,t=2,p=1$"));
+        // 16 salt bytes are 22 unpadded base64 characters.
+        assert_eq!(secret.verifier.split('$').nth(4).unwrap().len(), 22);
     }
 
     #[test]

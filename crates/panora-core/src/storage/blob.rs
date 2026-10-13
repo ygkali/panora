@@ -10,7 +10,9 @@
 
 use super::crypto::{content_hash, Cipher, ENVELOPE_VERSION};
 use crate::error::{Error, Result};
-use rand::RngCore;
+use rand::rand_core::UnwrapErr;
+use rand::rngs::SysRng;
+use rand::Rng;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -79,7 +81,7 @@ impl BlobStore {
     /// (`put`) or replacing one under a new key (`rekey`).
     fn write_sealed(path: &Path, sealed: &[u8]) -> Result<()> {
         let mut suffix = [0u8; 8];
-        rand::rngs::OsRng.fill_bytes(&mut suffix);
+        UnwrapErr(SysRng).fill_bytes(&mut suffix);
         let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("blob");
         let tmp = path.with_file_name(format!(".{file_name}.tmp-{}", u64::from_le_bytes(suffix)));
         let mut file = OpenOptions::new().write(true).create_new(true).open(&tmp)?;

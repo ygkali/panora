@@ -21,7 +21,9 @@ use crate::identity::{PublicIdentity, PUBLIC_KEY_LEN};
 use crate::pairing::PairingMode;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
-use rand::RngCore;
+use rand::rand_core::UnwrapErr;
+use rand::rngs::SysRng;
+use rand::Rng;
 use std::net::SocketAddr;
 use zeroize::Zeroizing;
 
@@ -62,7 +64,7 @@ impl Invitation {
     /// [`INVITATION_TTL_SECS`].
     pub fn new(inviter: PublicIdentity, addrs: Vec<SocketAddr>, now: i64) -> Self {
         let mut secret = Zeroizing::new([0u8; 32]);
-        rand::rngs::OsRng.fill_bytes(secret.as_mut());
+        UnwrapErr(SysRng).fill_bytes(secret.as_mut());
         Self {
             inviter,
             secret,

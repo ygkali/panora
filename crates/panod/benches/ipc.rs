@@ -12,13 +12,14 @@
 //! does the same blocking, one-connection-per-request socket I/O
 //! `panora_core::ipc::client::call` does.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use panod::daemon::Daemon;
 use panora_core::backend::MockBackend;
 use panora_core::config::Config;
 use panora_core::ipc::{decode, encode, Request, Response};
 use panora_core::storage::{BlobStore, Cipher, Database, MasterKey};
 use panora_core::sync::NoopSync;
+use std::hint::black_box;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::sync::Arc;

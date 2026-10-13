@@ -4,9 +4,10 @@
 //! STO-06: FTS5 prefix search over a realistically sized history.
 //! `docs/benchmark.md` records the measured numbers this produces.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use panora_core::model::{ContentKind, Selection};
 use panora_core::storage::{Cipher, Database, MasterKey, QueryFilter};
+use std::hint::black_box;
 
 const ENTRY_COUNT: i64 = 10_000;
 
